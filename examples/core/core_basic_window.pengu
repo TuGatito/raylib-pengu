@@ -1,0 +1,94 @@
+## examples/core/core_basic_window.pengu
+## raylib [core] example - basic window
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Welcome to raylib!
+##
+## To test examples, just press F6 and execute 'raylib_compile_execute' script
+## Note that compiled executable is placed in the same folder as .c file
+##
+## To test the examples on Web, press F6 and execute 'raylib_compile_execute_web' script
+## Web version of the program is generated in the same folder as .c file
+##
+## You can find all basic examples on C:\raylib\raylib\examples folder or
+## raylib official webpage: www.raylib.com
+##
+## Enjoy using raylib. :)
+##
+## Example originally created with raylib 1.0, last time updated with raylib 1.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2013-2026 Ramon Santamaria (@raysan5)
+##
+## ## Port a PenguScript
+## Traducción 1:1 de `examples/core/core_basic_window.c` sobre el binding
+## `pengu/raylib.d.pengu`. Solo cambia la forma, nunca el comportamiento: los
+## `const` locales de C pasan a `const` de módulo (PenguScript prohíbe `var`
+## y `let` en el nivel superior, E0002), cada llamada lleva `calling`, y el
+## literal de `DrawText` se convierte solo a `ref to frozen char`.
+##
+## ## Ejemplo
+## ```bash
+## pengu run examples/core/core_basic_window.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import pengu.raylib as rl
+
+# --- Constantes públicas ------------------------------------------------
+## Ancho de la ventana, en píxeles.
+const SCREEN_WIDTH as int is 800
+
+## Alto de la ventana, en píxeles.
+const SCREEN_HEIGHT as int is 450
+
+## Fotogramas por segundo a los que corre el bucle principal.
+const TARGET_FPS as int is 60
+
+# --- Funciones de módulo ------------------------------------------------
+#------------------------------------------------------------------------------------
+# Program main entry point
+#------------------------------------------------------------------------------------
+## Abre la ventana, dibuja el mensaje de bienvenida y corre hasta que el usuario
+## la cierre (botón de cerrar o tecla ESC).
+##
+## ## Retorno
+## Código de salida del proceso: `0` cuando la ventana se cierra con normalidad.
+weave main into int:
+    # Initialization
+    #----------------------------------------------------------------------------------
+    calling rl.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - basic window"
+
+    calling rl.SetTargetFPS with TARGET_FPS    # Set our game to run at 60 frames-per-second
+    #----------------------------------------------------------------------------------
+
+    # De-Initialization
+    #----------------------------------------------------------------------------------
+    defer calling rl.CloseWindow                     # Close window and OpenGL context
+    #----------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling rl.WindowShouldClose:    # Detect window close button or ESC key
+        # Update
+        #------------------------------------------------------------------------------
+        # TODO: Update your variables here
+        #------------------------------------------------------------------------------
+
+        # Draw
+        #------------------------------------------------------------------------------
+        calling rl.BeginDrawing
+
+        calling rl.ClearBackground with RAYWHITE
+
+        calling rl.DrawText with "Congrats! You created your first window!", 190, 200, 20, LIGHTGRAY
+
+        calling rl.EndDrawing
+        #------------------------------------------------------------------------------
+
+    return 0
+
+
+

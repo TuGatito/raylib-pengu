@@ -1,4 +1,6 @@
 build/
+vendor/
+__pycache__/
 *.o
 *.a
 *.lib
@@ -6,6 +8,8 @@ build/
 *.dylib
 *.dll
 *.exe
+tools/
+build.py
 # lib/ is where build.py places compiled artifacts. Committing them makes
 # `pengu add` work without a C toolchain; leaving them out keeps the repo
 # small. If you leave them out, `pengu add --trust` runs build.py to produce

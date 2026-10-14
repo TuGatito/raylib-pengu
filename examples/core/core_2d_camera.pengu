@@ -1,0 +1,167 @@
+## examples/core/core_basic_window.pengu
+## raylib [core] example - basic window
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Welcome to raylib!
+##
+## To test examples, just press F6 and execute 'raylib_compile_execute' script
+## Note that compiled executable is placed in the same folder as .c file
+##
+## To test the examples on Web, press F6 and execute 'raylib_compile_execute_web' script
+## Web version of the program is generated in the same folder as .c file
+##
+## You can find all basic examples on C:\raylib\raylib\examples folder or
+## raylib official webpage: www.raylib.com
+##
+## Enjoy using raylib. :)
+##
+## Example originally created with raylib 1.0, last time updated with raylib 1.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2013-2026 Ramon Santamaria (@raysan5)
+##
+## ## Port a PenguScript
+## Traducción 1:1 de `examples/core/core_basic_window.c` sobre el binding
+## `pengu/raylib.d.pengu`. Solo cambia la forma, nunca el comportamiento: los
+## `const` locales de C pasan a `const` de módulo (PenguScript prohíbe `var`
+## y `let` en el nivel superior, E0002), cada llamada lleva `calling`, y el
+## literal de `DrawText` se convierte solo a `ref to frozen char`.
+##
+## ## Ejemplo
+## ```bash
+## pengu run examples/core/core_basic_window.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import pengu.raylib as rl
+import std.fractio
+import std.numerus
+
+# --- Constantes públicas ------------------------------------------------
+## Ancho de la ventana, en píxeles.
+const SCREEN_WIDTH as int is 800
+
+## Alto de la ventana, en píxeles.
+const SCREEN_HEIGHT as int is 450
+
+## Fotogramas por segundo a los que corre el bucle principal.
+const TARGET_FPS as int is 60
+
+const MAX_BUILDINGS as int is 100
+
+# --- Helpers ------------------------------------------------------------
+
+## Rectangle defined by four floats.
+weave rect with x as float, y as float, width as float, height as float into rl.Rectangle:
+    return with x, y, width, height
+
+## Random opaque gray color, within the historical range of the original example.
+weave random_gray into rl.Color:
+    var color as rl.Color with:
+        set .r is ((calling rl.GetRandomValue with 200, 240) to byte)
+        set .g is ((calling rl.GetRandomValue with 200, 240) to byte)
+        set .b is ((calling rl.GetRandomValue with 200, 250) to byte)
+        set .a is 255
+    return color
+        
+
+# --- Funciones de módulo ------------------------------------------------
+#------------------------------------------------------------------------------------
+# Program main entry point
+#------------------------------------------------------------------------------------
+## Abre la ventana, dibuja el mensaje de bienvenida y corre hasta que el usuario
+## la cierre (botón de cerrar o tecla ESC).
+##
+## ## Retorno
+## Código de salida del proceso: `0` cuando la ventana se cierra con normalidad.
+weave main into int:
+    # Initialization
+    #----------------------------------------------------------------------------------
+    calling rl.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - basic window"
+
+    var player as rl.Rectangle is with x is 400.0, y is 280.0, width is 40.0, height is 40.0
+
+    var buildings as list of rl.Rectangle is list of rl.Rectangle
+    var build_colors as list of rl.Color is list of rl.Color
+    var spacing as int is 0
+
+    for i from 0 to MAX_BUILDINGS:
+        let w is (calling rl.GetRandomValue with 50, 200) to float
+        let h is (calling rl.GetRandomValue with 100, 800) to float
+        let bx is -6000.0 + (spacing to float)
+        let by is (SCREEN_HEIGHT to float) - 130.0 - h
+        set buildings at i is calling rect with bx, by, w, h
+        set spacing is spacing + (w to int)
+        set build_colors at i is calling random_gray
+
+    # --- Cámara --------------------------------------------------------
+    var camera as rl.Camera2D is with:
+        set .target is with x is (player.x + 20.0), y is (player.y + 20.0)
+        set .offset is with:
+            set .x is ((calling rl.GetRenderWidth)  to float) / 2.0
+            set .y is ((calling rl.GetRenderHeight) to float) / 2.0
+        set .rotation is 0.0
+        set .zoom is 1.0
+
+    calling rl.SetTargetFPS with TARGET_FPS    # Set our game to run at 60 frames-per-second
+    #----------------------------------------------------------------------------------
+
+    # De-Initialization
+    #----------------------------------------------------------------------------------
+    defer calling rl.CloseWindow                     # Close window and OpenGL context
+    #----------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling rl.WindowShouldClose:    # Detect window close button or ESC key
+        # Update
+        #------------------------------------------------------------------------------
+        # TODO: Update your variables here
+        #------------------------------------------------------------------------------
+        
+        # Player movement
+        if calling rl.IsKeyDown with rl.KEY_RIGHT:
+            set player.x += 2
+        else if calling rl.IsKeyDown with rl.KEY_LEFT:
+            set player.x -= 2
+
+        # Camera target follows player
+        set camera.target is with x is (player.x + 20.0), y is (player.y + 20.0)
+
+        # Camera rotation controls
+        if calling rl.IsKeyDown with raylib.KEY_A:
+            let candidate is camera.rotation - 1.0
+            set camera.rotation is calling candidate.clamp with -40.0, 40.0
+        else if calling rl.IsKeyDown with raylib.KEY_S:
+            let candidate is camera.rotation + 1.0
+            set camera.rotation is calling candidate.clamp with -40.0, 40.0
+
+        # Draw
+        #------------------------------------------------------------------------------
+        calling rl.BeginDrawing
+
+        calling rl.ClearBackground with rl.RAYWHITE
+
+        calling rl.DrawText with "Congrats! You created your first window!", 190, 200, 20, LIGHTGRAY
+
+        calling rl.EndDrawing
+        #------------------------------------------------------------------------------
+
+    return 0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

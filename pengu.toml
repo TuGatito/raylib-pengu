@@ -1,7 +1,7 @@
 [project]
 name = "raylib-pengu"
 version = "0.1.0"
-entry = "pengu/raylib-pengu.d.pengu"
+entry = "pengu/raylib.d.pengu"
 output = "c"
 output_name = "raylib-pengu"
 
@@ -12,7 +12,11 @@ include_dir = "include"
 c_dir = "c"
 build_dir = "build"
 includes = []
-links = []
+# Extra native libraries for this repository's own build (`pengu build` /
+# `pengu check`). Consumers get the same set from the `link "..."` statements in
+# pengu/raylib.d.pengu; this key only affects this project. `-l` flags do not
+# belong in `cflags`.
+links = ["raylib", "GL", "dl", "rt", "X11"]
 lib_dirs = []
 include_dirs = []
 cflags = ["-Wall", "-std=c11"]

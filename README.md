@@ -1,49 +1,230 @@
-# raylib-pengu - PenguScript binding
+# raylib-pengu
 
-Binding to the `raylib-pengu` C library for PenguScript.
+PenguScript bindings for [raylib](https://www.raylib.com) — core, raymath, rlgl,
+rcamera, rgestures and raygui — generated with `pengu bind` from the headers in
+[`include/`](include).
+
+The committed headers are raylib **6.1-dev**; `pengu/*.d.pengu` was generated
+from exactly those files, so the library you link must be built from a matching
+raylib (see [Native library](#native-library)).
+
+## Modules
+
+| `import`       | header        | surface                                                            | implemented by              |
+| -------------- | ------------- | ------------------------------------------------------------------ | --------------------------- |
+| `raylib`       | `raylib.h`    | window, input, shapes, textures, text, models, audio, files, colors | `libraylib`                 |
+| `raymath`      | `raymath.h`   | Vector2/3/4, Quaternion and Matrix maths (146 functions)            | `libraylib`                 |
+| `rcamera`      | `rcamera.h`   | the `Camera3D` helper system                                        | `libraylib`                 |
+| `rgestures`    | `rgestures.h` | touch/gesture detection (`UpdateGestures`, `ProcessGestureEvent`)   | `libraylib`                 |
+| `rlgl`         | `rlgl.h`      | the OpenGL abstraction layer raylib is built on                     | `libraylib`                 |
+| `raygui`       | `raygui.h`    | immediate-mode GUI (`GuiButton`, `GuiWindowBox`, …)                 | `c/raygui_impl.c`           |
+| `raylib-pengu` | —             | facade: re-exports every module above in one import                 | —                           |
+
+`raymath`, `rcamera` and `rgestures` are header-only upstream, but raylib's
+`rcore.c` defines `RAYMATH_IMPLEMENTATION`/`RCAMERA_IMPLEMENTATION`/
+`RGESTURES_IMPLEMENTATION` before including them, so their functions are real
+exported symbols of `libraylib` — the bindings only declare them.
+`raygui` is **not** part of a default raylib build (`RAYLIB_MODULE_RAYGUI=FALSE`),
+so this repository ships its implementation as glue code, which the consumer's
+build compiles into the bundle.
 
 ## Install
 
 From any PenguScript project:
 
-    pengu add <this-repo-url> --trust
-
-`--trust` is required the first time because `build.py` compiles the native
-part.
-
-## Use
-
-```pengu
-import raylib-pengu
-
-weave main into int:
-  calling raylib-pengu.raylib_pengu_init with 800, 600, "Hello"
-  var x as int is calling raylib-pengu.raylib_pengu_add with 1, 2
-  calling raylib-pengu.raylib_pengu_close
-  return x
+```bash
+pengu add <this-repo-url> --trust
 ```
 
-## Regenerate the declarations
+`--trust` is required the first time because `build.py` builds the native part.
+Then import what you need:
 
-If you change `include/raylib-pengu.h`, regenerate the binding:
+```pengu
+import raylib
+import raymath
+import std.ffi
 
-    pengu bind include/raylib-pengu.h --output pengu/raylib-pengu.d.pengu --links raylib-pengu
+weave main into int:
+    calling raylib.InitWindow with 800, 600, "Hello, raylib"
+    calling raylib.SetTargetFPS with 60
+    var a as Vector2 is with x is 1.0, y is 2.0
+    var b as Vector2 is with x is 3.0, y is 4.0
+    while not calling raylib.WindowShouldClose:
+        calling raylib.BeginDrawing
+        calling raylib.ClearBackground with RAYWHITE
+        var sum as Vector2 is calling raymath.Vector2Add with a, b
+        var text as string is "{(sum.x to string)}"
+        calling raylib.DrawText with (calling ffi.cstr_from_string with text), 10, 10, 20, DARKGRAY
+        calling raylib.EndDrawing
+    calling raylib.CloseWindow
+    return 0
+```
+
+Notes that trip people up:
+
+- A C `const char *` is `ref to frozen char`, not `string`: a literal converts
+  automatically, a `string` value needs `ffi.cstr_from_string`.
+- `declare`s do not emit C prototypes; the `include "…"` line makes the C
+  compiler check every call against the real header, so a signature mismatch is
+  a compile error, not silent corruption.
+- raylib's `Color` constants (`RAYWHITE`, `DARKGRAY`, …) are PenguScript `const`s
+  but the C value comes from the header's own macro.
+
+## Native library
+
+`link "raylib"` in [`pengu/raylib.d.pengu`](pengu/raylib.d.pengu) propagates to
+the consumer's link line, so a raylib installed system-wide (`-lraylib`) is
+enough. Otherwise `build.py` provides one:
+
+```bash
+python3 build.py                 # build vendor/raylib (cloned) into lib/libraylib.a
+RAYLIB_SRC=/path/to/raylib python3 build.py --force
+```
+
+`build.py` looks for a source tree in `$RAYLIB_SRC`, `vendor/raylib` and
+`extern/raylib-*`, clones `raysan5/raylib` if there is none, builds with
+`make PLATFORM=PLATFORM_DESKTOP`, and installs `lib/libraylib.a`. It never
+overwrites the committed `include/*.h` (the bindings were generated from those)
+and warns when the source tree's headers differ from them.
+
+## Regenerating the declarations
+
+Every `.d.pengu` under [`pengu/`](pengu) is the output of `pengu bind` plus the
+hand fixes listed below. From the repository root:
+
+```bash
+# 1. Core binding (auto-import is disabled: modules here are top-level, not std.*)
+pengu bind include/raylib.h    --output pengu/raylib.d.pengu    --auto-import ""
+pengu bind include/rgestures.h --output pengu/rgestures.d.pengu --auto-import ""
+pengu bind include/rlgl.h      --output pengu/rlgl.d.pengu      --auto-import ""
+
+# 2. rcamera.h expects raylib.h to be included first, so preload it
+pengu bind include/rcamera.h --output pengu/rcamera.d.pengu --auto-import "" \
+    --include-paths include --cpp-flags "-include raylib.h"
+
+# 3. raygui.h `#include "raylib.h"` (unless RAYGUI_STANDALONE), so give the
+#    preprocessor the local include directory
+pengu bind include/raygui.h --output pengu/raygui.d.pengu --auto-import "" \
+    --include-paths include
+
+# 4. raymath.h is header-only: `pengu bind` drops function *definitions*, so
+#    bind a prototype-only copy of the same file name instead
+python3 tools/gen_raymath_protos.py include/raymath.h build/raymath_decls/raymath.h
+pengu bind build/raymath_decls/raymath.h --output pengu/raymath.d.pengu --auto-import ""
+```
+
+Then re-apply the hand fixes (they are commented in place in each file); they
+exist because the generator either cannot express the construct or picks the
+wrong `#ifdef` branch:
+
+| File              | Hand fix                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `raylib`          | `link "…"` block; the 26 `Color` constants (`LIGHTGRAY`…`RAYWHITE`); the `DEG2RAD`/`RAD2DEG` folds; the `MOUSE_*`, `MATERIAL_MAP_*` and `SHADER_LOC_MAP_*` compatibility aliases |
+| `raymath`         | `import raylib` + delete the duplicated `Vector2`/`Vector3`/`Vector4`/`Quaternion`/`Matrix`; `link "m"`                          |
+| `rcamera`         | `import raylib` + delete the `alias Camera/Matrix/Vector3` companion block; drop the implementation-only `CAMERA_*` constants    |
+| `rgestures`       | `import raylib` + delete the duplicated `Vector2`; drop the `RGESTURES_IMPLEMENTATION`-only constants                            |
+| `rlgl`            | `import raylib` + delete the duplicated `Matrix`; add `RLGL_VERSION` and the `RL_SHADER_LOC_MAP_*` aliases; drop the OpenGL/implementation-only constants |
+| `raygui`          | `import raylib`; add `RAYGUI_VERSION_MAJOR`; delete the `alias Color/Font/Rectangle/Vector2/Vector3 as opaque` block; drop every `RAYGUI_IMPLEMENTATION`-only constant |
+
+## Examples
+
+`examples/` ports the upstream raylib examples one file at a time, keeping each
+original's documentation in the comments. The PenguScript translation of
+`examples/core/core_basic_window.c` is
+[`examples/core/core_basic_window.pengu`](examples/core/core_basic_window.pengu):
+
+```bash
+pengu run examples/core/core_basic_window.pengu
+```
+
+### Why `src -> pengu` exists
+
+Module resolution looks for an import in, in order: the importing file's own
+directory, the project's `src_dir`, the `lib/` dependency directory, and the
+project root. The LSP additionally has to *find* the project root, and until
+PenguScript 2.2 it only recognised `pengu.yaml` or a directory literally named
+`src/` as markers — so a project whose manifest is `pengu.toml` (the default)
+had every `import` resolved relative to the document's own directory.
+
+Two toolchain fixes make the natural layout work (both in the PenguScript
+checkout, see *Toolchain fixes* below): the LSP now recognises every manifest
+the CLI does, and module resolution honours the manifest's `src_dir`
+(`src_dir = "pengu"` here). While you are still on a `pengu` binary that
+predates them, the repository ships a one-entry compatibility shim:
+
+```
+src -> pengu
+```
+
+It doubles as the `src/` project-root marker the old LSP looks for, and as the
+directory the old resolver searches, so `import raylib` works from anywhere in
+the tree without a rebuild. It is inert on a fixed toolchain — delete it once
+your `pengu` includes the two fixes.
+
+## Verifying the bindings
+
+```bash
+python3 tools/check_bindings.py     # needs gcc and pengu on PATH
+pengu check                         # type-checks the project entry
+```
+
+`tools/check_bindings.py` re-derives what a consumer translation unit can see
+(with `gcc -E -dM` and constant-expression probes) and reports, per module:
+
+- **MISSING** — a macro that is visible and constant but is not declared here
+  (nor in a binding this one imports), or a type/function that a fresh
+  `pengu bind` run produces but the committed file lost;
+- **WRONG** — a declared scalar constant whose macro is not a constant
+  expression (e.g. binding picked the `0` from an `#else` branch of a
+  function-like macro);
+- **STALE** — a declared constant whose macro exists only inside a
+  `*_IMPLEMENTATION` block and therefore does not exist in a consumer TU.
+
+Current status: `OK: 6 bindings cover every visible constant, type and function`.
 
 ## Structure
 
 ```
 raylib-pengu/
-|-- pengu.toml
-|-- build.py                 # fetches/compiles the native part into lib/
-|-- pengu/
-|   `-- raylib-pengu.d.pengu       # declarations (include/link/declare)
-|-- include/
-|   `-- raylib-pengu.h             # the real C header
-|-- c/
-|   `-- raylib-pengu.c             # optional glue code
-`-- lib/                     # compiled native libraries (built by build.py)
+├── pengu.toml                  # entry = pengu/raylib.d.pengu, src_dir = "pengu"
+├── build.py                    # builds raylib into lib/
+├── pengu/
+│   ├── raylib.d.pengu          # raylib.h        (+ colors, links)
+│   ├── raymath.d.pengu         # raymath.h       (146 prototype-only declares)
+│   ├── rcamera.d.pengu         # rcamera.h
+│   ├── rgestures.d.pengu       # rgestures.h
+│   ├── rlgl.d.pengu            # rlgl.h
+│   ├── raygui.d.pengu          # raygui.h
+│   └── raylib_pengu.d.pengu    # facade: imports all of the above
+├── src -> pengu                # compatibility shim (see Examples; delete after rebuilding pengu)
+├── include/                    # the real C headers the bindings were made from
+├── c/
+│   └── raygui_impl.c           # RAYGUI_IMPLEMENTATION, compiled into the consumer's bundle
+├── lib/                        # libraylib.a produced by build.py
+├── tools/
+│   ├── check_bindings.py       # completeness audit
+│   └── gen_raymath_protos.py   # raymath.h -> prototype-only header
+└── examples/                   # the upstream .c examples and their .pengu translations
+    └── core/
+        ├── core_basic_window.c      # original
+        └── core_basic_window.pengu  # translation (`pengu run`-able)
 ```
 
-The `link "raylib-pengu"` statement in `pengu/raylib-pengu.d.pengu` propagates to the
-consumer's link line automatically. See the PenguScript docs/BINDINGS.md for
-the full contract.
+The facade module is `raylib_pengu` (underscore): an import path cannot contain
+a hyphen, so `import raylib-pengu` would be a syntax error even though the
+repository is called `raylib-pengu`.
+
+## Toolchain fixes
+
+Found while wiring the examples up; both live in the PenguScript checkout, not
+here. Until your `pengu` binary includes them, the `src -> pengu` shim above
+covers the same ground.
+
+| File | Fix |
+| ---- | --- |
+| `pengu_lsp/server.py` | `_project_root_for_path` recognised only `pengu.yaml` and a literal `src/`, so a `pengu.toml` project resolved every import relative to the document's own directory and reported, as a cascade, that the binding exported no members. It now accepts the CLI's whole marker set. |
+| `pengu_parser/pengu_symbols.py`, `pengu_checker.py`, `pengu_project.py`, `pengu_doc.py`, `pengu_lsp/server.py` | Module resolution hardcoded `src/` and ignored the manifest's `src_dir` (and `PenguChecker` stored `lib_dir` without ever using it). `find_module_path`/`resolve_imports`/`PenguChecker` now take `src_dir`, and script mode reads `src_dir`/`lib_dir`/`include_dir` from the manifest it already walked up to. |
+
+The `link "…"` statements in `pengu/raylib.d.pengu` propagate to the consumer's
+link line automatically; see the PenguScript `docs/BINDINGS.md` for the full
+contract.
