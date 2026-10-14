@@ -1,0 +1,26 @@
+## PenguScript binding to `raylib-pengu`.
+##
+## This is a declaration file: it only *declares* the C surface. The real
+## header is `include`d so the compiler sees the actual definitions.
+##
+## Regenerate with:
+##     pengu bind include/raylib-pengu.h --output pengu/raylib-pengu.d.pengu --links raylib-pengu
+##
+## Consumers use it with:
+##     import raylib-pengu
+##     calling raylib-pengu.raylib_pengu_add with 1, 2
+
+include "raylib-pengu.h"
+
+# Native libraries this binding needs. These `link` statements propagate to the
+# consumer's link line automatically (see docs/BINDINGS.md).
+link "raylib-pengu"
+
+# --- Opaque handles ------------------------------------------------------
+# alias raylib_pengu_context as opaque
+
+# --- Declarations --------------------------------------------------------
+declare raylib_pengu_init with width as int, height as int, title as ref to frozen char into void
+declare raylib_pengu_close into void
+declare raylib_pengu_add with a as int, b as int into int
+declare raylib_pengu_greet into ref to frozen char
