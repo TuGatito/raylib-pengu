@@ -5,8 +5,8 @@
  * Gui* functions are not in libraylib and must be compiled here.
  *
  * This file is glue: the consumer's build compiles c/*.c of every installed
- * binding into the bundle (docs/BINDINGS.md §2.3), so `import raygui` gets a
- * working implementation with no extra archive.
+ * binding into the bundle (README.md, "Bindings" table and the project tree),
+ * so `import raygui` gets a working implementation with no extra archive.
  *
  * If you link a raylib that was itself built with RAYLIB_MODULE_RAYGUI=TRUE,
  * remove this file or the Gui* symbols will be defined twice.

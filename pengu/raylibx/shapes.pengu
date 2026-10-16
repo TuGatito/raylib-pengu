@@ -1,0 +1,2004 @@
+## raylibx/shapes.pengu
+## Layer-2 wrapper over the 2D shape surface of the `raylib` binding.
+##
+## The 61 functions split three ways, following the master plan's subjecthood rule
+## (`docs/plans/raylibx.md` D9):
+##
+## - **18 methods on `raylib.Vector2`** — every `Draw*` whose C name ends in `V`, because
+##   then the first argument really is the shape's anchor: `center.draw_circle`, `a.draw_line_to`.
+## - **7 methods on `raylib.Rectangle`** — every function whose first argument is a rectangle:
+##   `rec.draw`, `rec.draw_rounded`, `rec.contains_point`.
+## - **36 module-level functions** — the integer-coordinate variants (`draw_pixel with x, y, color`),
+##   the slice-shaped draws (`draw_line_strip`, `draw_spline_*`) and the collision predicates.
+##
+## This is family `shapes` of `raylibx`; see `docs/plans/raylibx_shapes.md`.
+##
+## ## Drawing needs a window
+## Every `Draw*` entry issues a raylib drawing command and is only meaningful between
+## `BeginDrawing` and `EndDrawing`. The tests in this file therefore assert the *pure*
+## half of the family (collision, containment, the shapes-texture getters) and the
+## empty-slice guard of the slice-shaped draws; the drawing calls themselves are
+## type-checked by `draw_api_probe` but not executed in CI.
+##
+## ## Memory
+## No allocation and nothing to release. The only FFI boundary is `slice of Vector2` ->
+## `ref to frozen Vector2` in the nine slice-shaped functions, each of which guards the
+## empty slice before taking the address of element zero.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raylibx_shapes
+##
+## weave main into int:
+##     var center as raylib.Vector2 is with x is 100.0, y is 100.0
+##     var rec as raylib.Rectangle is with x is 10.0, y is 10.0, width is 40.0, height is 20.0
+##     calling center.draw_circle with 20.0, raylib.RED
+##     calling rec.draw_rounded with 0.4, 8, raylib.WHITE
+##     return 0
+## ```
+
+
+import raylib
+import std.ffi
+import std.ward
+
+enchanting raylib.Vector2:
+
+    ## Draws a single pixel at this position.
+    ##
+    ## ## Parameters
+    ## - `color`: the pixel colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var p as raylib.Vector2 is with x is 4.0, y is 5.0
+    ## calling p.draw_pixel with raylib.RED
+    ## ```
+
+    weave draw_pixel with color as raylib.Color into void:
+        calling raylib.DrawPixelV with (essence of self), color
+
+    ## Draws a one-pixel line from this point to another.
+    ##
+    ## ## Parameters
+    ## - `end`: the other end of the line.
+    ## - `color`: the line colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling start.draw_line_to with finish, raylib.BLUE
+    ## ```
+
+    weave draw_line_to with end as raylib.Vector2, color as raylib.Color into void:
+        calling raylib.DrawLineV with (essence of self), end, color
+
+    ## Draws a line of a given thickness.
+    ##
+    ## ## Parameters
+    ## - `end`: the other end of the line.
+    ## - `thick`: the line width in pixels.
+    ## - `color`: the line colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling start.draw_line_ex with finish, 3.0, raylib.BLUE
+    ## ```
+
+    weave draw_line_ex with end as raylib.Vector2, thick as f32, color as raylib.Color into void:
+        calling raylib.DrawLineEx with (essence of self), end, thick, color
+
+    ## Draws a quadratic Bezier line from this point to another.
+    ##
+    ## ## Parameters
+    ## - `end`: the other end of the curve.
+    ## - `thick`: the line width in pixels.
+    ## - `color`: the line colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling start.draw_line_bezier with finish, 2.0, raylib.BLUE
+    ## ```
+
+    weave draw_line_bezier with end as raylib.Vector2, thick as f32, color as raylib.Color into void:
+        calling raylib.DrawLineBezier with (essence of self), end, thick, color
+
+    ## Draws a dashed line from this point to another.
+    ##
+    ## ## Parameters
+    ## - `end`: the other end of the line.
+    ## - `dash_size`: the length of each dash in pixels.
+    ## - `space_size`: the gap between dashes in pixels.
+    ## - `color`: the line colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling start.draw_line_dashed with finish, 6, 4, raylib.BLUE
+    ## ```
+
+    weave draw_line_dashed with end as raylib.Vector2, dash_size as int, space_size as int, color as raylib.Color into void:
+        calling raylib.DrawLineDashed with (essence of self), end, dash_size, space_size, color
+
+    ## Draws a filled circle centred on this point.
+    ##
+    ## ## Parameters
+    ## - `radius`: the circle radius in pixels.
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_circle with 20.0, raylib.RED
+    ## ```
+
+    weave draw_circle with radius as f32, color as raylib.Color into void:
+        calling raylib.DrawCircleV with (essence of self), radius, color
+
+    ## Draws a filled circle with a colour gradient.
+    ##
+    ## ## Parameters
+    ## - `radius`: the circle radius.
+    ## - `inner`: the colour at the centre.
+    ## - `outer`: the colour at the edge.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_circle_gradient with 20.0, raylib.RED, raylib.BLUE
+    ## ```
+
+    weave draw_circle_gradient with radius as f32, inner as raylib.Color, outer as raylib.Color into void:
+        calling raylib.DrawCircleGradient with (essence of self), radius, inner, outer
+
+    ## Draws a one-pixel circle outline centred on this point.
+    ##
+    ## ## Parameters
+    ## - `radius`: the circle radius.
+    ## - `color`: the outline colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_circle_lines with 20.0, raylib.RED
+    ## ```
+
+    weave draw_circle_lines with radius as f32, color as raylib.Color into void:
+        calling raylib.DrawCircleLinesV with (essence of self), radius, color
+
+    ## Draws a filled circular sector centred on this point.
+    ##
+    ## ## Parameters
+    ## - `radius`: the sector radius.
+    ## - `start_angle`: the starting angle in degrees.
+    ## - `end_angle`: the ending angle in degrees.
+    ## - `segments`: the number of triangles the arc is built from.
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_circle_sector with 20.0, 0.0, 90.0, 16, raylib.RED
+    ## ```
+
+    weave draw_circle_sector with radius as f32, start_angle as f32, end_angle as f32, segments as int, color as raylib.Color into void:
+        calling raylib.DrawCircleSector with (essence of self), radius, start_angle, end_angle, segments, color
+
+    ## Draws the outline of a circular sector centred on this point.
+    ##
+    ## ## Parameters
+    ## - `radius`: the sector radius.
+    ## - `start_angle`: the starting angle in degrees.
+    ## - `end_angle`: the ending angle in degrees.
+    ## - `segments`: the number of segments along the arc.
+    ## - `color`: the outline colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_circle_sector_lines with 20.0, 0.0, 90.0, 16, raylib.RED
+    ## ```
+
+    weave draw_circle_sector_lines with radius as f32, start_angle as f32, end_angle as f32, segments as int, color as raylib.Color into void:
+        calling raylib.DrawCircleSectorLines with (essence of self), radius, start_angle, end_angle, segments, color
+
+    ## Draws a filled ellipse centred on this point.
+    ##
+    ## ## Parameters
+    ## - `radius_h`: the horizontal radius.
+    ## - `radius_v`: the vertical radius.
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_ellipse with 30.0, 15.0, raylib.GREEN
+    ## ```
+
+    weave draw_ellipse with radius_h as f32, radius_v as f32, color as raylib.Color into void:
+        calling raylib.DrawEllipseV with (essence of self), radius_h, radius_v, color
+
+    ## Draws the outline of an ellipse centred on this point.
+    ##
+    ## ## Parameters
+    ## - `radius_h`: the horizontal radius.
+    ## - `radius_v`: the vertical radius.
+    ## - `color`: the outline colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_ellipse_lines with 30.0, 15.0, raylib.GREEN
+    ## ```
+
+    weave draw_ellipse_lines with radius_h as f32, radius_v as f32, color as raylib.Color into void:
+        calling raylib.DrawEllipseLinesV with (essence of self), radius_h, radius_v, color
+
+    ## Draws a filled ring centred on this point.
+    ##
+    ## ## Parameters
+    ## - `inner_radius`: the inner radius.
+    ## - `outer_radius`: the outer radius.
+    ## - `start_angle`: the starting angle in degrees.
+    ## - `end_angle`: the ending angle in degrees.
+    ## - `segments`: the number of segments along the ring.
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_ring with 10.0, 20.0, 0.0, 360.0, 32, raylib.YELLOW
+    ## ```
+
+    weave draw_ring with inner_radius as f32, outer_radius as f32, start_angle as f32, end_angle as f32, segments as int, color as raylib.Color into void:
+        calling raylib.DrawRing with (essence of self), inner_radius, outer_radius, start_angle, end_angle, segments, color
+
+    ## Draws the outline of a ring centred on this point.
+    ##
+    ## ## Parameters
+    ## - `inner_radius`: the inner radius.
+    ## - `outer_radius`: the outer radius.
+    ## - `start_angle`: the starting angle in degrees.
+    ## - `end_angle`: the ending angle in degrees.
+    ## - `segments`: the number of segments along the ring.
+    ## - `color`: the outline colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_ring_lines with 10.0, 20.0, 0.0, 360.0, 32, raylib.YELLOW
+    ## ```
+
+    weave draw_ring_lines with inner_radius as f32, outer_radius as f32, start_angle as f32, end_angle as f32, segments as int, color as raylib.Color into void:
+        calling raylib.DrawRingLines with (essence of self), inner_radius, outer_radius, start_angle, end_angle, segments, color
+
+    ## Draws a filled regular polygon centred on this point.
+    ##
+    ## ## Parameters
+    ## - `sides`: the number of sides.
+    ## - `radius`: the distance from the centre to each vertex.
+    ## - `rotation`: the rotation in degrees.
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_poly with 6, 25.0, 0.0, raylib.PURPLE
+    ## ```
+
+    weave draw_poly with sides as int, radius as f32, rotation as f32, color as raylib.Color into void:
+        calling raylib.DrawPoly with (essence of self), sides, radius, rotation, color
+
+    ## Draws the outline of a regular polygon centred on this point.
+    ##
+    ## ## Parameters
+    ## - `sides`: the number of sides.
+    ## - `radius`: the distance from the centre to each vertex.
+    ## - `rotation`: the rotation in degrees.
+    ## - `color`: the outline colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_poly_lines with 6, 25.0, 0.0, raylib.PURPLE
+    ## ```
+
+    weave draw_poly_lines with sides as int, radius as f32, rotation as f32, color as raylib.Color into void:
+        calling raylib.DrawPolyLines with (essence of self), sides, radius, rotation, color
+
+    ## Draws the outline of a regular polygon with a given line thickness.
+    ##
+    ## ## Parameters
+    ## - `sides`: the number of sides.
+    ## - `radius`: the distance from the centre to each vertex.
+    ## - `rotation`: the rotation in degrees.
+    ## - `thick`: the line width in pixels.
+    ## - `color`: the outline colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling center.draw_poly_lines_ex with 6, 25.0, 0.0, 3.0, raylib.PURPLE
+    ## ```
+
+    weave draw_poly_lines_ex with sides as int, radius as f32, rotation as f32, thick as f32, color as raylib.Color into void:
+        calling raylib.DrawPolyLinesEx with (essence of self), sides, radius, rotation, thick, color
+
+    ## Draws a filled rectangle with this point as its top-left corner.
+    ##
+    ## ## Parameters
+    ## - `extent`: the width and height.
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling origin.draw_rectangle with (with x is 40.0, y is 20.0), raylib.GREEN
+    ## ```
+
+    weave draw_rectangle with extent as raylib.Vector2, color as raylib.Color into void:
+        calling raylib.DrawRectangleV with (essence of self), extent, color
+
+    ## Draws a filled triangle from this vertex.
+    ##
+    ## ## Parameters
+    ## - `v2`: the second vertex.
+    ## - `v3`: the third vertex.
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling v1.draw_triangle with v2, v3, raylib.RED
+    ## ```
+
+    weave draw_triangle with v2 as raylib.Vector2, v3 as raylib.Vector2, color as raylib.Color into void:
+        calling raylib.DrawTriangle with (essence of self), v2, v3, color
+
+    ## Draws the outline of a triangle from this vertex.
+    ##
+    ## ## Parameters
+    ## - `v2`: the second vertex.
+    ## - `v3`: the third vertex.
+    ## - `color`: the outline colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling v1.draw_triangle_lines with v2, v3, raylib.RED
+    ## ```
+
+    weave draw_triangle_lines with v2 as raylib.Vector2, v3 as raylib.Vector2, color as raylib.Color into void:
+        calling raylib.DrawTriangleLines with (essence of self), v2, v3, color
+
+enchanting raylib.Rectangle:
+
+    ## Draws this rectangle filled.
+    ##
+    ## ## Parameters
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling rec.draw with raylib.GREEN
+    ## ```
+
+    weave draw with color as raylib.Color into void:
+        calling raylib.DrawRectangleRec with (essence of self), color
+
+    ## Draws this rectangle with a rotation around an origin.
+    ##
+    ## ## Parameters
+    ## - `origin`: the rotation pivot, relative to the rectangle's top-left corner.
+    ## - `rotation`: the rotation in degrees.
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling rec.draw_pro with (with x is 0.0, y is 0.0), 30.0, raylib.GREEN
+    ## ```
+
+    weave draw_pro with origin as raylib.Vector2, rotation as f32, color as raylib.Color into void:
+        calling raylib.DrawRectanglePro with (essence of self), origin, rotation, color
+
+    ## Draws this rectangle with a four-corner colour gradient.
+    ##
+    ## ## Parameters
+    ## - `c1`: the top-left colour.
+    ## - `c2`: the bottom-left colour.
+    ## - `c3`: the bottom-right colour.
+    ## - `c4`: the top-right colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling rec.draw_gradient with raylib.RED, raylib.BLUE, raylib.GREEN, raylib.YELLOW
+    ## ```
+
+    weave draw_gradient with c1 as raylib.Color, c2 as raylib.Color, c3 as raylib.Color, c4 as raylib.Color into void:
+        calling raylib.DrawRectangleGradientEx with (essence of self), c1, c2, c3, c4
+
+    ## Draws this rectangle's outline with a given line thickness.
+    ##
+    ## ## Parameters
+    ## - `thick`: the line width in pixels.
+    ## - `color`: the outline colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling rec.draw_outline with 2.0, raylib.WHITE
+    ## ```
+
+    weave draw_outline with thick as f32, color as raylib.Color into void:
+        calling raylib.DrawRectangleLinesEx with (essence of self), thick, color
+
+    ## Draws this rectangle filled with rounded corners.
+    ##
+    ## ## Parameters
+    ## - `roundness`: how round the corners are, in `[0..1]`.
+    ## - `segments`: the number of segments per corner.
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling rec.draw_rounded with 0.4, 8, raylib.WHITE
+    ## ```
+
+    weave draw_rounded with roundness as f32, segments as int, color as raylib.Color into void:
+        calling raylib.DrawRectangleRounded with (essence of self), roundness, segments, color
+
+    ## Draws this rectangle's outline with rounded corners and a given line thickness.
+    ##
+    ## ## Parameters
+    ## - `roundness`: how round the corners are, in `[0..1]`.
+    ## - `segments`: the number of segments per corner.
+    ## - `thick`: the line width in pixels.
+    ## - `color`: the outline colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling rec.draw_rounded_outline with 0.4, 8, 2.0, raylib.WHITE
+    ## ```
+
+    weave draw_rounded_outline with roundness as f32, segments as int, thick as f32, color as raylib.Color into void:
+        calling raylib.DrawRectangleRoundedLinesEx with (essence of self), roundness, segments, thick, color
+
+    ## Reports whether a point lies inside this rectangle.
+    ##
+    ## ## Parameters
+    ## - `point`: the point to test.
+    ##
+    ## ## Returns
+    ## `true` when the point is inside, `false` otherwise.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var inside as bool is calling rec.contains_point with p
+    ## ```
+
+    weave contains_point with point as raylib.Vector2 into bool:
+        return calling raylib.CheckCollisionPointRec with point, (essence of self)
+
+## Draws a single pixel at integer coordinates.
+##
+## ## Parameters
+## - `x`, `y`: the pixel position.
+## - `color`: the pixel colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_pixel with 4, 5, raylib.RED
+## ```
+
+weave draw_pixel with x as int, y as int, color as raylib.Color into void:
+    calling raylib.DrawPixel with x, y, color
+
+## Draws a one-pixel line between two integer points.
+##
+## ## Parameters
+## - `x1`, `y1`: the first endpoint.
+## - `x2`, `y2`: the second endpoint.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_line with 0, 0, 100, 100, raylib.BLUE
+## ```
+
+weave draw_line with x1 as int, y1 as int, x2 as int, y2 as int, color as raylib.Color into void:
+    calling raylib.DrawLine with x1, y1, x2, y2, color
+
+## Draws a filled circle at an integer centre.
+##
+## ## Parameters
+## - `center_x`, `center_y`: the circle centre.
+## - `radius`: the radius in pixels.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_circle with 100, 100, 20.0, raylib.RED
+## ```
+
+weave draw_circle with center_x as int, center_y as int, radius as f32, color as raylib.Color into void:
+    calling raylib.DrawCircle with center_x, center_y, radius, color
+
+## Draws a filled ellipse at an integer centre.
+##
+## ## Parameters
+## - `center_x`, `center_y`: the ellipse centre.
+## - `radius_h`: the horizontal radius.
+## - `radius_v`: the vertical radius.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_ellipse with 100, 100, 30.0, 15.0, raylib.GREEN
+## ```
+
+weave draw_ellipse with center_x as int, center_y as int, radius_h as f32, radius_v as f32, color as raylib.Color into void:
+    calling raylib.DrawEllipse with center_x, center_y, radius_h, radius_v, color
+
+## Draws the outline of an ellipse at an integer centre.
+##
+## ## Parameters
+## - `center_x`, `center_y`: the ellipse centre.
+## - `radius_h`: the horizontal radius.
+## - `radius_v`: the vertical radius.
+## - `color`: the outline colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_ellipse_lines with 100, 100, 30.0, 15.0, raylib.GREEN
+## ```
+
+weave draw_ellipse_lines with center_x as int, center_y as int, radius_h as f32, radius_v as f32, color as raylib.Color into void:
+    calling raylib.DrawEllipseLines with center_x, center_y, radius_h, radius_v, color
+
+## Draws a filled rectangle from integer coordinates.
+##
+## ## Parameters
+## - `x`, `y`: the top-left corner.
+## - `width`, `height`: the size.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_rectangle with 10, 10, 40, 20, raylib.GREEN
+## ```
+
+weave draw_rectangle with x as int, y as int, width as int, height as int, color as raylib.Color into void:
+    calling raylib.DrawRectangle with x, y, width, height, color
+
+## Draws a one-pixel rectangle outline from integer coordinates.
+##
+## ## Parameters
+## - `x`, `y`: the top-left corner.
+## - `width`, `height`: the size.
+## - `color`: the outline colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_rectangle_lines with 10, 10, 40, 20, raylib.WHITE
+## ```
+
+weave draw_rectangle_lines with x as int, y as int, width as int, height as int, color as raylib.Color into void:
+    calling raylib.DrawRectangleLines with x, y, width, height, color
+
+## Draws a rectangle with a vertical colour gradient.
+##
+## ## Parameters
+## - `x`, `y`: the top-left corner.
+## - `width`, `height`: the size.
+## - `top`: the colour at the top edge.
+## - `bottom`: the colour at the bottom edge.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_rectangle_gradient_v with 10, 10, 40, 20, raylib.RED, raylib.BLUE
+## ```
+
+weave draw_rectangle_gradient_v with x as int, y as int, width as int, height as int, top as raylib.Color, bottom as raylib.Color into void:
+    calling raylib.DrawRectangleGradientV with x, y, width, height, top, bottom
+
+## Draws a rectangle with a horizontal colour gradient.
+##
+## ## Parameters
+## - `x`, `y`: the top-left corner.
+## - `width`, `height`: the size.
+## - `left`: the colour at the left edge.
+## - `right`: the colour at the right edge.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_rectangle_gradient_h with 10, 10, 40, 20, raylib.RED, raylib.BLUE
+## ```
+
+weave draw_rectangle_gradient_h with x as int, y as int, width as int, height as int, left as raylib.Color, right as raylib.Color into void:
+    calling raylib.DrawRectangleGradientH with x, y, width, height, left, right
+
+## Draws a one-pixel circle outline at an integer centre.
+##
+## ## Parameters
+## - `center_x`, `center_y`: the circle centre.
+## - `radius`: the radius in pixels.
+## - `color`: the outline colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_circle_lines with 100, 100, 20.0, raylib.RED
+## ```
+
+weave draw_circle_lines with center_x as int, center_y as int, radius as f32, color as raylib.Color into void:
+    calling raylib.DrawCircleLines with center_x, center_y, radius, color
+
+## Draws a connected line through every point.
+##
+## ## Parameters
+## - `points`: the vertices, in order.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+## An empty `points` slice draws nothing and is not an error; the guard exists because taking the address of element zero of an empty slice is out of bounds.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_line_strip with strip, raylib.RED
+## ```
+
+weave draw_line_strip with points as slice of raylib.Vector2, color as raylib.Color into void:
+    if (points.length) == 0:
+        return
+    let raw as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+    calling raylib.DrawLineStrip with raw, (points.length), color
+
+## Draws a filled triangle fan: the first point is the hub and each following pair forms a triangle with it.
+##
+## ## Parameters
+## - `points`: the vertices, in order.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+## An empty `points` slice draws nothing and is not an error; the guard exists because taking the address of element zero of an empty slice is out of bounds.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_triangle_fan with fan, raylib.RED
+## ```
+
+weave draw_triangle_fan with points as slice of raylib.Vector2, color as raylib.Color into void:
+    if (points.length) == 0:
+        return
+    let raw as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+    calling raylib.DrawTriangleFan with raw, (points.length), color
+
+## Draws a filled triangle strip through the points.
+##
+## ## Parameters
+## - `points`: the vertices, in order.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+## An empty `points` slice draws nothing and is not an error; the guard exists because taking the address of element zero of an empty slice is out of bounds.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_triangle_strip with strip, raylib.RED
+## ```
+
+weave draw_triangle_strip with points as slice of raylib.Vector2, color as raylib.Color into void:
+    if (points.length) == 0:
+        return
+    let raw as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+    calling raylib.DrawTriangleStrip with raw, (points.length), color
+
+## Draws a straight-segment spline through the points.
+##
+## ## Parameters
+## - `points`: the control points.
+## - `thick`: the line width in pixels.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+## An empty `points` slice draws nothing and is not an error; the guard exists because taking the address of element zero of an empty slice is out of bounds.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_spline_linear with points_slice, 2.0, raylib.WHITE
+## ```
+
+weave draw_spline_linear with points as slice of raylib.Vector2, thick as f32, color as raylib.Color into void:
+    if (points.length) == 0:
+        return
+    let raw as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+    calling raylib.DrawSplineLinear with raw, (points.length), thick, color
+
+## Draws a B-spline through the points.
+##
+## ## Parameters
+## - `points`: the control points.
+## - `thick`: the line width in pixels.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+## An empty `points` slice draws nothing and is not an error; the guard exists because taking the address of element zero of an empty slice is out of bounds.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_spline_basis with points_slice, 2.0, raylib.WHITE
+## ```
+
+weave draw_spline_basis with points as slice of raylib.Vector2, thick as f32, color as raylib.Color into void:
+    if (points.length) == 0:
+        return
+    let raw as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+    calling raylib.DrawSplineBasis with raw, (points.length), thick, color
+
+## Draws a Catmull-Rom spline through the points.
+##
+## ## Parameters
+## - `points`: the control points.
+## - `thick`: the line width in pixels.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+## An empty `points` slice draws nothing and is not an error; the guard exists because taking the address of element zero of an empty slice is out of bounds.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_spline_catmull_rom with points_slice, 2.0, raylib.WHITE
+## ```
+
+weave draw_spline_catmull_rom with points as slice of raylib.Vector2, thick as f32, color as raylib.Color into void:
+    if (points.length) == 0:
+        return
+    let raw as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+    calling raylib.DrawSplineCatmullRom with raw, (points.length), thick, color
+
+## Draws a chain of quadratic Bezier curves through the points.
+##
+## ## Parameters
+## - `points`: the control points.
+## - `thick`: the line width in pixels.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+## An empty `points` slice draws nothing and is not an error; the guard exists because taking the address of element zero of an empty slice is out of bounds.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_spline_bezier_quadratic with points_slice, 2.0, raylib.WHITE
+## ```
+
+weave draw_spline_bezier_quadratic with points as slice of raylib.Vector2, thick as f32, color as raylib.Color into void:
+    if (points.length) == 0:
+        return
+    let raw as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+    calling raylib.DrawSplineBezierQuadratic with raw, (points.length), thick, color
+
+## Draws a chain of cubic Bezier curves through the points.
+##
+## ## Parameters
+## - `points`: the control points.
+## - `thick`: the line width in pixels.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+## An empty `points` slice draws nothing and is not an error; the guard exists because taking the address of element zero of an empty slice is out of bounds.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_spline_bezier_cubic with points_slice, 2.0, raylib.WHITE
+## ```
+
+weave draw_spline_bezier_cubic with points as slice of raylib.Vector2, thick as f32, color as raylib.Color into void:
+    if (points.length) == 0:
+        return
+    let raw as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+    calling raylib.DrawSplineBezierCubic with raw, (points.length), thick, color
+
+## Draws one straight spline segment.
+##
+## ## Parameters
+## - `p1`, `p2`: the endpoints.
+## - `thick`: the line width in pixels.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the segment is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_spline_segment_linear with a, b, 2.0, raylib.WHITE
+## ```
+
+weave draw_spline_segment_linear with p1 as raylib.Vector2, p2 as raylib.Vector2, thick as f32, color as raylib.Color into void:
+    calling raylib.DrawSplineSegmentLinear with p1, p2, thick, color
+
+## Draws one B-spline segment between `p2` and `p3`.
+##
+## ## Parameters
+## - `p1`..`p4`: the four control points of the segment.
+## - `thick`: the line width in pixels.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the segment is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_spline_segment_basis with p1, p2, p3, p4, 2.0, raylib.WHITE
+## ```
+
+weave draw_spline_segment_basis with p1 as raylib.Vector2, p2 as raylib.Vector2, p3 as raylib.Vector2, p4 as raylib.Vector2, thick as f32, color as raylib.Color into void:
+    calling raylib.DrawSplineSegmentBasis with p1, p2, p3, p4, thick, color
+
+## Draws one Catmull-Rom segment between `p2` and `p3`.
+##
+## ## Parameters
+## - `p1`..`p4`: the four control points of the segment.
+## - `thick`: the line width in pixels.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the segment is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_spline_segment_catmull_rom with p1, p2, p3, p4, 2.0, raylib.WHITE
+## ```
+
+weave draw_spline_segment_catmull_rom with p1 as raylib.Vector2, p2 as raylib.Vector2, p3 as raylib.Vector2, p4 as raylib.Vector2, thick as f32, color as raylib.Color into void:
+    calling raylib.DrawSplineSegmentCatmullRom with p1, p2, p3, p4, thick, color
+
+## Draws one quadratic Bezier segment.
+##
+## ## Parameters
+## - `p1`: the start point.
+## - `c2`: the control point.
+## - `p3`: the end point.
+## - `thick`: the line width in pixels.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the segment is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_spline_segment_bezier_quadratic with a, c, b, 2.0, raylib.WHITE
+## ```
+
+weave draw_spline_segment_bezier_quadratic with p1 as raylib.Vector2, c2 as raylib.Vector2, p3 as raylib.Vector2, thick as f32, color as raylib.Color into void:
+    calling raylib.DrawSplineSegmentBezierQuadratic with p1, c2, p3, thick, color
+
+## Draws one cubic Bezier segment.
+##
+## ## Parameters
+## - `p1`: the start point.
+## - `c2`, `c3`: the control points.
+## - `p4`: the end point.
+## - `thick`: the line width in pixels.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the segment is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_spline_segment_bezier_cubic with a, c1, c2, b, 2.0, raylib.WHITE
+## ```
+
+weave draw_spline_segment_bezier_cubic with p1 as raylib.Vector2, c2 as raylib.Vector2, c3 as raylib.Vector2, p4 as raylib.Vector2, thick as f32, color as raylib.Color into void:
+    calling raylib.DrawSplineSegmentBezierCubic with p1, c2, c3, p4, thick, color
+
+## Draws a rectangle's rounded outline at the default line thickness.
+##
+## ## Parameters
+## - `rec`: the rectangle.
+## - `roundness`: how round the corners are, in `[0..1]`.
+## - `segments`: the number of segments per corner.
+## - `color`: the outline colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.draw_rectangle_rounded_lines with rec, 0.4, 8, raylib.WHITE
+## ```
+
+weave draw_rectangle_rounded_lines with rec as raylib.Rectangle, roundness as f32, segments as int, color as raylib.Color into void:
+    calling raylib.DrawRectangleRoundedLines with rec, roundness, segments, color
+
+## Evaluates a linear spline point.
+##
+## ## Parameters
+## - `start`, `end`: the endpoints.
+## - `t`: the position along the segment, in `[0..1]`.
+##
+## ## Returns
+## The interpolated `raylib.Vector2`.
+##
+## ## Notes
+## This is pure arithmetic and needs no window: it is one of the few shapes-family entries that the tests assert directly.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var p as raylib.Vector2 is calling raylibx_shapes.spline_point_linear with a, b, 0.5
+## ```
+
+weave spline_point_linear with start as raylib.Vector2, end as raylib.Vector2, t as f32 into raylib.Vector2:
+    return calling raylib.GetSplinePointLinear with start, end, t
+
+## Evaluates a B-spline point between `p2` and `p3`.
+##
+## ## Parameters
+## - `p1`..`p4`: the four control points.
+## - `t`: the position along the segment, in `[0..1]`.
+##
+## ## Returns
+## The evaluated `raylib.Vector2`.
+##
+## ## Notes
+## This is pure arithmetic and needs no window: it is one of the few shapes-family entries that the tests assert directly.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var p as raylib.Vector2 is calling raylibx_shapes.spline_point_basis with p1, p2, p3, p4, 0.5
+## ```
+
+weave spline_point_basis with p1 as raylib.Vector2, p2 as raylib.Vector2, p3 as raylib.Vector2, p4 as raylib.Vector2, t as f32 into raylib.Vector2:
+    return calling raylib.GetSplinePointBasis with p1, p2, p3, p4, t
+
+## Evaluates a Catmull-Rom spline point between `p2` and `p3`.
+##
+## ## Parameters
+## - `p1`..`p4`: the four control points.
+## - `t`: the position along the segment, in `[0..1]`.
+##
+## ## Returns
+## The evaluated `raylib.Vector2`.
+##
+## ## Notes
+## This is pure arithmetic and needs no window: it is one of the few shapes-family entries that the tests assert directly.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var p as raylib.Vector2 is calling raylibx_shapes.spline_point_catmull_rom with p1, p2, p3, p4, 0.5
+## ```
+
+weave spline_point_catmull_rom with p1 as raylib.Vector2, p2 as raylib.Vector2, p3 as raylib.Vector2, p4 as raylib.Vector2, t as f32 into raylib.Vector2:
+    return calling raylib.GetSplinePointCatmullRom with p1, p2, p3, p4, t
+
+## Evaluates a cubic Bezier point.
+##
+## ## Parameters
+## - `p1`: the start point.
+## - `c2`, `c3`: the control points.
+## - `p4`: the end point.
+## - `t`: the position along the curve, in `[0..1]`.
+##
+## ## Returns
+## The evaluated `raylib.Vector2`.
+##
+## ## Notes
+## This is pure arithmetic and needs no window: it is one of the few shapes-family entries that the tests assert directly.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var p as raylib.Vector2 is calling raylibx_shapes.spline_point_bezier_cubic with a, c1, c2, b, 0.5
+## ```
+
+weave spline_point_bezier_cubic with p1 as raylib.Vector2, c2 as raylib.Vector2, c3 as raylib.Vector2, p4 as raylib.Vector2, t as f32 into raylib.Vector2:
+    return calling raylib.GetSplinePointBezierCubic with p1, c2, c3, p4, t
+
+## Replaces the 1x1 texture that raylib uses to draw every shape.
+##
+## ## Parameters
+## - `texture`: the texture to draw shapes with.
+## - `rec`: the source rectangle inside `texture`.
+##
+## ## Returns
+## Nothing. The new texture becomes the global shapes texture.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+## This mutates global state used by every `Draw*` in raylib. The wrapper does not restore the previous texture: that is the caller's decision.
+## Before any call, the shapes texture is a 1x1 white placeholder with source rectangle `(0, 0, 1, 1)` (measured in the family plan).
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shapes.set_shapes_texture with tex, (with x is 0.0, y is 0.0, width is 16.0, height is 16.0)
+## ```
+
+weave set_shapes_texture with texture as raylib.Texture2D, rec as raylib.Rectangle into void:
+    calling raylib.SetShapesTexture with texture, rec
+
+## Returns the texture raylib currently uses to draw shapes.
+##
+## ## Returns
+## The current shapes `raylib.Texture2D`.
+##
+## ## Notes
+## Reading is safe without a drawing frame, but the value only becomes interesting after a `set_shapes_texture`.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var tex as raylib.Texture2D is calling raylibx_shapes.shapes_texture
+## ```
+
+weave shapes_texture into raylib.Texture2D:
+    return calling raylib.GetShapesTexture
+
+## Returns the source rectangle of the current shapes texture.
+##
+## ## Returns
+## A `raylib.Rectangle`; the default is `(0, 0, 1, 1)`.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var rec as raylib.Rectangle is calling raylibx_shapes.shapes_texture_rectangle
+## ```
+
+weave shapes_texture_rectangle into raylib.Rectangle:
+    return calling raylib.GetShapesTextureRectangle
+
+## Reports whether two rectangles overlap.
+##
+## ## Parameters
+## - `a`, `b`: the rectangles to test.
+##
+## ## Returns
+## `true` when they overlap, `false` otherwise. An empty rectangle (zero width or height) collides with nothing, not even itself.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var hit as bool is calling raylibx_shapes.collision_recs with a, b
+## ```
+
+weave collision_recs with a as raylib.Rectangle, b as raylib.Rectangle into bool:
+    return calling raylib.CheckCollisionRecs with a, b
+
+## Returns the overlapping region of two rectangles.
+##
+## ## Parameters
+## - `a`, `b`: the rectangles to intersect.
+##
+## ## Returns
+## The intersection as a `raylib.Rectangle`. When they do not overlap (or either is empty) the result is `(0, 0, 0, 0)`, so this is **not** a `maybe`: use `collision_recs` when the distinction matters.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var overlap as raylib.Rectangle is calling raylibx_shapes.collision_rectangle with a, b
+## ```
+
+weave collision_rectangle with a as raylib.Rectangle, b as raylib.Rectangle into raylib.Rectangle:
+    return calling raylib.GetCollisionRec with a, b
+
+## Reports whether two circles overlap.
+##
+## ## Parameters
+## - `c1`, `r1`: the first centre and radius.
+## - `c2`, `r2`: the second centre and radius.
+##
+## ## Returns
+## `true` when they overlap. Circles exactly `r1 + r2` apart do **not** count: the comparison is strict.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var hit as bool is calling raylibx_shapes.collision_circles with a, 5.0, b, 5.0
+## ```
+
+weave collision_circles with c1 as raylib.Vector2, r1 as f32, c2 as raylib.Vector2, r2 as f32 into bool:
+    return calling raylib.CheckCollisionCircles with c1, r1, c2, r2
+
+## Reports whether a circle overlaps a rectangle.
+##
+## ## Parameters
+## - `center`, `radius`: the circle.
+## - `rec`: the rectangle.
+##
+## ## Returns
+## `true` when they overlap.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var hit as bool is calling raylibx_shapes.collision_circle_rec with c, 5.0, rec
+## ```
+
+weave collision_circle_rec with center as raylib.Vector2, radius as f32, rec as raylib.Rectangle into bool:
+    return calling raylib.CheckCollisionCircleRec with center, radius, rec
+
+## Reports whether a circle overlaps a line segment.
+##
+## ## Parameters
+## - `center`, `radius`: the circle.
+## - `p1`, `p2`: the segment endpoints.
+##
+## ## Returns
+## `true` when the circle and the segment overlap.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var hit as bool is calling raylibx_shapes.collision_circle_line with c, 5.0, a, b
+## ```
+
+weave collision_circle_line with center as raylib.Vector2, radius as f32, p1 as raylib.Vector2, p2 as raylib.Vector2 into bool:
+    return calling raylib.CheckCollisionCircleLine with center, radius, p1, p2
+
+## Reports whether a point lies inside a circle.
+##
+## ## Parameters
+## - `point`: the point to test.
+## - `center`, `radius`: the circle.
+##
+## ## Returns
+## `true` when the point is inside or on the circle.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var inside as bool is calling raylibx_shapes.collision_point_circle with p, c, 5.0
+## ```
+
+weave collision_point_circle with point as raylib.Vector2, center as raylib.Vector2, radius as f32 into bool:
+    return calling raylib.CheckCollisionPointCircle with point, center, radius
+
+## Reports whether a point lies inside a triangle.
+##
+## ## Parameters
+## - `point`: the point to test.
+## - `p1`, `p2`, `p3`: the triangle vertices.
+##
+## ## Returns
+## `true` when the point is inside the triangle.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var inside as bool is calling raylibx_shapes.collision_point_triangle with p, a, b, c
+## ```
+
+weave collision_point_triangle with point as raylib.Vector2, p1 as raylib.Vector2, p2 as raylib.Vector2, p3 as raylib.Vector2 into bool:
+    return calling raylib.CheckCollisionPointTriangle with point, p1, p2, p3
+
+## Reports whether a point lies within a threshold of a line segment.
+##
+## ## Parameters
+## - `point`: the point to test.
+## - `p1`, `p2`: the segment endpoints.
+## - `threshold`: the tolerance in pixels.
+##
+## ## Returns
+## `true` when the distance from the point to the segment is within `threshold`.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var near as bool is calling raylibx_shapes.collision_point_line with p, a, b, 1
+## ```
+
+weave collision_point_line with point as raylib.Vector2, p1 as raylib.Vector2, p2 as raylib.Vector2, threshold as int into bool:
+    return calling raylib.CheckCollisionPointLine with point, p1, p2, threshold
+
+## Finds where two line segments cross.
+##
+## ## Parameters
+## - `a1`, `a2`: the first segment.
+## - `b1`, `b2`: the second segment.
+##
+## ## Returns
+## `some` with the intersection point, or `maybe none` when the segments do not cross.
+##
+## ## Notes
+## The C function returns a success flag and writes the point through an out-parameter. Folding both into `maybe ray lib.Vector2` means the flag is not returned twice: `some` *is* the success.
+## On a miss raylib leaves the out-parameter untouched, so the wrapper never reads it in that case.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var cross as maybe raylib.Vector2 is calling raylibx_shapes.line_intersection with a1, a2, b1, b2
+## ```
+
+weave line_intersection with a1 as raylib.Vector2, a2 as raylib.Vector2, b1 as raylib.Vector2, b2 as raylib.Vector2 into maybe raylib.Vector2:
+    var point as raylib.Vector2 is with x is 0.0, y is 0.0
+    if calling raylib.CheckCollisionLines with a1, a2, b1, b2, (sigil of point):
+        return some point
+    return maybe none
+
+## Reports whether a point lies inside a polygon.
+##
+## ## Parameters
+## - `point`: the point to test.
+## - `points`: the polygon vertices, in order.
+##
+## ## Returns
+## `true` when the point is inside the polygon; `false` for an empty `points` slice.
+##
+## ## Notes
+## An empty polygon contains nothing, which is why the guard returns `false` rather than touching element zero.
+##
+## ## Memory
+## No allocation.
+##
+## ## Example
+## ```pengu
+## var inside as bool is calling raylibx_shapes.collision_point_poly with p, poly
+## ```
+
+weave collision_point_poly with point as raylib.Vector2, points as slice of raylib.Vector2 into bool:
+    if (points.length) == 0:
+        return false
+    let raw as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+    return calling raylib.CheckCollisionPointPoly with point, raw, (points.length)
+
+# --- Tests ---
+
+test "collision_recs detects overlap":
+    var a as raylib.Rectangle is with x is 0.0, y is 0.0, width is 10.0, height is 10.0
+    var b as raylib.Rectangle is with x is 5.0, y is 5.0, width is 10.0, height is 10.0
+    calling ward.assert_true with (calling collision_recs with a, b)
+
+test "collision_recs rejects disjoint rectangles":
+    var a as raylib.Rectangle is with x is 0.0, y is 0.0, width is 10.0, height is 10.0
+    var b as raylib.Rectangle is with x is 5.0, y is 5.0, width is 10.0, height is 10.0
+    var far as raylib.Rectangle is with x is 100.0, y is 100.0, width is 10.0, height is 10.0
+    calling ward.assert_false with (calling collision_recs with a, far)
+
+test "collision_recs rejects an empty rectangle":
+    var a as raylib.Rectangle is with x is 0.0, y is 0.0, width is 10.0, height is 10.0
+    var b as raylib.Rectangle is with x is 5.0, y is 5.0, width is 10.0, height is 10.0
+    var empty as raylib.Rectangle is with x is 0.0, y is 0.0, width is 0.0, height is 0.0
+    calling ward.assert_false with (calling collision_recs with a, empty)
+    calling ward.assert_false with (calling collision_recs with empty, empty)
+
+test "collision_rectangle returns the overlap":
+    var a as raylib.Rectangle is with x is 0.0, y is 0.0, width is 10.0, height is 10.0
+    var b as raylib.Rectangle is with x is 5.0, y is 5.0, width is 10.0, height is 10.0
+    var overlap as raylib.Rectangle is calling collision_rectangle with a, b
+    calling ward.assert_almost_eq with overlap.x, 5.0, 0.001
+    calling ward.assert_almost_eq with overlap.y, 5.0, 0.001
+    calling ward.assert_almost_eq with overlap.width, 5.0, 0.001
+    calling ward.assert_almost_eq with overlap.height, 5.0, 0.001
+
+test "collision_rectangle is a zero rectangle when disjoint":
+    var a as raylib.Rectangle is with x is 0.0, y is 0.0, width is 10.0, height is 10.0
+    var b as raylib.Rectangle is with x is 5.0, y is 5.0, width is 10.0, height is 10.0
+    var far as raylib.Rectangle is with x is 100.0, y is 100.0, width is 10.0, height is 10.0
+    var none as raylib.Rectangle is calling collision_rectangle with a, far
+    calling ward.assert_almost_eq with none.width, 0.0, 0.001
+    calling ward.assert_almost_eq with none.height, 0.0, 0.001
+
+test "collision_rectangle never exceeds the inputs":
+    var a as raylib.Rectangle is with x is 0.0, y is 0.0, width is 10.0, height is 10.0
+    var b as raylib.Rectangle is with x is 5.0, y is 5.0, width is 10.0, height is 10.0
+    var overlap as raylib.Rectangle is calling collision_rectangle with a, b
+    calling ward.assert_true with (overlap.width <= a.width)
+    calling ward.assert_true with (overlap.height <= b.height)
+
+test "collision_circles detects overlap":
+    var c1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var c2 as raylib.Vector2 is with x is 5.0, y is 0.0
+    calling ward.assert_true with (calling collision_circles with c1, 5.0, c2, 5.0)
+
+test "collision_circles includes the touching distance":
+    var c1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var c2 as raylib.Vector2 is with x is 10.0, y is 0.0
+    calling ward.assert_true with (calling collision_circles with c1, 5.0, c2, 5.0)
+    var just_past as raylib.Vector2 is with x is 10.001, y is 0.0
+    calling ward.assert_false with (calling collision_circles with c1, 5.0, just_past, 5.0)
+
+test "collision_circles rejects far circles":
+    var c1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var c2 as raylib.Vector2 is with x is 100.0, y is 0.0
+    calling ward.assert_false with (calling collision_circles with c1, 5.0, c2, 5.0)
+
+test "collision_circle_rec detects a circle inside a rectangle":
+    var rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is 20.0, height is 20.0
+    var center as raylib.Vector2 is with x is 10.0, y is 10.0
+    calling ward.assert_true with (calling collision_circle_rec with center, 2.0, rec)
+
+test "collision_circle_rec rejects a distant circle":
+    var rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is 20.0, height is 20.0
+    var center as raylib.Vector2 is with x is 100.0, y is 100.0
+    calling ward.assert_false with (calling collision_circle_rec with center, 2.0, rec)
+
+test "collision_circle_line detects a circle on the segment":
+    var center as raylib.Vector2 is with x is 5.0, y is 0.0
+    var p1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var p2 as raylib.Vector2 is with x is 10.0, y is 0.0
+    calling ward.assert_true with (calling collision_circle_line with center, 2.0, p1, p2)
+
+test "collision_circle_line rejects a distant circle":
+    var center as raylib.Vector2 is with x is 5.0, y is 50.0
+    var p1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var p2 as raylib.Vector2 is with x is 10.0, y is 0.0
+    calling ward.assert_false with (calling collision_circle_line with center, 2.0, p1, p2)
+
+test "collision_point_circle accepts the centre and the boundary":
+    var center as raylib.Vector2 is with x is 0.0, y is 0.0
+    calling ward.assert_true with (calling collision_point_circle with center, center, 5.0)
+    var edge as raylib.Vector2 is with x is 5.0, y is 0.0
+    calling ward.assert_true with (calling collision_point_circle with edge, center, 5.0)
+
+test "collision_point_circle rejects an outside point":
+    var center as raylib.Vector2 is with x is 0.0, y is 0.0
+    var outside as raylib.Vector2 is with x is 50.0, y is 0.0
+    calling ward.assert_false with (calling collision_point_circle with outside, center, 5.0)
+
+test "collision_point_triangle accepts an inside point":
+    var p1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var p2 as raylib.Vector2 is with x is 10.0, y is 0.0
+    var p3 as raylib.Vector2 is with x is 0.0, y is 10.0
+    var inside as raylib.Vector2 is with x is 2.0, y is 2.0
+    calling ward.assert_true with (calling collision_point_triangle with inside, p1, p2, p3)
+
+test "collision_point_triangle rejects an outside point":
+    var p1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var p2 as raylib.Vector2 is with x is 10.0, y is 0.0
+    var p3 as raylib.Vector2 is with x is 0.0, y is 10.0
+    var outside as raylib.Vector2 is with x is 9.0, y is 9.0
+    calling ward.assert_false with (calling collision_point_triangle with outside, p1, p2, p3)
+
+test "collision_point_line honours the threshold":
+    var p1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var p2 as raylib.Vector2 is with x is 10.0, y is 0.0
+    var on as raylib.Vector2 is with x is 5.0, y is 0.0
+    calling ward.assert_true with (calling collision_point_line with on, p1, p2, 1)
+    var off as raylib.Vector2 is with x is 5.0, y is 9.0
+    calling ward.assert_false with (calling collision_point_line with off, p1, p2, 1)
+
+test "line_intersection finds a crossing":
+    var a1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var a2 as raylib.Vector2 is with x is 10.0, y is 0.0
+    var b1 as raylib.Vector2 is with x is 5.0, y is -5.0
+    var b2 as raylib.Vector2 is with x is 5.0, y is 5.0
+    var cross as maybe raylib.Vector2 is calling line_intersection with a1, a2, b1, b2
+    calling ward.assert_maybe_present with cross
+    var point as raylib.Vector2 is calling cross.unwrap
+    calling ward.assert_almost_eq with point.x, 5.0, 0.001
+    calling ward.assert_almost_eq with point.y, 0.0, 0.001
+
+test "line_intersection is maybe none for parallel segments":
+    var a1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var a2 as raylib.Vector2 is with x is 10.0, y is 0.0
+    var b1 as raylib.Vector2 is with x is 0.0, y is 5.0
+    var b2 as raylib.Vector2 is with x is 10.0, y is 5.0
+    var cross as maybe raylib.Vector2 is calling line_intersection with a1, a2, b1, b2
+    calling ward.assert_maybe_none with cross
+
+test "Rectangle.contains_point matches the collision predicate":
+    var a as raylib.Rectangle is with x is 0.0, y is 0.0, width is 10.0, height is 10.0
+    var b as raylib.Rectangle is with x is 5.0, y is 5.0, width is 10.0, height is 10.0
+    var inside as raylib.Vector2 is with x is 3.0, y is 3.0
+    var outside as raylib.Vector2 is with x is 50.0, y is 50.0
+    calling ward.assert_true with (calling a.contains_point with inside)
+    calling ward.assert_false with (calling a.contains_point with outside)
+    calling ward.assert_eq_bool with (calling a.contains_point with inside), (calling collision_point_circle with inside, (with x is 3.0, y is 3.0), 0.0)
+
+test "shapes_texture_rectangle reports a usable rectangle":
+    # Measured: the value depends on whether a graphics device has ever been initialised, so
+    # asserting the virgin placeholder would make this test depend on test order.
+    #   * before any window: the placeholder, (0,0) 1x1;
+    #   * after InitWindow: the default font's atlas glyph, (41,46) 2x8, because loading the
+    #     default font calls SetShapesTexture -- and it stays that way after CloseWindow,
+    #     since it is process-global state.
+    # What holds in both states, and is what the wrapper actually promises, is a rectangle
+    # with a non-negative origin and a non-empty extent.
+    var rec as raylib.Rectangle is calling shapes_texture_rectangle
+    calling ward.assert_true with (rec.x >= 0.0)
+    calling ward.assert_true with (rec.y >= 0.0)
+    calling ward.assert_true with (rec.width >= 1.0)
+    calling ward.assert_true with (rec.height >= 1.0)
+
+test "shapes_texture returns a texture without a drawing frame":
+    var tex as raylib.Texture2D is calling shapes_texture
+    calling ward.assert_ge_int with (tex.width to int), 0
+    calling ward.assert_ge_int with (tex.height to int), 0
+
+test "collision_point_poly accepts an inside point":
+    var poly as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish poly
+    calling poly.push with (with x is 0.0, y is 0.0)
+    calling poly.push with (with x is 10.0, y is 0.0)
+    calling poly.push with (with x is 0.0, y is 10.0)
+    var inside as raylib.Vector2 is with x is 2.0, y is 2.0
+    calling ward.assert_true with (calling collision_point_poly with inside, (poly at 0 to 3))
+
+test "collision_point_poly rejects an outside point":
+    var poly as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish poly
+    calling poly.push with (with x is 0.0, y is 0.0)
+    calling poly.push with (with x is 10.0, y is 0.0)
+    calling poly.push with (with x is 0.0, y is 10.0)
+    var outside as raylib.Vector2 is with x is 50.0, y is 50.0
+    calling ward.assert_false with (calling collision_point_poly with outside, (poly at 0 to 3))
+
+test "collision_point_poly on an empty slice is false":
+    var poly as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish poly
+    var point as raylib.Vector2 is with x is 0.0, y is 0.0
+    calling ward.assert_false with (calling collision_point_poly with point, (poly at 0 to 0))
+
+test "draw_line_strip on an empty slice is a no-op":
+    var empty as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish empty
+    calling draw_line_strip with (empty at 0 to 0), raylib.RED
+
+test "draw_triangle_fan on an empty slice is a no-op":
+    var empty as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish empty
+    calling draw_triangle_fan with (empty at 0 to 0), raylib.RED
+
+test "draw_triangle_strip on an empty slice is a no-op":
+    var empty as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish empty
+    calling draw_triangle_strip with (empty at 0 to 0), raylib.RED
+
+test "draw_spline_linear on an empty slice is a no-op":
+    var empty as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish empty
+    calling draw_spline_linear with (empty at 0 to 0), 2.0, raylib.RED
+
+test "draw_spline_basis on an empty slice is a no-op":
+    var empty as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish empty
+    calling draw_spline_basis with (empty at 0 to 0), 2.0, raylib.RED
+
+test "draw_spline_catmull_rom on an empty slice is a no-op":
+    var empty as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish empty
+    calling draw_spline_catmull_rom with (empty at 0 to 0), 2.0, raylib.RED
+
+test "draw_spline_bezier_quadratic on an empty slice is a no-op":
+    var empty as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish empty
+    calling draw_spline_bezier_quadratic with (empty at 0 to 0), 2.0, raylib.RED
+
+test "draw_spline_bezier_cubic on an empty slice is a no-op":
+    var empty as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish empty
+    calling draw_spline_bezier_cubic with (empty at 0 to 0), 2.0, raylib.RED
+
+
+# The window-bound drawing surface is not called in CI: every Draw* below needs an
+# active BeginDrawing/EndDrawing frame and a GPU. This probe exists so that every
+# public signature is type-checked by `pengu check`; the test that would run it is
+# deliberately absent.
+weave draw_api_probe into void:
+    var p as raylib.Vector2 is with x is 1.0, y is 2.0
+    var q as raylib.Vector2 is with x is 3.0, y is 4.0
+    var r as raylib.Vector2 is with x is 5.0, y is 6.0
+    var rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is 8.0, height is 8.0
+    var c as raylib.Color is raylib.RED
+    var scratch as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish scratch
+    var strip as slice of raylib.Vector2 is scratch at 0 to 0
+    calling p.draw_pixel with c
+    calling p.draw_line_to with q, c
+    calling p.draw_line_ex with q, 1.0, c
+    calling p.draw_line_bezier with q, 1.0, c
+    calling p.draw_circle with 2.0, c
+    calling p.draw_circle_gradient with 2.0, c, c
+    calling p.draw_circle_sector with 2.0, 0.0, 90.0, 8, c
+    calling p.draw_circle_sector_lines with 2.0, 0.0, 90.0, 8, c
+    calling p.draw_ellipse with 2.0, 1.0, c
+    calling p.draw_ellipse_lines with 2.0, 1.0, c
+    calling p.draw_ring with 1.0, 2.0, 0.0, 360.0, 8, c
+    calling p.draw_ring_lines with 1.0, 2.0, 0.0, 360.0, 8, c
+    calling p.draw_poly with 5, 2.0, 0.0, c
+    calling p.draw_poly_lines with 5, 2.0, 0.0, c
+    calling p.draw_poly_lines_ex with 5, 2.0, 0.0, 1.0, c
+    calling p.draw_rectangle with q, c
+    calling p.draw_triangle with q, r, c
+    calling p.draw_triangle_lines with q, r, c
+    calling rec.draw with c
+    calling rec.draw_pro with p, 0.0, c
+    calling rec.draw_gradient with c, c, c, c
+    calling rec.draw_outline with 1.0, c
+    calling rec.draw_rounded with 0.5, 8, c
+    calling rec.draw_rounded_outline with 0.5, 8, 1.0, c
+    calling draw_pixel with 1, 2, c
+    calling draw_line with 0, 0, 1, 1, c
+    calling draw_circle with 1, 2, 3.0, c
+    calling draw_ellipse with 1, 2, 3.0, 4.0, c
+    calling draw_ellipse_lines with 1, 2, 3.0, 4.0, c
+    calling draw_rectangle with 0, 0, 4, 4, c
+    calling draw_rectangle_lines with 0, 0, 4, 4, c
+    calling draw_rectangle_gradient_v with 0, 0, 4, 4, c, c
+    calling draw_rectangle_gradient_h with 0, 0, 4, 4, c, c
+    calling draw_line_strip with strip, c
+    calling draw_triangle_fan with strip, c
+    calling draw_triangle_strip with strip, c
+    calling draw_spline_linear with strip, 1.0, c
+    calling draw_spline_basis with strip, 1.0, c
+    calling draw_spline_catmull_rom with strip, 1.0, c
+    calling draw_spline_bezier_quadratic with strip, 1.0, c
+    calling draw_spline_bezier_cubic with strip, 1.0, c
+    calling draw_spline_segment_linear with p, q, 1.0, c
+    calling draw_spline_segment_basis with p, q, r, p, 1.0, c
+    calling draw_spline_segment_catmull_rom with p, q, r, p, 1.0, c
+    calling draw_spline_segment_bezier_quadratic with p, q, r, 1.0, c
+    calling draw_spline_segment_bezier_cubic with p, q, r, p, 1.0, c
+    calling set_shapes_texture with (calling shapes_texture), rec
+
+
+test "spline_point_linear is exact at both ends and the middle":
+    var a as raylib.Vector2 is with x is 0.0, y is 0.0
+    var b as raylib.Vector2 is with x is 10.0, y is 0.0
+    var mid as raylib.Vector2 is calling spline_point_linear with a, b, 0.5
+    calling ward.assert_almost_eq with mid.x, 5.0, 0.001
+    calling ward.assert_almost_eq with mid.y, 0.0, 0.001
+    var start as raylib.Vector2 is calling spline_point_linear with a, b, 0.0
+    calling ward.assert_almost_eq with start.x, 0.0, 0.001
+    var end as raylib.Vector2 is calling spline_point_linear with a, b, 1.0
+    calling ward.assert_almost_eq with end.x, 10.0, 0.001
+
+test "spline_point_catmull_rom and basis are finite":
+    var p1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var p2 as raylib.Vector2 is with x is 10.0, y is 0.0
+    var p3 as raylib.Vector2 is with x is 10.0, y is 10.0
+    var p4 as raylib.Vector2 is with x is 0.0, y is 10.0
+    var cr as raylib.Vector2 is calling spline_point_catmull_rom with p1, p2, p3, p4, 0.5
+    calling ward.assert_false with (cr.x != cr.x)
+    var ba as raylib.Vector2 is calling spline_point_basis with p1, p2, p3, p4, 0.5
+    calling ward.assert_false with (ba.x != ba.x)
+
+test "spline_point_bezier_cubic starts and ends on the anchors":
+    var p1 as raylib.Vector2 is with x is 0.0, y is 0.0
+    var c2 as raylib.Vector2 is with x is 3.0, y is 9.0
+    var c3 as raylib.Vector2 is with x is 7.0, y is 9.0
+    var p4 as raylib.Vector2 is with x is 10.0, y is 0.0
+    var start as raylib.Vector2 is calling spline_point_bezier_cubic with p1, c2, c3, p4, 0.0
+    calling ward.assert_almost_eq with start.x, 0.0, 0.001
+    var end as raylib.Vector2 is calling spline_point_bezier_cubic with p1, c2, c3, p4, 1.0
+    calling ward.assert_almost_eq with end.x, 10.0, 0.001

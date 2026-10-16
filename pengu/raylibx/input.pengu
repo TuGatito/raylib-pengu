@@ -1,0 +1,811 @@
+## pengu
+## Layer-2 wrapper over the 28 input and gesture functions of the `raylib` binding that
+## cross a boundary worth crossing.
+##
+## The binding flattens **every** enum parameter to `int`. Restoring the real types is the
+## whole point of this family:
+##
+##     calling raylib.IsKeyDown with (raylib.KEY_SPACE to int)   # binding
+##     calling is_key_down with raylib.KEY_SPACE   # wrapper
+##
+## The other half of the family is the failure sentinels: `key_pressed`, `char_pressed`,
+## `gamepad_button_pressed`, `touch_point_id`, `detected_gesture` and `key_name` all
+## report "nothing happened" through a magic value, so they return `maybe`.
+##
+## What is deliberately **absent** is as important: a zero-argument getter that cannot fail
+## (`GetMousePosition`, `GetMouseDelta`, `GetTouchX`, `GetGestureDragVector`, ...) is not
+## wrapped, because the binding call is already clear and a wrapper would only add a jump
+## (contract section 9). Read those through `raylib` directly.
+##
+## This is family `input` of `raylibx`; see `docs/plans/md`.
+##
+## ## No window needed
+## Every wrapped function is safe to call headless: with no input the predicates are
+## `false`, the sentinel wrappers are `maybe none` and the setters simply record state.
+## That is why this family has real CI tests rather than a compile-only probe.
+##
+## ## Memory
+## No allocation and nothing to release. `std.ffi` appears only in `key_name` and
+## `gamepad_name`, which copy a raylib-owned `const char*` and free nothing.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raylibx_input
+##
+## weave main into int:
+##     var jump as bool is calling is_key_pressed with raylib.KEY_SPACE
+##     var typed as maybe int is calling key_pressed
+##     var name as string is calling gamepad_name with 0
+##     return 0
+## ```
+
+
+import raylib
+import std.ffi
+import std.ward
+
+
+## Reports whether a key went down during this frame.
+##
+## ## Parameters
+## - `key`: the key to test, as a `raylib.KeyboardKey`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise.
+##
+## ## Notes
+## This is the edge-triggered form: it is true only on the frame the key is first pressed.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_key_pressed with raylib.KEY_SPACE
+## ```
+
+weave is_key_pressed with key as raylib.KeyboardKey into bool:
+    return calling raylib.IsKeyPressed with (key to int)
+
+## Reports whether a key is auto-repeating this frame.
+##
+## ## Parameters
+## - `key`: the key to test, as a `raylib.KeyboardKey`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise.
+##
+## ## Notes
+## True while the operating system keeps generating repeat events for a held key.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_key_pressed_repeat with raylib.KEY_SPACE
+## ```
+
+weave is_key_pressed_repeat with key as raylib.KeyboardKey into bool:
+    return calling raylib.IsKeyPressedRepeat with (key to int)
+
+## Reports whether a key is currently held.
+##
+## ## Parameters
+## - `key`: the key to test, as a `raylib.KeyboardKey`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise.
+##
+## ## Notes
+## This is the level-triggered form: it stays true for as long as the key is held.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_key_down with raylib.KEY_SPACE
+## ```
+
+weave is_key_down with key as raylib.KeyboardKey into bool:
+    return calling raylib.IsKeyDown with (key to int)
+
+## Reports whether a key went up during this frame.
+##
+## ## Parameters
+## - `key`: the key to test, as a `raylib.KeyboardKey`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_key_released with raylib.KEY_SPACE
+## ```
+
+weave is_key_released with key as raylib.KeyboardKey into bool:
+    return calling raylib.IsKeyReleased with (key to int)
+
+## Reports whether a key is currently not held.
+##
+## ## Parameters
+## - `key`: the key to test, as a `raylib.KeyboardKey`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_key_up with raylib.KEY_SPACE
+## ```
+
+weave is_key_up with key as raylib.KeyboardKey into bool:
+    return calling raylib.IsKeyUp with (key to int)
+
+## Returns the next key from the input queue, consuming it.
+##
+## ## Returns
+## `some` with the key's ordinal, or `maybe none` when the queue is empty.
+##
+## ## Notes
+## The value is an `int` because raylib signals "nothing" with `0`, which is also `KEY_NULL`; the compiler cannot convert an `int` to a qualified omen (it emits an invalid C cast), so compare it as `k == (raylib.KEY_A to int)`, which is verified to work.
+## Call it in a loop until it returns `maybe none` to drain the queue.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var k as maybe int is calling key_pressed
+## ```
+
+weave key_pressed into maybe int:
+    var k as int is calling raylib.GetKeyPressed
+    if k == 0:
+        return maybe none
+    return some k
+
+## Returns the next character from the input queue, consuming it.
+##
+## ## Returns
+## `some` with the character's codepoint, or `maybe none` when the queue is empty.
+##
+## ## Notes
+## The value is a Unicode codepoint, not a byte.
+## Call it in a loop until it returns `maybe none` to drain the queue.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var c as maybe int is calling char_pressed
+## ```
+
+weave char_pressed into maybe int:
+    var c as int is calling raylib.GetCharPressed
+    if c == 0:
+        return maybe none
+    return some c
+
+## Returns the name of a key on the current keyboard layout.
+##
+## ## Parameters
+## - `key`: the key to look up.
+##
+## ## Returns
+## `some` with the name, or `maybe none` when raylib returns nothing.
+##
+## ## Notes
+## **Measured: without a window this returns `NULL` for every key**, including `KEY_A`, because the keyboard layout is not available yet. The wrapper copies the string when there is one and frees nothing.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var name as maybe string is calling key_name with raylib.KEY_A
+## ```
+
+weave key_name with key as raylib.KeyboardKey into maybe string:
+    let c_name as ref to frozen char is calling raylib.GetKeyName with (key to int)
+    if calling ffi.is_null with (transmute c_name to ref to void):
+        return maybe none
+    return some (calling ffi.string_from_cstr with (transmute c_name to ref to char))
+
+## Reports whether a gamepad button went down during this frame.
+##
+## ## Parameters
+## - `gamepad`: the gamepad slot, `0` to `3`.
+## - `button`: the button to test, as a `raylib.GamepadButton`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise. An absent gamepad reports `false`.
+##
+## ## Notes
+## The gamepad slot is a plain `int` in raylib, not an enum.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_gamepad_button_pressed with 0, raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+## ```
+
+weave is_gamepad_button_pressed with gamepad as int, button as raylib.GamepadButton into bool:
+    return calling raylib.IsGamepadButtonPressed with gamepad, (button to int)
+
+## Reports whether a gamepad button is currently held.
+##
+## ## Parameters
+## - `gamepad`: the gamepad slot, `0` to `3`.
+## - `button`: the button to test, as a `raylib.GamepadButton`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise. An absent gamepad reports `false`.
+##
+## ## Notes
+## The gamepad slot is a plain `int` in raylib, not an enum.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_gamepad_button_down with 0, raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+## ```
+
+weave is_gamepad_button_down with gamepad as int, button as raylib.GamepadButton into bool:
+    return calling raylib.IsGamepadButtonDown with gamepad, (button to int)
+
+## Reports whether a gamepad button went up during this frame.
+##
+## ## Parameters
+## - `gamepad`: the gamepad slot, `0` to `3`.
+## - `button`: the button to test, as a `raylib.GamepadButton`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise. An absent gamepad reports `false`.
+##
+## ## Notes
+## The gamepad slot is a plain `int` in raylib, not an enum.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_gamepad_button_released with 0, raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+## ```
+
+weave is_gamepad_button_released with gamepad as int, button as raylib.GamepadButton into bool:
+    return calling raylib.IsGamepadButtonReleased with gamepad, (button to int)
+
+## Reports whether a gamepad button is currently not held.
+##
+## ## Parameters
+## - `gamepad`: the gamepad slot, `0` to `3`.
+## - `button`: the button to test, as a `raylib.GamepadButton`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise. An absent gamepad reports `false`.
+##
+## ## Notes
+## The gamepad slot is a plain `int` in raylib, not an enum.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_gamepad_button_up with 0, raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN
+## ```
+
+weave is_gamepad_button_up with gamepad as int, button as raylib.GamepadButton into bool:
+    return calling raylib.IsGamepadButtonUp with gamepad, (button to int)
+
+## Returns the last gamepad button pressed.
+##
+## ## Returns
+## `some` with the button's ordinal, or `maybe none` when no button was pressed.
+##
+## ## Notes
+## raylib signals "nothing" with `GAMEPAD_BUTTON_UNKNOWN`, which is **`0`**, not `-1` (measured: `GetGamepadButtonPressed()` returns `0` headless and the enum says `GAMEPAD_BUTTON_UNKNOWN is 0`).
+## The value is an `int` for the same reason as `key_pressed`; compare it as `b == (raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN to int)`.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var b as maybe int is calling gamepad_button_pressed
+## ```
+
+weave gamepad_button_pressed into maybe int:
+    var b as int is calling raylib.GetGamepadButtonPressed
+    if b <= 0:
+        return maybe none
+    return some b
+
+## Returns how far a gamepad axis is pushed.
+##
+## ## Parameters
+## - `gamepad`: the gamepad slot, `0` to `3`.
+## - `axis`: the axis to read, as a `raylib.GamepadAxis`.
+##
+## ## Returns
+## The axis value, normally `[-1..1]`; `0.0` for an absent gamepad or a neutral stick.
+##
+## ## Notes
+## A dead zone is the caller's business: raylib reports the raw value.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var x as f32 is calling gamepad_axis_movement with 0, raylib.GAMEPAD_AXIS_LEFT_X
+## ```
+
+weave gamepad_axis_movement with gamepad as int, axis as raylib.GamepadAxis into f32:
+    return calling raylib.GetGamepadAxisMovement with gamepad, (axis to int)
+
+## Returns the name of a connected gamepad.
+##
+## ## Parameters
+## - `gamepad`: the gamepad slot, `0` to `3`.
+##
+## ## Returns
+## The gamepad name, or an **empty string** when the slot is empty.
+##
+## ## Notes
+## Measured: raylib returns a non-null empty string for an absent gamepad, never `NULL`, so this is **not** a `maybe`.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var who as string is calling gamepad_name with 0
+## ```
+
+weave gamepad_name with gamepad as int into string:
+    let c_name as ref to frozen char is calling raylib.GetGamepadName with gamepad
+    return calling ffi.string_from_cstr with (transmute c_name to ref to char)
+
+## Loads gamepad mappings from a string.
+##
+## ## Parameters
+## - `mappings`: mapping definitions in raylib's gamepad mapping format.
+##
+## ## Returns
+## The number of mappings added, as raylib reports it; `0` when nothing was added.
+##
+## ## Notes
+## raylib does not document a failure value, so this is a plain `int` rather than a `maybe` or a `bool`.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var added as int is calling set_gamepad_mappings with mapping_text
+## ```
+
+weave set_gamepad_mappings with mappings as string into int:
+    let c_mappings as ref to frozen char is calling ffi.cstr_from_string with mappings
+    return calling raylib.SetGamepadMappings with c_mappings
+
+## Reports whether a mouse button went down during this frame.
+##
+## ## Parameters
+## - `button`: the button to test, as a `raylib.MouseButton`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT
+## ```
+
+weave is_mouse_button_pressed with button as raylib.MouseButton into bool:
+    return calling raylib.IsMouseButtonPressed with (button to int)
+
+## Reports whether a mouse button is currently held.
+##
+## ## Parameters
+## - `button`: the button to test, as a `raylib.MouseButton`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT
+## ```
+
+weave is_mouse_button_down with button as raylib.MouseButton into bool:
+    return calling raylib.IsMouseButtonDown with (button to int)
+
+## Reports whether a mouse button went up during this frame.
+##
+## ## Parameters
+## - `button`: the button to test, as a `raylib.MouseButton`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT
+## ```
+
+weave is_mouse_button_released with button as raylib.MouseButton into bool:
+    return calling raylib.IsMouseButtonReleased with (button to int)
+
+## Reports whether a mouse button is currently not held.
+##
+## ## Parameters
+## - `button`: the button to test, as a `raylib.MouseButton`.
+##
+## ## Returns
+## `true` when the condition holds for this frame, `false` otherwise.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var down as bool is calling is_mouse_button_up with raylib.MOUSE_BUTTON_LEFT
+## ```
+
+weave is_mouse_button_up with button as raylib.MouseButton into bool:
+    return calling raylib.IsMouseButtonUp with (button to int)
+
+## Moves the mouse cursor to a position.
+##
+## ## Parameters
+## - `position`: the target position in screen coordinates; the components are truncated to `int`.
+##
+## ## Returns
+## Nothing. The move takes effect through the platform, so a subsequent read may lag by a frame.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling set_mouse_position with (with x is 100.0, y is 200.0)
+## ```
+
+weave set_mouse_position with position as raylib.Vector2 into void:
+    calling raylib.SetMousePosition with (position.x to int), (position.y to int)
+
+## Adds a fixed offset to every mouse position raylib reports.
+##
+## ## Parameters
+## - `offset`: the offset to apply; the components are truncated to `int`.
+##
+## ## Returns
+## Nothing. This is a global adjustment, useful for letterboxed or scaled render targets.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling set_mouse_offset with (with x is 0.0, y is 0.0)
+## ```
+
+weave set_mouse_offset with offset as raylib.Vector2 into void:
+    calling raylib.SetMouseOffset with (offset.x to int), (offset.y to int)
+
+## Scales every mouse position raylib reports.
+##
+## ## Parameters
+## - `scale`: the factor to apply.
+##
+## ## Returns
+## Nothing. Together with `set_mouse_offset` this maps window coordinates onto a virtual canvas.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling set_mouse_scale with (with x is 1.0, y is 1.0)
+## ```
+
+weave set_mouse_scale with scale as raylib.Vector2 into void:
+    calling raylib.SetMouseScale with scale.x, scale.y
+
+## Changes the mouse cursor shape.
+##
+## ## Parameters
+## - `cursor`: the cursor to show, as a `raylib.MouseCursor`.
+##
+## ## Returns
+## Nothing.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling set_mouse_cursor with raylib.MOUSE_CURSOR_CROSSHAIR
+## ```
+
+weave set_mouse_cursor with cursor as raylib.MouseCursor into void:
+    calling raylib.SetMouseCursor with (cursor to int)
+
+## Returns the touch identifier of a touch point.
+##
+## ## Parameters
+## - `index`: the touch point slot to query.
+##
+## ## Returns
+## `some` with the touch id, or `maybe none` when the index is out of range.
+##
+## ## Notes
+## `rcore.c` returns `-1` for an index past `MAX_TOUCH_POINTS`, which is the predicate; an in-range slot that has never been touched reports id `0`, so `some 0` is a valid answer, not a failure.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var id as maybe int is calling touch_point_id with 0
+## ```
+
+weave touch_point_id with index as int into maybe int:
+    var id as int is calling raylib.GetTouchPointId with index
+    if id < 0:
+        return maybe none
+    return some id
+
+## Enables the given gesture recognisers, disabling every other one.
+##
+## ## Parameters
+## - `gestures`: the gestures to enable; an empty slice disables all of them.
+##
+## ## Returns
+## Nothing. The setting is global and replaces the previous mask rather than adding to it.
+##
+## ## Notes
+## The flags are ORed with `|`, never with `or`: `or` is boolean-only and rejects `u32` (`E0005`).
+## Inherited from the archived `rgesturesx`, an array literal cannot be passed in argument position, so the parameter is a slice.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling enable_gestures with (gestures at 0 to (gestures.length))
+## ```
+
+weave enable_gestures with gestures as slice of raylib.Gesture into void:
+    var flags as u32 is 0
+    var i as int is 0
+    while i < (gestures.length):
+        set flags is flags | ((gestures at i) to u32)
+        set i is i + 1
+    calling raylib.SetGesturesEnabled with flags
+
+## Reports whether a specific gesture was detected this frame.
+##
+## ## Parameters
+## - `gesture`: the gesture to test, as a `raylib.Gesture`.
+##
+## ## Returns
+## `true` when that gesture is the one currently detected, `false` otherwise.
+##
+## ## Notes
+## raylib recognises one gesture at a time, so this is a comparison against the current detection rather than a flag test.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var tapped as bool is calling is_gesture_detected with raylib.GESTURE_TAP
+## ```
+
+weave is_gesture_detected with gesture as raylib.Gesture into bool:
+    return calling raylib.IsGestureDetected with (gesture to u32)
+
+## Returns the gesture currently being detected.
+##
+## ## Returns
+## `some` with the gesture's ordinal, or `maybe none` when nothing is being detected.
+##
+## ## Notes
+## raylib signals "nothing" with `GESTURE_NONE`, which is `0`.
+## The value is an `int` rather than a `raylib.Gesture` because the compiler emits an invalid C cast when converting an `int` to a qualified omen (master plan D19); compare it as `g == (raylib.GESTURE_TAP to int)`.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var g as maybe int is calling detected_gesture
+## ```
+
+weave detected_gesture into maybe int:
+    var g as int is calling raylib.GetGestureDetected
+    if g == 0:
+        return maybe none
+    return some g
+
+# --- Tests ---
+
+test "is_key_down and friends are false with no input":
+    calling ward.assert_false with (calling is_key_down with raylib.KEY_SPACE)
+    calling ward.assert_false with (calling is_key_pressed with raylib.KEY_SPACE)
+    calling ward.assert_false with (calling is_key_pressed_repeat with raylib.KEY_SPACE)
+    calling ward.assert_false with (calling is_key_released with raylib.KEY_SPACE)
+    calling ward.assert_true with (calling is_key_up with raylib.KEY_A)
+
+test "the keyboard predicates accept distinct keys":
+    calling ward.assert_false with (calling is_key_down with raylib.KEY_ESCAPE)
+    calling ward.assert_false with (calling is_key_down with raylib.KEY_ENTER)
+    calling ward.assert_false with (calling is_key_down with raylib.KEY_LEFT_SHIFT)
+
+test "key_pressed is none with an empty queue":
+    var first as maybe int is calling key_pressed
+    calling ward.assert_maybe_none with first
+    var second as maybe int is calling key_pressed
+    calling ward.assert_maybe_none with second
+
+test "char_pressed is none with an empty queue":
+    var first as maybe int is calling char_pressed
+    calling ward.assert_maybe_none with first
+
+test "key_name is a maybe whose value is never empty":
+    # Measured: without a window this is `maybe none` (no keyboard layout); once GLFW has been
+    # initialised it may be `some`. Asserting `none` unconditionally would make this test
+    # depend on whether an earlier test opened a window, so it asserts the contract instead:
+    # a `some` result carries a real, non-empty, owned string.
+    var name as maybe string is calling key_name with raylib.KEY_A
+    if name is present:
+        var label as string is calling name.unwrap
+        calling ward.assert_false with (label == "")
+
+test "gamepad button predicates follow whether a device is available":
+    # This depends on whether GLFW has enumerated a device, which depends on whether a window
+    # has ever been created in the process -- so the test branches instead of assuming. Both
+    # branches were measured with a real joystick present at /dev/input/js0:
+    #   * before any window exists: `IsGamepadAvailable(0)` is false and all four are false;
+    #   * once a window has been opened: the device is available, and `up` is the logical
+    #     negation of `down` (true for an unpressed button).
+    if calling raylib.IsGamepadAvailable with 0:
+        calling ward.assert_false with (calling is_gamepad_button_down with 0, raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN)
+        calling ward.assert_true with (calling is_gamepad_button_up with 0, raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN)
+    else:
+        calling ward.assert_false with (calling is_gamepad_button_down with 0, raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN)
+        calling ward.assert_false with (calling is_gamepad_button_pressed with 0, raylib.GAMEPAD_BUTTON_LEFT_FACE_UP)
+        calling ward.assert_false with (calling is_gamepad_button_released with 0, raylib.GAMEPAD_BUTTON_MIDDLE_RIGHT)
+        calling ward.assert_false with (calling is_gamepad_button_up with 0, raylib.GAMEPAD_BUTTON_RIGHT_TRIGGER_1)
+
+test "gamepad_button_pressed is none with no gamepad":
+    var b as maybe int is calling gamepad_button_pressed
+    calling ward.assert_maybe_none with b
+
+test "gamepad_axis_movement is zero only without a device":
+    # Measured: with the real joystick at /dev/input/js0 enumerated, a resting axis is NOT
+    # exactly zero (-0.0117647, about -3/255), which is precisely why dead zones exist and why
+    # this test has to branch instead of demanding 0.0 unconditionally.
+    if calling raylib.IsGamepadAvailable with 0:
+        var x as f32 is calling gamepad_axis_movement with 0, raylib.GAMEPAD_AXIS_LEFT_X
+        calling ward.assert_true with (x >= -1.0)
+        calling ward.assert_true with (x <= 1.0)
+    else:
+        calling ward.assert_almost_eq with (calling gamepad_axis_movement with 0, raylib.GAMEPAD_AXIS_LEFT_X), 0.0, 0.001
+        calling ward.assert_almost_eq with (calling gamepad_axis_movement with 0, raylib.GAMEPAD_AXIS_RIGHT_Y), 0.0, 0.001
+
+test "gamepad_name is a string, empty only without a device":
+    # Measured: with the real controller enumerated this returns its name
+    # ("Sony Computer Entertainment Wireless Controller"), and an empty string otherwise.
+    # Either way it is a plain `string`, never `maybe`: raylib returns "" rather than NULL.
+    var who as string is calling gamepad_name with 0
+    if calling raylib.IsGamepadAvailable with 0:
+        calling ward.assert_false with (who == "")
+    else:
+        calling ward.assert_string_empty with who
+
+test "set_gamepad_mappings never returns a negative count":
+    calling ward.assert_ge_int with (calling set_gamepad_mappings with ""), 0
+    calling ward.assert_ge_int with (calling set_gamepad_mappings with "not a mapping"), 0
+
+test "mouse button predicates are false with no input":
+    calling ward.assert_false with (calling is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT)
+    calling ward.assert_false with (calling is_mouse_button_pressed with raylib.MOUSE_BUTTON_RIGHT)
+    calling ward.assert_false with (calling is_mouse_button_released with raylib.MOUSE_BUTTON_MIDDLE)
+    calling ward.assert_true with (calling is_mouse_button_up with raylib.MOUSE_BUTTON_SIDE)
+
+test "the mouse setters are callable headless":
+    calling set_mouse_position with (with x is 100.0, y is 200.0)
+    calling set_mouse_offset with (with x is 0.0, y is 0.0)
+    calling set_mouse_scale with (with x is 1.0, y is 1.0)
+    calling set_mouse_cursor with raylib.MOUSE_CURSOR_CROSSHAIR
+    var pos as raylib.Vector2 is calling raylib.GetMousePosition
+    calling ward.assert_false with (pos.x != pos.x)
+
+test "touch_point_id distinguishes invalid slots from id zero":
+    var invalid as maybe int is calling touch_point_id with 1000
+    calling ward.assert_maybe_none with invalid
+    var first as maybe int is calling touch_point_id with 0
+    calling ward.assert_maybe_present with first
+    calling ward.assert_eq_int with (calling first.unwrap), 0
+
+test "enable_gestures accepts an empty slice as a no-op":
+    var none as list of raylib.Gesture is list of raylib.Gesture
+    defer banish none
+    calling enable_gestures with (none at 0 to 0)
+    calling ward.assert_false with (calling is_gesture_detected with raylib.GESTURE_TAP)
+
+test "enable_gestures combines several flags":
+    var flags as list of raylib.Gesture is list of raylib.Gesture
+    defer banish flags
+    calling flags.push with raylib.GESTURE_TAP
+    calling flags.push with raylib.GESTURE_DRAG
+    calling enable_gestures with (flags at 0 to (flags.length))
+    calling ward.assert_false with (calling is_gesture_detected with raylib.GESTURE_DRAG)
+    calling ward.assert_false with (calling is_gesture_detected with raylib.GESTURE_PINCH_IN)
+
+test "detected_gesture is none when nothing is happening":
+    var g as maybe int is calling detected_gesture
+    calling ward.assert_maybe_none with g
+
+# Every wrapped entry is referenced here so that no signature can rot unnoticed. The
+# probe is not invoked: the family is already asserted by the tests above, and this one
+# exists only for the type checker.
+weave input_api_probe into void:
+    var a as bool is calling is_key_pressed with raylib.KEY_A
+    var b as bool is calling is_key_pressed_repeat with raylib.KEY_A
+    var c as bool is calling is_key_down with raylib.KEY_A
+    var d as bool is calling is_key_released with raylib.KEY_A
+    var e as bool is calling is_key_up with raylib.KEY_A
+    var f as maybe int is calling key_pressed
+    var g as maybe int is calling char_pressed
+    var h as maybe string is calling key_name with raylib.KEY_A
+    var i as bool is calling is_gamepad_button_pressed with 0, raylib.GAMEPAD_BUTTON_LEFT_FACE_UP
+    var j as bool is calling is_gamepad_button_down with 0, raylib.GAMEPAD_BUTTON_LEFT_FACE_UP
+    var k as bool is calling is_gamepad_button_released with 0, raylib.GAMEPAD_BUTTON_LEFT_FACE_UP
+    var l as bool is calling is_gamepad_button_up with 0, raylib.GAMEPAD_BUTTON_LEFT_FACE_UP
+    var m as maybe int is calling gamepad_button_pressed
+    var n as f32 is calling gamepad_axis_movement with 0, raylib.GAMEPAD_AXIS_LEFT_X
+    var o as string is calling gamepad_name with 0
+    var p as int is calling set_gamepad_mappings with "x"
+    var q as bool is calling is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT
+    var r as bool is calling is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT
+    var s as bool is calling is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT
+    var t as bool is calling is_mouse_button_up with raylib.MOUSE_BUTTON_LEFT
+    calling set_mouse_position with (with x is 0.0, y is 0.0)
+    calling set_mouse_offset with (with x is 0.0, y is 0.0)
+    calling set_mouse_scale with (with x is 1.0, y is 1.0)
+    calling set_mouse_cursor with raylib.MOUSE_CURSOR_DEFAULT
+    var u as maybe int is calling touch_point_id with 0
+    var flags as list of raylib.Gesture is list of raylib.Gesture
+    defer banish flags
+    calling enable_gestures with (flags at 0 to 0)
+    var v as bool is calling is_gesture_detected with raylib.GESTURE_TAP
+    var w as maybe int is calling detected_gesture

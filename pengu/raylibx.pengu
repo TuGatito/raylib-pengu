@@ -1,0 +1,75 @@
+## raylibx.pengu
+## The facade of the `raylibx` layer: one module that imports all thirteen wrapper
+## families, so the whole layer can be checked, built and reviewed as a unit.
+##
+## ## Why this module exists
+## PenguScript has **no re-export**: `@export` names a C symbol and nothing makes an
+## imported symbol visible through a second module. So this facade cannot give you
+## `raylibx.split_text`; what it gives you is a single entry point that pulls the whole
+## layer into one compilation:
+##
+##     pengu check --entry pengu/raylibx.pengu     # every family, at once
+##     pengu build --entry pengu/raylibx.pengu     # and one bundle that links
+##
+## That matters because `pengu check` on a single family file **cannot** see a C symbol
+## collision between two families — enchantings generate their C functions from the type
+## and method names, so two families adding the same method to the same type would only
+## fail when something imported both. This module is that something. It is the layer's
+## integration test.
+##
+## ## How to use the layer
+## Import the families you need, with an alias, and call through it:
+##
+## ```pengu
+## import raylib
+## import raylibx.text as text
+## import raylibx.images as images
+##
+## weave main into int:
+##     var img as raylib.Image is calling images.gen_image_color with 32, 32, raylib.RED
+##     defer calling images.unload_image with img
+##     var parts as list of string is calling text.split_text with "a,b", ","
+##     defer banish parts
+##     return 0
+## ```
+##
+## ## The fourteen families
+## | Module | What it wraps |
+## |---|---|
+## | `raylibx.colors` | `Color` methods and the colour helpers |
+## | `raylibx.files` | file, directory, path and clipboard-of-files functions |
+## | `raylibx.shapes` | 2D shapes, with 20 `Vector2` and 7 `Rectangle` methods |
+## | `raylibx.shapes3d` | 3D primitives, with 4 `Vector3` methods |
+## | `raylibx.text` | fonts and text, with 5 `Font` methods |
+## | `raylibx.input` | keyboard, mouse, gamepad, touch and gestures |
+## | `raylibx.images` | the image pipeline, with 52 `Image` methods |
+## | `raylibx.textures` | `Texture` and `RenderTexture` |
+## | `raylibx.drawing` | the `Begin`/`End` frame-state pairs |
+## | `raylibx.window` | window state, monitors and the clipboard |
+## | `raylibx.shaders` | shader loading and typed uniforms |
+## | `raylibx.models` | meshes, materials, models, animations and 3D collision |
+## | `raylibx.audio` | waves, sounds, music and audio streams |
+## | `raylibx.random` | randomness: `between` and `sequence`, plus the four measured traps |
+##
+## Every family's own plan is in `docs/plans/raylibx_<family>.md`, and the layer's shared
+## decisions are in `docs/plans/raylibx.md`.
+
+import raylibx.audio as audio
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.files as files
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.random as random
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as text
+import raylibx.textures as textures
+import raylibx.window as window
+
+## This module has no weaves of its own: it exists so that the whole layer is compiled,
+## type-checked and linked as one unit. Every symbol lives in the family that owns it.
+weave main into int:
+    return 0

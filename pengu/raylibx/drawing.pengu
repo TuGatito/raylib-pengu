@@ -1,0 +1,419 @@
+## raylibx/drawing.pengu
+## Layer-2 wrapper over the 15 frame-state functions of the `raylib` binding: the seven
+## `Begin`/`End` pairs and `ClearBackground`.
+##
+## This is the family that names the frame's state machine:
+##
+##     calling raylib.BeginMode3D with camera        # binding
+##     calling raylibx_drawing.begin_mode_3d with camera   # wrapper
+##
+## ## Balancing the pairs
+## The wrapper cannot enforce the pairing, and it deliberately does not try: the obvious
+## design -- a helper that takes the frame body as a lambda and closes it for you -- is
+## **not possible in PenguScript**, because lambdas do not capture locals and a drawing body
+## always needs the caller's camera and scene state. See the family plan, D3.
+##
+## The idiomatic mechanism is `defer`, which runs at scope exit:
+##
+## ```pengu
+## calling raylibx_drawing.begin_drawing
+## defer calling raylibx_drawing.end_drawing
+## ```
+
+import raylib
+import std.ward
+##
+## Every `end_*` docstring names the `begin_*` it closes.
+##
+## This is family `drawing` of `raylibx`; see `docs/plans/raylibx_drawing.md`.
+##
+## ## Needs a window
+## Measured: most of this family crashes without a graphics context and the one pair that
+## survives a call (`begin_blend_mode`/`end_blend_mode`) crashes on the second. Only the
+## shader pair is safe to repeat, so it is the only thing the test suite calls; everything
+## else is type-checked by `drawing_api_probe`.
+##
+## ## Memory
+## Nothing is allocated, nothing is released, nothing can fail. This is the only family of
+## the module with no `maybe`, no `slice` and no `std.ffi` boundary at all.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raylibx_drawing
+##
+## weave main into int:
+##     calling raylibx_drawing.begin_drawing
+##     defer calling raylibx_drawing.end_drawing
+##     calling raylibx_drawing.clear_background with raylib.RAYWHITE
+##     return 0
+## ```
+
+
+## Opens a drawing frame.
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## This must be the first call of the frame and `end_drawing` must close it; everything drawn in between lands on the screen.
+## Pair it with `defer calling raylibx_drawing.end_drawing` right after, so the frame still closes if something returns early.
+## **Requires a window.** Measured: calling it without one crashes rather than being ignored.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.begin_drawing
+## defer calling raylibx_drawing.end_drawing
+## ```
+weave begin_drawing into void:
+    calling raylib.BeginDrawing
+
+## Closes the drawing frame opened by `begin_drawing`.
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## This is where raylib presents the frame and advances the timing, so no drawing is visible until it runs.
+## Never call it without a matching `begin_drawing`: the frame stack is not checked.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.end_drawing
+## ```
+weave end_drawing into void:
+    calling raylib.EndDrawing
+
+## Switches drawing into a 2D camera's coordinate space.
+##
+## ## Parameters
+## - `c`: the camera whose 2D space drawing switches to
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## Everything drawn until `end_mode_2d` is transformed by the camera's offset, target, rotation and zoom.
+## Pair it with `defer calling raylibx_drawing.end_mode_2d`.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.begin_mode_2d with camera
+## ```
+weave begin_mode_2d with camera as raylib.Camera2D into void:
+    calling raylib.BeginMode2D with camera
+
+## Leaves the 2D camera space opened by `begin_mode_2d`.
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## It takes no camera argument: raylib keeps the mode as stack state, so this closes whichever `begin_mode_2d` is innermost.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.end_mode_2d
+## ```
+weave end_mode_2d into void:
+    calling raylib.EndMode2D
+
+## Switches drawing into a 3D camera's coordinate space.
+##
+## ## Parameters
+## - `c`: the camera whose 3D space drawing switches to
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## Everything drawn until `end_mode_3d` uses the camera's view and projection matrices.
+## This is the switch that makes the `raylibx_shapes3d` primitives appear in perspective.
+## Pair it with `defer calling raylibx_drawing.end_mode_3d`.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.begin_mode_3d with camera
+## ```
+weave begin_mode_3d with camera as raylib.Camera3D into void:
+    calling raylib.BeginMode3D with camera
+
+## Leaves the 3D camera space opened by `begin_mode_3d`.
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## The `raylibx_shapes3d` primitives drawn after this are back in screen space and will look wrong: it is the most common symptom of a missing pair.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.end_mode_3d
+## ```
+weave end_mode_3d into void:
+    calling raylib.EndMode3D
+
+## Redirects drawing into a render target instead of the screen.
+##
+## ## Parameters
+## - `t`: the render target that receives the drawing
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## The target's texture can then be drawn like any other texture, which is how you build post-processing and off-screen passes.
+## Rendering to a texture flips the vertical axis in OpenGL, so the result usually needs a negative source height when it is drawn back.
+## Pair it with `defer calling raylibx_drawing.end_texture_mode`.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.begin_texture_mode with target
+## ```
+weave begin_texture_mode with target as raylib.RenderTexture2D into void:
+    calling raylib.BeginTextureMode with target
+
+## Returns drawing to the screen after `begin_texture_mode`.
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## raylib keeps the render target as stack state; this closes the innermost one.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.end_texture_mode
+## ```
+weave end_texture_mode into void:
+    calling raylib.EndTextureMode
+
+## Applies a shader to every draw call that follows.
+##
+## ## Parameters
+## - `s`: the shader applied to everything drawn until the matching end
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## The shader's uniforms must be set before this call, because raylib binds it here.
+## Measured: this pair is the one piece of the family that is safe to call without a window, and repeating it five times does not crash, which is why the test can assert it.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.begin_shader_mode with shader
+## ```
+weave begin_shader_mode with shader as raylib.Shader into void:
+    calling raylib.BeginShaderMode with shader
+
+## Stops applying the shader bound by `begin_shader_mode`.
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## Shaders nest, so each `begin_shader_mode` needs its own end and the innermost wins.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.end_shader_mode
+## ```
+weave end_shader_mode into void:
+    calling raylib.EndShaderMode
+
+## Sets the blending equation used by the draw calls that follow.
+##
+## ## Parameters
+## - `m`: the blending equation applied to everything drawn until the matching end
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## `raylib.BLEND_ALPHA` is the default; additive is the one that makes glows and particles work.
+## Measured: one pair is safe without a window but a second one crashes, so the test suite does not call this at all.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.begin_blend_mode with raylib.BLEND_ALPHA
+## ```
+weave begin_blend_mode with mode as raylib.BlendMode into void:
+    calling raylib.BeginBlendMode with (mode to int)
+
+## Restores the blending equation that was active before `begin_blend_mode`.
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## Blend modes do not nest the way shaders do: raylib stores one previous mode, so an unbalanced pair loses the original.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.end_blend_mode
+## ```
+weave end_blend_mode into void:
+    calling raylib.EndBlendMode
+
+## Clips drawing to a rectangle.
+##
+## ## Parameters
+## - `x`: the clip rectangle's left edge
+## - `y`: the clip rectangle's top edge
+## - `w`: the clip rectangle's width
+## - `h`: the clip rectangle's height
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## Everything drawn until `end_scissor_mode` is discarded outside the rectangle, which is how scrolling lists and masked panels are built.
+## The coordinates are in the current target's space, so inside a 2D camera they follow the camera.
+## Measured: both halves of this pair crash without a window.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.begin_scissor_mode with 0, 0, 128, 128
+## ```
+weave begin_scissor_mode with x as int, y as int, width as int, height as int into void:
+    calling raylib.BeginScissorMode with x, y, width, height
+
+## Removes the clip rectangle set by `begin_scissor_mode`.
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## raylib keeps one scissor rectangle, not a stack, so nesting loses the outer clip.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.end_scissor_mode
+## ```
+weave end_scissor_mode into void:
+    calling raylib.EndScissorMode
+
+## Fills the current drawing target with a colour.
+##
+## ## Parameters
+## - `c`: the colour the current target is filled with
+##
+## ## Returns
+## Nothing; the frame state is changed.
+##
+## ## Notes
+## It clears whatever target is active, so inside `begin_texture_mode` it clears the render texture and not the screen.
+## **Requires an open frame and a window.** Measured: calling it without one crashes.
+## This is `Image.clear`'s twin in `raylibx_images`: same idea, different target.
+##
+## ## Memory
+## No allocation and nothing to release.
+##
+## ## Example
+## ```pengu
+## calling raylibx_drawing.clear_background with raylib.RAYWHITE
+## ```
+weave clear_background with color as raylib.Color into void:
+    calling raylib.ClearBackground with color
+
+
+# --- Tests ---
+
+# This family is pure frame state. Measured without a window: BeginDrawing, EndDrawing,
+# ClearBackground, BeginScissorMode and EndScissorMode crash; the blend pair survives one
+# call and crashes on the second; the shader pair survives repetition. So the shader pair is
+# the only thing asserted, and it is asserted twice on purpose: the second call is what
+# distinguishes it from the blend pair, whose single safe call would be a lucky test.
+test "the shader mode pair is balanced and repeatable":
+    var loc as int is 0
+    var shader as raylib.Shader is with id is 0, locs is (sigil of loc)
+    calling begin_shader_mode with shader
+    calling end_shader_mode
+    calling begin_shader_mode with shader
+    calling end_shader_mode
+
+# The rest of the surface is type-checked here and never called: every entry needs a window,
+# and the measured failure mode is a crash rather than a silent no-op.
+weave drawing_api_probe with camera2 as raylib.Camera2D, camera3 as raylib.Camera3D, target as raylib.RenderTexture2D, shader as raylib.Shader into void:
+    calling begin_drawing
+    calling clear_background with raylib.RAYWHITE
+    calling begin_mode_2d with camera2
+    calling end_mode_2d
+    calling begin_mode_3d with camera3
+    calling end_mode_3d
+    calling begin_texture_mode with target
+    calling end_texture_mode
+    calling begin_shader_mode with shader
+    calling end_shader_mode
+    calling begin_blend_mode with raylib.BLEND_ALPHA
+    calling end_blend_mode
+    calling begin_scissor_mode with 0, 0, 16, 16
+    calling end_scissor_mode
+    calling end_drawing
+
+# This family's original plan concluded that none of its pairs could be tested, because
+# without a graphics context most of them crash. That conclusion was measured again and it is
+# environment-dependent: this machine has a display, `raylib.InitWindow` from the binding
+# opens a real window, and with one open every pair works. So the pairs are asserted here for
+# real, and the window lifecycle comes from the binding because the wrapper deliberately does
+# not wrap `InitWindow`/`CloseWindow` (contract section 9 row 8).
+test "the frame and mode pairs balance on a live window":
+    calling raylib.InitWindow with 160, 120, "raylibx_drawing pairs"
+    defer calling raylib.CloseWindow
+    var camera2 as raylib.Camera2D is with offset is (with x is 0.0, y is 0.0), target is (with x is 0.0, y is 0.0), rotation is 0.0, zoom is 1.0
+    var camera3 as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    calling begin_drawing
+    calling clear_background with raylib.RAYWHITE
+    calling begin_scissor_mode with 0, 0, 40, 40
+    calling end_scissor_mode
+    calling begin_blend_mode with raylib.BLEND_ALPHA
+    calling end_blend_mode
+    calling begin_mode_2d with camera2
+    calling end_mode_2d
+    calling begin_mode_3d with camera3
+    calling end_mode_3d
+    calling end_drawing
+    calling ward.assert_true with (calling raylib.IsWindowReady)

@@ -1,0 +1,5445 @@
+## raymathx.pengu
+## Layer-2 wrapper over the `raymath` binding: Pengunic methods for vectors, quaternions and matrices.
+##
+## The wrapper adds no storage and no types of its own beyond two small result `rune`s
+## (`AxisAngle`, `MatrixParts`). Every method lowers to one direct call into
+## `pengu/raymath.d.pengu`; the types (`Vector2`, `Vector3`, `Vector4`, `Quaternion`,
+## `Matrix`) are declared in `pengu/raylib.d.pengu` and are only extended here with
+## `enchanting`.
+##
+## `Quaternion` is an alias of `Vector4`, so both names share one method table. All the
+## arithmetic lives on `raylib.Vector4`; `raylib.Quaternion` adds only the operations that
+## are meaningful for a rotation (`mul`, `slerp_to`, `nlerp_to`, `cubic_hermite_to`,
+## `to_matrix`, `to_euler`, `to_axis_angle`). Never declare the same method name in both
+## blocks: the compiler would emit one C function twice and the C build would fail.
+##
+## ## Memory
+## No allocation, no ownership, nothing to release: raymath is by-value arithmetic. There is
+## no `banish` and no `std.ffi` in this module.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raymathx
+##
+## weave main into int:
+##     var v as raylib.Vector3 is calling Vector3.new with 3.0, 4.0, 0.0
+##     calling v.normalize
+##     var n as f32 is calling v.length
+##     return 0
+## ```
+
+import raylib
+import raymath
+import std.ward
+
+## The rotation axis and angle extracted from a quaternion.
+##
+## ## Invariants
+## - `axis` is normalized.
+## - `angle` is in radians.
+rune AxisAngle:
+    axis as raylib.Vector3
+    angle as f32
+
+## The translation, rotation and scale decomposed from a transform matrix.
+##
+## ## Invariants
+## - `rotation` is a unit quaternion.
+## - Any shear present in the source matrix is removed during decomposition.
+rune MatrixParts:
+    translation as raylib.Vector3
+    rotation as raylib.Quaternion
+    scale as raylib.Vector3
+
+## Clamps a scalar between `lo` and `hi`.
+##
+## ## Parameters
+## - `value`: the value to clamp.
+## - `lo`: lower bound.
+## - `hi`: upper bound.
+##
+## ## Returns
+## `lo` if `value` is below it, `hi` if above, otherwise `value`.
+##
+## ## Example
+## ```pengu
+## var c as f32 is calling clamp with 5.0, 0.0, 1.0   # 1.0
+## ```
+weave clamp with value as f32, lo as f32, hi as f32 into f32:
+    return calling raymath.Clamp with value, lo, hi
+
+## Linearly interpolates between two scalars.
+##
+## ## Parameters
+## - `start`: value at `t = 0`.
+## - `end`: value at `t = 1`.
+## - `t`: blend factor.
+##
+## ## Returns
+## The interpolated value.
+##
+## ## Example
+## ```pengu
+## var m as f32 is calling lerp with 0.0, 10.0, 0.5   # 5.0
+## ```
+weave lerp with start as f32, end as f32, t as f32 into f32:
+    return calling raymath.Lerp with start, end, t
+
+## Normalizes a value within a range, remapping it to `[0, 1]`.
+##
+## ## Parameters
+## - `value`: the value to normalize.
+## - `start`: start of the input range.
+## - `end`: end of the input range.
+##
+## ## Returns
+## The normalized value.
+##
+## ## Example
+## ```pengu
+## var n as f32 is calling normalize_in with 5.0, 0.0, 10.0   # 0.5
+## ```
+weave normalize_in with value as f32, start as f32, end as f32 into f32:
+    return calling raymath.Normalize with value, start, end
+
+## Remaps a value from one range to another.
+##
+## ## Parameters
+## - `value`: the value to remap.
+## - `in_start`, `in_end`: the input range.
+## - `out_start`, `out_end`: the output range.
+##
+## ## Returns
+## The remapped value.
+##
+## ## Example
+## ```pengu
+## var r as f32 is calling remap with 5.0, 0.0, 10.0, 0.0, 100.0   # 50.0
+## ```
+weave remap with value as f32, in_start as f32, in_end as f32, out_start as f32, out_end as f32 into f32:
+    return calling raymath.Remap with value, in_start, in_end, out_start, out_end
+
+## Wraps a value into the `[lo, hi]` range.
+##
+## ## Parameters
+## - `value`: the value to wrap.
+## - `lo`: lower bound.
+## - `hi`: upper bound.
+##
+## ## Returns
+## The wrapped value.
+##
+## ## Example
+## ```pengu
+## var w as f32 is calling wrap with 370.0, 0.0, 360.0   # 10.0
+## ```
+weave wrap with value as f32, lo as f32, hi as f32 into f32:
+    return calling raymath.Wrap with value, lo, hi
+
+## Compares two scalars approximately, using raymath's `EPSILON`.
+##
+## ## Parameters
+## - `a`, `b`: the values to compare.
+##
+## ## Returns
+## `true` when the values are closer than `EPSILON`.
+##
+## ## Example
+## ```pengu
+## var same as bool is calling approx_eq with 0.1 + 0.2, 0.3   # true
+## ```
+weave approx_eq with a as f32, b as f32 into bool:
+    return (calling raymath.FloatEquals with a, b) != 0
+
+## Returns the identity quaternion.
+##
+## ## Returns
+## A unit quaternion with `w = 1`, representing no rotation.
+##
+## ## Example
+## ```pengu
+## var q as raylib.Quaternion is calling quaternion_identity
+## ```
+weave quaternion_identity into raylib.Quaternion:
+    return calling raymath.QuaternionIdentity
+
+## Builds a quaternion from a rotation axis and an angle.
+##
+## ## Parameters
+## - `axis`: the rotation axis. It does not need to be normalized.
+## - `angle`: the rotation in radians.
+##
+## ## Returns
+## The rotation quaternion.
+##
+## ## Example
+## ```pengu
+## var q as raylib.Quaternion is calling quaternion_from_axis_angle with (calling Vector3.new with 0.0, 1.0, 0.0), 1.5707963
+## ```
+weave quaternion_from_axis_angle with axis as raylib.Vector3, angle as f32 into raylib.Quaternion:
+    return calling raymath.QuaternionFromAxisAngle with axis, angle
+
+## Builds a quaternion from Euler angles.
+##
+## ## Parameters
+## - `pitch`, `yaw`, `roll`: the angles in radians, applied in ZYX order.
+##
+## ## Returns
+## The rotation quaternion.
+##
+## ## Example
+## ```pengu
+## var q as raylib.Quaternion is calling quaternion_from_euler with 0.1, 0.2, 0.3
+## ```
+weave quaternion_from_euler with pitch as f32, yaw as f32, roll as f32 into raylib.Quaternion:
+    return calling raymath.QuaternionFromEuler with pitch, yaw, roll
+
+## Builds a quaternion from a rotation matrix.
+##
+## ## Parameters
+## - `mat`: the rotation matrix.
+##
+## ## Returns
+## The rotation quaternion.
+##
+## ## Example
+## ```pengu
+## var q as raylib.Quaternion is calling quaternion_from_matrix with (calling Matrix.identity)
+## ```
+weave quaternion_from_matrix with mat as raylib.Matrix into raylib.Quaternion:
+    return calling raymath.QuaternionFromMatrix with mat
+
+## Builds the quaternion that rotates one vector onto another.
+##
+## ## Parameters
+## - `from`: the source direction.
+## - `to`: the destination direction.
+##
+## ## Returns
+## The rotation quaternion.
+##
+## ## Example
+## ```pengu
+## var q as raylib.Quaternion is calling quaternion_from_vector_to_vector with (calling Vector3.new with 1.0, 0.0, 0.0), (calling Vector3.new with 0.0, 1.0, 0.0)
+## ```
+weave quaternion_from_vector_to_vector with from as raylib.Vector3, to as raylib.Vector3 into raylib.Quaternion:
+    return calling raymath.QuaternionFromVector3ToVector3 with from, to
+
+enchanting raylib.Vector2:
+
+    ## Builds a 2D vector from its two components.
+    ##
+    ## ## Parameters
+    ## - `x`: horizontal component.
+    ## - `y`: vertical component.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector2` with the given components.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 3.0, 4.0
+    ## ```
+
+    weave ritual new with x as f32, y as f32 into raylib.Vector2:
+        return with x is x, y is y
+
+    ## Returns the additive identity `(0, 0)`.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector2` with both components at `0.0`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var z as raylib.Vector2 is calling Vector2.zero
+    ## ```
+
+    weave ritual zero into raylib.Vector2:
+        return calling raymath.Vector2Zero
+
+    ## Returns the vector `(1, 1)`.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector2` with both components at `1.0`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var o as raylib.Vector2 is calling Vector2.one
+    ## ```
+
+    weave ritual one into raylib.Vector2:
+        return calling raymath.Vector2One
+
+    ## Builds a vector with the same value in every component.
+    ##
+    ## ## Parameters
+    ## - `value`: the component to repeat.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector2` equal to `(value, value)`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var s as raylib.Vector2 is calling Vector2.splat with 2.5
+    ## ```
+
+    weave ritual splat with value as f32 into raylib.Vector2:
+        return with x is value, y is value
+
+    ## Adds `other` to the receiver, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to add.
+    ##
+    ## ## Returns
+    ## The receiver, now equal to `self + other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 1.0, 2.0
+    ## calling v.add with (calling Vector2.splat with 1.0)   # v is (2, 3)
+    ## ```
+
+    @mutates
+    weave add with other as raylib.Vector2 into raylib.Vector2:
+        return calling raymath.Vector2Add with (essence of self), other
+
+    ## Adds a scalar to both components of the receiver.
+    ##
+    ## ## Parameters
+    ## - `add`: the value to add to each component.
+    ##
+    ## ## Returns
+    ## The receiver, now equal to `self + (add, add)`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 1.0, 2.0
+    ## calling v.add_scalar with 0.5   # v is (1.5, 2.5)
+    ## ```
+
+    @mutates
+    weave add_scalar with add as f32 into raylib.Vector2:
+        return calling raymath.Vector2AddValue with (essence of self), add
+
+    ## Subtracts `other` from the receiver, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to subtract.
+    ##
+    ## ## Returns
+    ## The receiver, now equal to `self - other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 3.0, 4.0
+    ## calling v.subtract with (calling Vector2.splat with 1.0)   # v is (2, 3)
+    ## ```
+
+    @mutates
+    weave subtract with other as raylib.Vector2 into raylib.Vector2:
+        return calling raymath.Vector2Subtract with (essence of self), other
+
+    ## Subtracts a scalar from both components of the receiver.
+    ##
+    ## ## Parameters
+    ## - `sub`: the value to subtract from each component.
+    ##
+    ## ## Returns
+    ## The receiver, now equal to `self - (sub, sub)`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 1.0, 2.0
+    ## calling v.subtract_scalar with 0.5   # v is (0.5, 1.5)
+    ## ```
+
+    @mutates
+    weave subtract_scalar with sub as f32 into raylib.Vector2:
+        return calling raymath.Vector2SubtractValue with (essence of self), sub
+
+    ## Multiplies the receiver by `other`, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to multiply by.
+    ##
+    ## ## Returns
+    ## The receiver, now equal to `self * other` component-wise.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 2.0, 3.0
+    ## calling v.multiply with (calling Vector2.splat with 2.0)   # v is (4, 6)
+    ## ```
+
+    @mutates
+    weave multiply with other as raylib.Vector2 into raylib.Vector2:
+        return calling raymath.Vector2Multiply with (essence of self), other
+
+    ## Scales both components of the receiver by `factor`.
+    ##
+    ## ## Parameters
+    ## - `factor`: the scalar multiplier.
+    ##
+    ## ## Returns
+    ## The receiver, now scaled by `factor`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 2.0, 3.0
+    ## calling v.scale with 2.0   # v is (4, 6)
+    ## ```
+
+    @mutates
+    weave scale with factor as f32 into raylib.Vector2:
+        return calling raymath.Vector2Scale with (essence of self), factor
+
+    ## Divides the receiver by `other`, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the divisor. A zero component yields `inf` or `NaN`, as in C.
+    ##
+    ## ## Returns
+    ## The receiver, now equal to `self / other` component-wise.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 4.0, 6.0
+    ## calling v.divide with (calling Vector2.splat with 2.0)   # v is (2, 3)
+    ## ```
+
+    @mutates
+    weave divide with other as raylib.Vector2 into raylib.Vector2:
+        return calling raymath.Vector2Divide with (essence of self), other
+
+    ## Flips the sign of both components of the receiver.
+    ##
+    ## ## Returns
+    ## The receiver, now equal to `-self`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 1.0, -2.0
+    ## calling v.negate   # v is (-1, 2)
+    ## ```
+
+    @mutates
+    weave negate into raylib.Vector2:
+        return calling raymath.Vector2Negate with (essence of self)
+
+    ## Replaces each component with its reciprocal.
+    ##
+    ## ## Parameters
+    ## - A zero component yields `inf`, as in C; this is not a normalisation.
+    ##
+    ## ## Returns
+    ## The receiver, now equal to `(1/x, 1/y)`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 2.0, 4.0
+    ## calling v.invert   # v is (0.5, 0.25)
+    ## ```
+
+    @mutates
+    weave invert into raylib.Vector2:
+        return calling raymath.Vector2Invert with (essence of self)
+
+    ## Normalises the receiver to unit length.
+    ##
+    ## ## Parameters
+    ## - The zero vector is returned unchanged (length `0`), so no division by zero occurs.
+    ##
+    ## ## Returns
+    ## The receiver, now of length `1` (or still zero for the zero vector).
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 3.0, 4.0
+    ## calling v.normalize   # v is (0.6, 0.8)
+    ## ```
+
+    @mutates
+    weave normalize into raylib.Vector2:
+        return calling raymath.Vector2Normalize with (essence of self)
+
+    ## Clamps each component of the receiver between `lo` and `hi`.
+    ##
+    ## ## Parameters
+    ## - `lo`: per-component lower bound.
+    ## - `hi`: per-component upper bound.
+    ##
+    ## ## Returns
+    ## The receiver, with every component inside `[lo, hi]`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 5.0, -5.0
+    ## calling v.clamp with (calling Vector2.splat with -1.0), (calling Vector2.splat with 1.0)
+    ## ```
+
+    @mutates
+    weave clamp with lo as raylib.Vector2, hi as raylib.Vector2 into raylib.Vector2:
+        return calling raymath.Vector2Clamp with (essence of self), lo, hi
+
+    ## Clamps the length of the receiver between `lo` and `hi`.
+    ##
+    ## ## Parameters
+    ## - `lo`: minimum length.
+    ## - `hi`: maximum length.
+    ##
+    ## ## Returns
+    ## The receiver, with its magnitude inside `[lo, hi]` and its direction unchanged.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 10.0, 0.0
+    ## calling v.clamp_magnitude with 0.0, 2.0   # v is (2, 0)
+    ## ```
+
+    @mutates
+    weave clamp_magnitude with lo as f32, hi as f32 into raylib.Vector2:
+        return calling raymath.Vector2ClampValue with (essence of self), lo, hi
+
+    ## Moves the receiver linearly towards `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the target vector.
+    ## - `t`: blend factor; `0` keeps `self`, `1` yields `other`.
+    ##
+    ## ## Returns
+    ## The receiver, interpolated towards `other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 0.0, 0.0
+    ## calling v.lerp_to with (calling Vector2.splat with 10.0), 0.5   # v is (5, 5)
+    ## ```
+
+    @mutates
+    weave lerp_to with other as raylib.Vector2, t as f32 into raylib.Vector2:
+        return calling raymath.Vector2Lerp with (essence of self), other, t
+
+    ## Moves the receiver towards `target` by at most `max_distance`.
+    ##
+    ## ## Parameters
+    ## - `target`: the destination vector.
+    ## - `max_distance`: the step length.
+    ##
+    ## ## Returns
+    ## The receiver, moved towards `target` without overshooting it.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 0.0, 0.0
+    ## calling v.move_towards with (calling Vector2.new with 10.0, 0.0), 1.0
+    ## ```
+
+    @mutates
+    weave move_towards with target as raylib.Vector2, max_distance as f32 into raylib.Vector2:
+        return calling raymath.Vector2MoveTowards with (essence of self), target, max_distance
+
+    ## Rotates the receiver around the origin.
+    ##
+    ## ## Parameters
+    ## - `angle`: rotation in radians.
+    ##
+    ## ## Returns
+    ## The receiver, rotated by `angle`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 1.0, 0.0
+    ## calling v.rotate_by with 1.5707963   # v is approximately (0, 1)
+    ## ```
+
+    @mutates
+    weave rotate_by with angle as f32 into raylib.Vector2:
+        return calling raymath.Vector2Rotate with (essence of self), angle
+
+    ## Returns the length (magnitude) of the vector.
+    ##
+    ## ## Returns
+    ## The Euclidean length as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 3.0, 4.0
+    ## var n as f32 is calling v.length   # 5.0
+    ## ```
+
+    weave length into f32:
+        return calling raymath.Vector2Length with (essence of self)
+
+    ## Returns the squared length of the vector.
+    ##
+    ## ## Parameters
+    ## - Cheaper than `length` when only a comparison is needed: it avoids the square root.
+    ##
+    ## ## Returns
+    ## The squared magnitude as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 3.0, 4.0
+    ## var n as f32 is calling v.length_sq   # 25.0
+    ## ```
+
+    weave length_sq into f32:
+        return calling raymath.Vector2LengthSqr with (essence of self)
+
+    ## Returns the dot product of the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the second vector.
+    ##
+    ## ## Returns
+    ## The scalar dot product.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector2 is calling Vector2.new with 1.0, 0.0
+    ## var b as raylib.Vector2 is calling Vector2.new with 0.0, 1.0
+    ## var d as f32 is calling a.dot with b   # 0.0
+    ## ```
+
+    weave dot with other as raylib.Vector2 into f32:
+        return calling raymath.Vector2DotProduct with (essence of self), other
+
+    ## Returns the 2D cross product (a scalar) of the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the second vector.
+    ##
+    ## ## Returns
+    ## The signed area of the parallelogram, as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector2 is calling Vector2.new with 1.0, 0.0
+    ## var b as raylib.Vector2 is calling Vector2.new with 0.0, 1.0
+    ## var c as f32 is calling a.cross with b   # 1.0
+    ## ```
+
+    weave cross with other as raylib.Vector2 into f32:
+        return calling raymath.Vector2CrossProduct with (essence of self), other
+
+    ## Returns the distance between the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the second point.
+    ##
+    ## ## Returns
+    ## The Euclidean distance as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector2 is calling Vector2.new with 0.0, 0.0
+    ## var b as raylib.Vector2 is calling Vector2.new with 3.0, 4.0
+    ## var d as f32 is calling a.distance_to with b   # 5.0
+    ## ```
+
+    weave distance_to with other as raylib.Vector2 into f32:
+        return calling raymath.Vector2Distance with (essence of self), other
+
+    ## Returns the squared distance between the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - Avoids the square root when only a comparison is needed.
+    ##
+    ## ## Returns
+    ## The squared distance as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector2 is calling Vector2.new with 0.0, 0.0
+    ## var b as raylib.Vector2 is calling Vector2.new with 3.0, 4.0
+    ## var d as f32 is calling a.distance_sq_to with b   # 25.0
+    ## ```
+
+    weave distance_sq_to with other as raylib.Vector2 into f32:
+        return calling raymath.Vector2DistanceSqr with (essence of self), other
+
+    ## Returns the signed angle from the vector to `other`.
+    ##
+    ## ## Parameters
+    ## - The coordinate system is Y-down: positive angles appear clockwise.
+    ##
+    ## ## Returns
+    ## The signed angle in radians.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector2 is calling Vector2.new with 1.0, 0.0
+    ## var b as raylib.Vector2 is calling Vector2.new with 0.0, 1.0
+    ## var ang as f32 is calling a.angle_to with b
+    ## ```
+
+    weave angle_to with other as raylib.Vector2 into f32:
+        return calling raymath.Vector2Angle with (essence of self), other
+
+    ## Returns the angle of the line defined by the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - Both vectors are expected to be normalised, as in the C function.
+    ## - The C routine computes `-atan2(dy, dx)`, so the result follows the Y-down convention and is the negation of the usual angle.
+    ##
+    ## ## Returns
+    ## The line angle in radians.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector2 is calling Vector2.new with 1.0, 0.0
+    ## var b as raylib.Vector2 is calling Vector2.new with 0.0, 1.0
+    ## var ang as f32 is calling a.angle_line_to with b
+    ## ```
+
+    weave angle_line_to with other as raylib.Vector2 into f32:
+        return calling raymath.Vector2LineAngle with (essence of self), other
+
+    ## Returns the component-wise minimum of the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to compare against.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector2` holding the smaller component of each pair.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector2 is calling Vector2.new with 1.0, 5.0
+    ## var b as raylib.Vector2 is calling Vector2.new with 3.0, 2.0
+    ## var lo as raylib.Vector2 is calling a.min_with with b   # (1, 2)
+    ## ```
+
+    weave min_with with other as raylib.Vector2 into raylib.Vector2:
+        return calling raymath.Vector2Min with (essence of self), other
+
+    ## Returns the component-wise maximum of the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to compare against.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector2` holding the larger component of each pair.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector2 is calling Vector2.new with 1.0, 5.0
+    ## var b as raylib.Vector2 is calling Vector2.new with 3.0, 2.0
+    ## var hi as raylib.Vector2 is calling a.max_with with b   # (3, 5)
+    ## ```
+
+    weave max_with with other as raylib.Vector2 into raylib.Vector2:
+        return calling raymath.Vector2Max with (essence of self), other
+
+    ## Reflects the vector about the plane defined by `normal`.
+    ##
+    ## ## Parameters
+    ## - `normal`: the surface normal. It must be normalised.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector2` with the reflected direction.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 1.0, -1.0
+    ## var n as raylib.Vector2 is calling Vector2.new with 0.0, 1.0
+    ## var r as raylib.Vector2 is calling v.reflect_in with n
+    ## ```
+
+    weave reflect_in with normal as raylib.Vector2 into raylib.Vector2:
+        return calling raymath.Vector2Reflect with (essence of self), normal
+
+    ## Computes the direction of a refracted ray crossing an interface.
+    ##
+    ## ## Parameters
+    ## - `normal`: normalised normal of the interface.
+    ## - `ratio`: ratio of refractive indices.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector2` with the refracted direction.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 1.0, -1.0
+    ## var n as raylib.Vector2 is calling Vector2.new with 0.0, 1.0
+    ## var r as raylib.Vector2 is calling v.refract_through with n, 1.5
+    ## ```
+
+    weave refract_through with normal as raylib.Vector2, ratio as f32 into raylib.Vector2:
+        return calling raymath.Vector2Refract with (essence of self), normal, ratio
+
+    ## Transforms the vector by a matrix.
+    ##
+    ## ## Parameters
+    ## - `mat`: the transformation matrix.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector2` with the transformed point.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector2 is calling Vector2.new with 1.0, 2.0
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## var t as raylib.Vector2 is calling v.transform_by with m
+    ## ```
+
+    weave transform_by with mat as raylib.Matrix into raylib.Vector2:
+        return calling raymath.Vector2Transform with (essence of self), mat
+
+enchanting raylib.Vector3:
+
+    ## Builds a 3D vector from its three components.
+    ##
+    ## ## Parameters
+    ## - `x`, `y`, `z`: the components.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector3` with the given components.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, 2.0, 3.0
+    ## ```
+
+    weave ritual new with x as f32, y as f32, z as f32 into raylib.Vector3:
+        return with x is x, y is y, z is z
+
+    ## Returns the additive identity `(0, 0, 0)`.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector3` with all components at `0.0`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var z as raylib.Vector3 is calling Vector3.zero
+    ## ```
+
+    weave ritual zero into raylib.Vector3:
+        return calling raymath.Vector3Zero
+
+    ## Returns the vector `(1, 1, 1)`.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector3` with all components at `1.0`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var o as raylib.Vector3 is calling Vector3.one
+    ## ```
+
+    weave ritual one into raylib.Vector3:
+        return calling raymath.Vector3One
+
+    ## Builds a vector with the same value in every component.
+    ##
+    ## ## Parameters
+    ## - `value`: the component to repeat.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector3` equal to `(value, value, value)`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var s as raylib.Vector3 is calling Vector3.splat with 2.5
+    ## ```
+
+    weave ritual splat with value as f32 into raylib.Vector3:
+        return with x is value, y is value, z is value
+
+    ## Converts an angle from radians to degrees and returns it in all three lanes.
+    ##
+    ## ## Parameters
+    ## - `radians`: the angle in radians.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector3` with `radians * 180 / PI` in every component.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var d as raylib.Vector3 is calling Vector3.radians_to_degrees with 3.14159265
+    ## ```
+
+    weave ritual radians_to_degrees with radians as f32 into raylib.Vector3:
+        let factor is (raylib.RAD2DEG to f32)
+        return with x is radians * factor, y is radians * factor, z is radians * factor
+
+    ## Converts an angle from degrees to radians and returns it in all three lanes.
+    ##
+    ## ## Parameters
+    ## - `degrees`: the angle in degrees.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector3` with `degrees * PI / 180` in every component.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var r as raylib.Vector3 is calling Vector3.degrees_to_radians with 180.0
+    ## ```
+
+    weave ritual degrees_to_radians with degrees as f32 into raylib.Vector3:
+        let factor is (raylib.DEG2RAD to f32)
+        return with x is degrees * factor, y is degrees * factor, z is degrees * factor
+
+    ## Adds `other` to the receiver, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to add.
+    ##
+    ## ## Returns
+    ## The receiver, now `self + other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, 2.0, 3.0
+    ## calling v.add with (calling Vector3.splat with 1.0)   # (2, 3, 4)
+    ## ```
+
+    @mutates
+    weave add with other as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3Add with (essence of self), other
+
+    ## Adds a scalar to every component of the receiver.
+    ##
+    ## ## Parameters
+    ## - `add`: the value to add.
+    ##
+    ## ## Returns
+    ## The receiver, now `self + (add, add, add)`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, 2.0, 3.0
+    ## calling v.add_scalar with 1.0
+    ## ```
+
+    @mutates
+    weave add_scalar with add as f32 into raylib.Vector3:
+        return calling raymath.Vector3AddValue with (essence of self), add
+
+    ## Subtracts `other` from the receiver, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to subtract.
+    ##
+    ## ## Returns
+    ## The receiver, now `self - other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 3.0, 4.0, 5.0
+    ## calling v.subtract with (calling Vector3.splat with 1.0)
+    ## ```
+
+    @mutates
+    weave subtract with other as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3Subtract with (essence of self), other
+
+    ## Subtracts a scalar from every component of the receiver.
+    ##
+    ## ## Parameters
+    ## - `sub`: the value to subtract.
+    ##
+    ## ## Returns
+    ## The receiver, now `self - (sub, sub, sub)`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, 2.0, 3.0
+    ## calling v.subtract_scalar with 1.0
+    ## ```
+
+    @mutates
+    weave subtract_scalar with sub as f32 into raylib.Vector3:
+        return calling raymath.Vector3SubtractValue with (essence of self), sub
+
+    ## Multiplies the receiver by `other`, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to multiply by.
+    ##
+    ## ## Returns
+    ## The receiver, now `self * other` component-wise.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 2.0, 3.0, 4.0
+    ## calling v.multiply with (calling Vector3.splat with 2.0)
+    ## ```
+
+    @mutates
+    weave multiply with other as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3Multiply with (essence of self), other
+
+    ## Scales every component of the receiver by `factor`.
+    ##
+    ## ## Parameters
+    ## - `factor`: the scalar multiplier.
+    ##
+    ## ## Returns
+    ## The receiver, now scaled by `factor`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, 2.0, 3.0
+    ## calling v.scale with 2.0
+    ## ```
+
+    @mutates
+    weave scale with factor as f32 into raylib.Vector3:
+        return calling raymath.Vector3Scale with (essence of self), factor
+
+    ## Divides the receiver by `other`, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the divisor; a zero component yields `inf` or `NaN`.
+    ##
+    ## ## Returns
+    ## The receiver, now `self / other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 4.0, 6.0, 8.0
+    ## calling v.divide with (calling Vector3.splat with 2.0)
+    ## ```
+
+    @mutates
+    weave divide with other as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3Divide with (essence of self), other
+
+    ## Flips the sign of every component of the receiver.
+    ##
+    ## ## Returns
+    ## The receiver, now `-self`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, -2.0, 3.0
+    ## calling v.negate
+    ## ```
+
+    @mutates
+    weave negate into raylib.Vector3:
+        return calling raymath.Vector3Negate with (essence of self)
+
+    ## Replaces each component of the receiver with its reciprocal.
+    ##
+    ## ## Parameters
+    ## - A zero component yields `inf`; this is not a normalisation.
+    ##
+    ## ## Returns
+    ## The receiver, now `(1/x, 1/y, 1/z)`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 2.0, 4.0, 8.0
+    ## calling v.invert
+    ## ```
+
+    @mutates
+    weave invert into raylib.Vector3:
+        return calling raymath.Vector3Invert with (essence of self)
+
+    ## Normalises the receiver to unit length.
+    ##
+    ## ## Parameters
+    ## - The zero vector is returned unchanged, so no division by zero occurs.
+    ##
+    ## ## Returns
+    ## The receiver, now of length `1` (or still zero for the zero vector).
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 0.0, 3.0, 4.0
+    ## calling v.normalize
+    ## ```
+
+    @mutates
+    weave normalize into raylib.Vector3:
+        return calling raymath.Vector3Normalize with (essence of self)
+
+    ## Clamps each component of the receiver between `lo` and `hi`.
+    ##
+    ## ## Parameters
+    ## - `lo`: per-component lower bound.
+    ## - `hi`: per-component upper bound.
+    ##
+    ## ## Returns
+    ## The receiver, with every component inside `[lo, hi]`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 5.0, -5.0, 0.5
+    ## calling v.clamp with (calling Vector3.splat with -1.0), (calling Vector3.splat with 1.0)
+    ## ```
+
+    @mutates
+    weave clamp with lo as raylib.Vector3, hi as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3Clamp with (essence of self), lo, hi
+
+    ## Clamps the length of the receiver between `lo` and `hi`.
+    ##
+    ## ## Parameters
+    ## - `lo`: minimum length.
+    ## - `hi`: maximum length.
+    ## - A zero vector cannot be lengthened: the C routine guards on `length > 0`, so the zero vector is returned unchanged.
+    ##
+    ## ## Returns
+    ## The receiver, with its magnitude inside `[lo, hi]` and direction unchanged.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 10.0, 0.0, 0.0
+    ## calling v.clamp_magnitude with 0.0, 2.0
+    ## ```
+
+    @mutates
+    weave clamp_magnitude with lo as f32, hi as f32 into raylib.Vector3:
+        return calling raymath.Vector3ClampValue with (essence of self), lo, hi
+
+    ## Moves the receiver linearly towards `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the target vector.
+    ## - `t`: blend factor; `0` keeps `self`, `1` yields `other`.
+    ##
+    ## ## Returns
+    ## The receiver, interpolated towards `other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.zero
+    ## calling v.lerp_to with (calling Vector3.splat with 10.0), 0.5
+    ## ```
+
+    @mutates
+    weave lerp_to with other as raylib.Vector3, t as f32 into raylib.Vector3:
+        return calling raymath.Vector3Lerp with (essence of self), other, t
+
+    ## Moves the receiver towards `target` by at most `max_distance`.
+    ##
+    ## ## Parameters
+    ## - `target`: the destination vector.
+    ## - `max_distance`: the step length.
+    ##
+    ## ## Returns
+    ## The receiver, moved towards `target` without overshooting.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.zero
+    ## calling v.move_towards with (calling Vector3.new with 10.0, 0.0, 0.0), 1.0
+    ## ```
+
+    @mutates
+    weave move_towards with target as raylib.Vector3, max_distance as f32 into raylib.Vector3:
+        return calling raymath.Vector3MoveTowards with (essence of self), target, max_distance
+
+    ## Replaces the receiver with its cross product against `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the second operand. The result is perpendicular to both.
+    ##
+    ## ## Returns
+    ## The receiver, now `self x other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, 0.0, 0.0
+    ## calling v.cross_with with (calling Vector3.new with 0.0, 1.0, 0.0)   # (0, 0, 1)
+    ## ```
+
+    @mutates
+    weave cross_with with other as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3CrossProduct with (essence of self), other
+
+    ## Projects the receiver onto `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to project onto. It must be non-zero.
+    ##
+    ## ## Returns
+    ## The receiver, now the projection of `self` on `other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 2.0, 2.0, 0.0
+    ## calling v.project_onto with (calling Vector3.new with 1.0, 0.0, 0.0)   # (2, 0, 0)
+    ## ```
+
+    @mutates
+    weave project_onto with other as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3Project with (essence of self), other
+
+    ## Removes from the receiver its projection onto `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to reject. It must be non-zero.
+    ##
+    ## ## Returns
+    ## The receiver, now `self - project(self, other)`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 2.0, 2.0, 0.0
+    ## calling v.reject_from with (calling Vector3.new with 1.0, 0.0, 0.0)   # (0, 2, 0)
+    ## ```
+
+    @mutates
+    weave reject_from with other as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3Reject with (essence of self), other
+
+    ## Rotates the receiver by a quaternion.
+    ##
+    ## ## Parameters
+    ## - `rotation`: a unit quaternion describing the rotation.
+    ##
+    ## ## Returns
+    ## The receiver, now `q * self`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, 0.0, 0.0
+    ## var q as raylib.Quaternion is with x is 0.0, y is 0.0, z is 0.0, w is 1.0
+    ## calling v.rotate_by_quaternion with q
+    ## ```
+
+    @mutates
+    weave rotate_by_quaternion with rotation as raylib.Quaternion into raylib.Vector3:
+        return calling raymath.Vector3RotateByQuaternion with (essence of self), rotation
+
+    ## Returns the length (magnitude) of the vector.
+    ##
+    ## ## Returns
+    ## The Euclidean length as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 0.0, 3.0, 4.0
+    ## var n as f32 is calling v.length   # 5.0
+    ## ```
+
+    weave length into f32:
+        return calling raymath.Vector3Length with (essence of self)
+
+    ## Returns the squared length of the vector.
+    ##
+    ## ## Parameters
+    ## - Cheaper than `length`; use it for comparisons.
+    ##
+    ## ## Returns
+    ## The squared magnitude as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 0.0, 3.0, 4.0
+    ## var n as f32 is calling v.length_sq   # 25.0
+    ## ```
+
+    weave length_sq into f32:
+        return calling raymath.Vector3LengthSqr with (essence of self)
+
+    ## Returns the dot product of the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the second vector.
+    ##
+    ## ## Returns
+    ## The scalar dot product.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector3 is calling Vector3.new with 1.0, 0.0, 0.0
+    ## var b as raylib.Vector3 is calling Vector3.new with 0.0, 1.0, 0.0
+    ## var d as f32 is calling a.dot with b   # 0.0
+    ## ```
+
+    weave dot with other as raylib.Vector3 into f32:
+        return calling raymath.Vector3DotProduct with (essence of self), other
+
+    ## Returns the distance between the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the second point.
+    ##
+    ## ## Returns
+    ## The Euclidean distance as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector3 is calling Vector3.zero
+    ## var b as raylib.Vector3 is calling Vector3.new with 0.0, 3.0, 4.0
+    ## var d as f32 is calling a.distance_to with b   # 5.0
+    ## ```
+
+    weave distance_to with other as raylib.Vector3 into f32:
+        return calling raymath.Vector3Distance with (essence of self), other
+
+    ## Returns the squared distance between the vector and `other`.
+    ##
+    ## ## Returns
+    ## The squared distance as `f32`; it avoids the square root of `distance_to`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector3 is calling Vector3.zero
+    ## var b as raylib.Vector3 is calling Vector3.new with 0.0, 3.0, 4.0
+    ## var d as f32 is calling a.distance_sq_to with b   # 25.0
+    ## ```
+
+    weave distance_sq_to with other as raylib.Vector3 into f32:
+        return calling raymath.Vector3DistanceSqr with (essence of self), other
+
+    ## Returns the angle between the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - Both vectors should be non-zero.
+    ##
+    ## ## Returns
+    ## The angle in radians.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector3 is calling Vector3.new with 1.0, 0.0, 0.0
+    ## var b as raylib.Vector3 is calling Vector3.new with 0.0, 1.0, 0.0
+    ## var ang as f32 is calling a.angle_to with b
+    ## ```
+
+    weave angle_to with other as raylib.Vector3 into f32:
+        return calling raymath.Vector3Angle with (essence of self), other
+
+    ## Returns an arbitrary vector perpendicular to the vector.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector3` orthogonal to `self`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, 0.0, 0.0
+    ## var p as raylib.Vector3 is calling v.perpendicular
+    ## ```
+
+    weave perpendicular into raylib.Vector3:
+        return calling raymath.Vector3Perpendicular with (essence of self)
+
+    ## Returns the component-wise minimum of the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to compare against.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector3` with the smaller component of each pair.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector3 is calling Vector3.new with 1.0, 5.0, 3.0
+    ## var b as raylib.Vector3 is calling Vector3.new with 3.0, 2.0, 3.0
+    ## var lo as raylib.Vector3 is calling a.min_with with b
+    ## ```
+
+    weave min_with with other as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3Min with (essence of self), other
+
+    ## Returns the component-wise maximum of the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to compare against.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector3` with the larger component of each pair.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector3 is calling Vector3.new with 1.0, 5.0, 3.0
+    ## var b as raylib.Vector3 is calling Vector3.new with 3.0, 2.0, 3.0
+    ## var hi as raylib.Vector3 is calling a.max_with with b
+    ## ```
+
+    weave max_with with other as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3Max with (essence of self), other
+
+    ## Reflects the vector about the plane defined by `normal`.
+    ##
+    ## ## Parameters
+    ## - `normal`: the surface normal; it must be normalised.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector3` with the reflected direction.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, -1.0, 0.0
+    ## var n as raylib.Vector3 is calling Vector3.new with 0.0, 1.0, 0.0
+    ## var r as raylib.Vector3 is calling v.reflect_in with n
+    ## ```
+
+    weave reflect_in with normal as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3Reflect with (essence of self), normal
+
+    ## Computes the direction of a refracted ray crossing an interface.
+    ##
+    ## ## Parameters
+    ## - `normal`: normalised interface normal.
+    ## - `ratio`: ratio of refractive indices.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector3` with the refracted direction.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, -1.0, 0.0
+    ## var n as raylib.Vector3 is calling Vector3.new with 0.0, 1.0, 0.0
+    ## var r as raylib.Vector3 is calling v.refract_through with n, 1.5
+    ## ```
+
+    weave refract_through with normal as raylib.Vector3, ratio as f32 into raylib.Vector3:
+        return calling raymath.Vector3Refract with (essence of self), normal, ratio
+
+    ## Interpolates cubically towards `other` with explicit tangents.
+    ##
+    ## ## Parameters
+    ## - `t1`: outgoing tangent at `self`.
+    ## - `other`: the destination vector.
+    ## - `t2`: incoming tangent at `other`.
+    ## - `t`: blend factor in `[0, 1]`.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector3` following the GLTF 2.0 cubic interpolation rule.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector3 is calling Vector3.zero
+    ## var b as raylib.Vector3 is calling Vector3.one
+    ## var r as raylib.Vector3 is calling a.cubic_hermite_to with b, b, 0.5
+    ## ```
+
+    @mutates
+    weave cubic_hermite_to with t1 as raylib.Vector3, other as raylib.Vector3, t2 as raylib.Vector3, t as f32 into raylib.Vector3:
+        return calling raymath.Vector3CubicHermite with (essence of self), t1, other, t2, t
+
+    ## Returns the vector rotated around an axis.
+    ##
+    ## ## Parameters
+    ## - `axis`: the rotation axis.
+    ## - `angle`: rotation in radians.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector3` with the rotated vector.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.new with 1.0, 0.0, 0.0
+    ## var r as raylib.Vector3 is calling v.rotate_by_axis with (calling Vector3.new with 0.0, 0.0, 1.0), 1.5707963
+    ## ```
+
+    weave rotate_by_axis with axis as raylib.Vector3, angle as f32 into raylib.Vector3:
+        return calling raymath.Vector3RotateByAxisAngle with (essence of self), axis, angle
+
+    ## Transforms the vector by a matrix.
+    ##
+    ## ## Parameters
+    ## - `mat`: the transformation matrix.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector3` with the transformed point.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector3 is calling Vector3.one
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## var t as raylib.Vector3 is calling v.transform_by with m
+    ## ```
+
+    weave transform_by with mat as raylib.Matrix into raylib.Vector3:
+        return calling raymath.Vector3Transform with (essence of self), mat
+
+    ## Returns the barycentric coordinates of the point inside a triangle.
+    ##
+    ## ## Parameters
+    ## - `a`, `b`, `c`: the triangle vertices. The point must lie on the triangle plane.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector3` holding `(u, v, w)`, which sum to `1`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var p as raylib.Vector3 is calling Vector3.zero
+    ## var r as raylib.Vector3 is calling p.barycentric_in with (calling Vector3.new with 1.0, 0.0, 0.0), (calling Vector3.new with 0.0, 1.0, 0.0), (calling Vector3.new with 0.0, 0.0, 1.0)
+    ## ```
+
+    weave barycentric_in with a as raylib.Vector3, b as raylib.Vector3, c as raylib.Vector3 into raylib.Vector3:
+        return calling raymath.Vector3Barycenter with (essence of self), a, b, c
+
+    ## Projects the vector from screen space into object space.
+    ##
+    ## ## Parameters
+    ## - `projection`: the projection matrix.
+    ## - `view`: the view matrix.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector3` in object space.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var s as raylib.Vector3 is calling Vector3.zero
+    ## var p as raylib.Matrix is calling Matrix.identity
+    ## var v as raylib.Matrix is calling Matrix.identity
+    ## var o as raylib.Vector3 is calling s.unproject with p, v
+    ## ```
+
+    weave unproject with projection as raylib.Matrix, view as raylib.Matrix into raylib.Vector3:
+        return calling raymath.Vector3Unproject with (essence of self), projection, view
+
+enchanting raylib.Vector4:
+
+    ## Builds a 4D vector from its four components.
+    ##
+    ## ## Parameters
+    ## - `x`, `y`, `z`, `w`: the components.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector4` with the given components.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.new with 1.0, 2.0, 3.0, 4.0
+    ## ```
+
+    weave ritual new with x as f32, y as f32, z as f32, w as f32 into raylib.Vector4:
+        return with x is x, y is y, z is z, w is w
+
+    ## Returns the additive identity `(0, 0, 0, 0)`.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector4` with all components at `0.0`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var z as raylib.Vector4 is calling Vector4.zero
+    ## ```
+
+    weave ritual zero into raylib.Vector4:
+        return calling raymath.Vector4Zero
+
+    ## Returns the vector `(1, 1, 1, 1)`.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector4` with all components at `1.0`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var o as raylib.Vector4 is calling Vector4.one
+    ## ```
+
+    weave ritual one into raylib.Vector4:
+        return calling raymath.Vector4One
+
+    ## Returns the identity element of the alias pair: `(0, 0, 0, 1)`.
+    ##
+    ## ## Parameters
+    ## - `raylib.Quaternion` is an alias of `raylib.Vector4`, so this single ritual serves both names: for a quaternion it is the identity rotation, and for a 4D vector it is the vector with a unit `w`.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector4` equal to `(0, 0, 0, 1)`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var i as raylib.Vector4 is calling Vector4.identity
+    ## ```
+
+    weave ritual identity into raylib.Vector4:
+        return calling raymath.QuaternionIdentity
+
+    ## Builds a vector with the same value in every component.
+    ##
+    ## ## Parameters
+    ## - `value`: the component to repeat.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector4` equal to `(value, value, value, value)`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var s as raylib.Vector4 is calling Vector4.splat with 2.5
+    ## ```
+
+    weave ritual splat with value as f32 into raylib.Vector4:
+        return with x is value, y is value, z is value, w is value
+
+    ## Adds `other` to the receiver, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to add.
+    ##
+    ## ## Returns
+    ## The receiver, now `self + other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.splat with 1.0
+    ## calling v.add with (calling Vector4.splat with 2.0)
+    ## ```
+
+    @mutates
+    weave add with other as raylib.Vector4 into raylib.Vector4:
+        return calling raymath.Vector4Add with (essence of self), other
+
+    ## Adds a scalar to every component of the receiver.
+    ##
+    ## ## Parameters
+    ## - `add`: the value to add.
+    ##
+    ## ## Returns
+    ## The receiver, now `self + (add, add, add, add)`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.zero
+    ## calling v.add_scalar with 1.0
+    ## ```
+
+    @mutates
+    weave add_scalar with add as f32 into raylib.Vector4:
+        return calling raymath.Vector4AddValue with (essence of self), add
+
+    ## Subtracts `other` from the receiver, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to subtract.
+    ##
+    ## ## Returns
+    ## The receiver, now `self - other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.splat with 3.0
+    ## calling v.subtract with (calling Vector4.splat with 1.0)
+    ## ```
+
+    @mutates
+    weave subtract with other as raylib.Vector4 into raylib.Vector4:
+        return calling raymath.Vector4Subtract with (essence of self), other
+
+    ## Subtracts a scalar from every component of the receiver.
+    ##
+    ## ## Parameters
+    ## - `sub`: the value to subtract.
+    ##
+    ## ## Returns
+    ## The receiver, now `self - (sub, sub, sub, sub)`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.splat with 3.0
+    ## calling v.subtract_scalar with 1.0
+    ## ```
+
+    @mutates
+    weave subtract_scalar with sub as f32 into raylib.Vector4:
+        return calling raymath.Vector4SubtractValue with (essence of self), sub
+
+    ## Multiplies the receiver by `other`, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to multiply by. This is component-wise, not a quaternion product.
+    ##
+    ## ## Returns
+    ## The receiver, now `self * other` component-wise.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.splat with 2.0
+    ## calling v.multiply with (calling Vector4.splat with 3.0)
+    ## ```
+
+    @mutates
+    weave multiply with other as raylib.Vector4 into raylib.Vector4:
+        return calling raymath.Vector4Multiply with (essence of self), other
+
+    ## Scales every component of the receiver by `factor`.
+    ##
+    ## ## Parameters
+    ## - `factor`: the scalar multiplier.
+    ##
+    ## ## Returns
+    ## The receiver, now scaled by `factor`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.splat with 2.0
+    ## calling v.scale with 3.0
+    ## ```
+
+    @mutates
+    weave scale with factor as f32 into raylib.Vector4:
+        return calling raymath.Vector4Scale with (essence of self), factor
+
+    ## Divides the receiver by `other`, component-wise.
+    ##
+    ## ## Parameters
+    ## - `other`: the divisor; a zero component yields `inf` or `NaN`.
+    ##
+    ## ## Returns
+    ## The receiver, now `self / other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.splat with 6.0
+    ## calling v.divide with (calling Vector4.splat with 2.0)
+    ## ```
+
+    @mutates
+    weave divide with other as raylib.Vector4 into raylib.Vector4:
+        return calling raymath.Vector4Divide with (essence of self), other
+
+    ## Flips the sign of every component of the receiver.
+    ##
+    ## ## Returns
+    ## The receiver, now `-self`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.splat with 1.0
+    ## calling v.negate
+    ## ```
+
+    @mutates
+    weave negate into raylib.Vector4:
+        return calling raymath.Vector4Negate with (essence of self)
+
+    ## Replaces each component of the receiver with its reciprocal.
+    ##
+    ## ## Parameters
+    ## - A zero component yields `inf`; this is not a normalisation.
+    ##
+    ## ## Returns
+    ## The receiver, now `(1/x, 1/y, 1/z, 1/w)`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.splat with 2.0
+    ## calling v.invert
+    ## ```
+
+    @mutates
+    weave invert into raylib.Vector4:
+        return calling raymath.Vector4Invert with (essence of self)
+
+    ## Normalises the receiver to unit length.
+    ##
+    ## ## Parameters
+    ## - The zero vector is returned unchanged, so no division by zero occurs.
+    ##
+    ## ## Returns
+    ## The receiver, now of length `1` (or still zero for the zero vector).
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.new with 0.0, 0.0, 3.0, 4.0
+    ## calling v.normalize
+    ## ```
+
+    @mutates
+    weave normalize into raylib.Vector4:
+        return calling raymath.Vector4Normalize with (essence of self)
+
+    ## Moves the receiver linearly towards `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the target vector.
+    ## - `t`: blend factor; `0` keeps `self`, `1` yields `other`.
+    ##
+    ## ## Returns
+    ## The receiver, interpolated towards `other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.zero
+    ## calling v.lerp_to with (calling Vector4.splat with 10.0), 0.5
+    ## ```
+
+    @mutates
+    weave lerp_to with other as raylib.Vector4, t as f32 into raylib.Vector4:
+        return calling raymath.Vector4Lerp with (essence of self), other, t
+
+    ## Moves the receiver towards `target` by at most `max_distance`.
+    ##
+    ## ## Parameters
+    ## - `target`: the destination vector.
+    ## - `max_distance`: the step length.
+    ##
+    ## ## Returns
+    ## The receiver, moved towards `target` without overshooting.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.zero
+    ## calling v.move_towards with (calling Vector4.new with 10.0, 0.0, 0.0, 0.0), 1.0
+    ## ```
+
+    @mutates
+    weave move_towards with target as raylib.Vector4, max_distance as f32 into raylib.Vector4:
+        return calling raymath.Vector4MoveTowards with (essence of self), target, max_distance
+
+    ## Returns the length (magnitude) of the vector.
+    ##
+    ## ## Returns
+    ## The Euclidean length as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.new with 0.0, 0.0, 3.0, 4.0
+    ## var n as f32 is calling v.length   # 5.0
+    ## ```
+
+    weave length into f32:
+        return calling raymath.Vector4Length with (essence of self)
+
+    ## Returns the squared length of the vector.
+    ##
+    ## ## Returns
+    ## The squared magnitude as `f32`; it avoids the square root of `length`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var v as raylib.Vector4 is calling Vector4.new with 0.0, 0.0, 3.0, 4.0
+    ## var n as f32 is calling v.length_sq   # 25.0
+    ## ```
+
+    weave length_sq into f32:
+        return calling raymath.Vector4LengthSqr with (essence of self)
+
+    ## Returns the dot product of the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the second vector.
+    ##
+    ## ## Returns
+    ## The scalar dot product.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector4 is calling Vector4.one
+    ## var d as f32 is calling a.dot with a   # 4.0
+    ## ```
+
+    weave dot with other as raylib.Vector4 into f32:
+        return calling raymath.Vector4DotProduct with (essence of self), other
+
+    ## Returns the distance between the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the second point.
+    ##
+    ## ## Returns
+    ## The Euclidean distance as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector4 is calling Vector4.zero
+    ## var b as raylib.Vector4 is calling Vector4.new with 0.0, 0.0, 3.0, 4.0
+    ## var d as f32 is calling a.distance_to with b   # 5.0
+    ## ```
+
+    weave distance_to with other as raylib.Vector4 into f32:
+        return calling raymath.Vector4Distance with (essence of self), other
+
+    ## Returns the squared distance between the vector and `other`.
+    ##
+    ## ## Returns
+    ## The squared distance as `f32`; it avoids the square root of `distance_to`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector4 is calling Vector4.zero
+    ## var b as raylib.Vector4 is calling Vector4.new with 0.0, 0.0, 3.0, 4.0
+    ## var d as f32 is calling a.distance_sq_to with b   # 25.0
+    ## ```
+
+    weave distance_sq_to with other as raylib.Vector4 into f32:
+        return calling raymath.Vector4DistanceSqr with (essence of self), other
+
+    ## Returns the component-wise minimum of the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to compare against.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector4` with the smaller component of each pair.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector4 is calling Vector4.one
+    ## var b as raylib.Vector4 is calling Vector4.splat with 0.5
+    ## var lo as raylib.Vector4 is calling a.min_with with b
+    ## ```
+
+    weave min_with with other as raylib.Vector4 into raylib.Vector4:
+        return calling raymath.Vector4Min with (essence of self), other
+
+    ## Returns the component-wise maximum of the vector and `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the vector to compare against.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector4` with the larger component of each pair.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var a as raylib.Vector4 is calling Vector4.zero
+    ## var b as raylib.Vector4 is calling Vector4.splat with 0.5
+    ## var hi as raylib.Vector4 is calling a.max_with with b
+    ## ```
+
+    weave max_with with other as raylib.Vector4 into raylib.Vector4:
+        return calling raymath.Vector4Max with (essence of self), other
+
+    ## Composes the receiver with `other` using the quaternion (Hamilton) product.
+    ##
+    ## ## Parameters
+    ## - `other`: the rotation to apply after the receiver.
+    ## - This is the quaternion product `q * other`, not a component-wise multiply; use `multiply` for that.
+    ##
+    ## ## Returns
+    ## The receiver, now the composed rotation.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var q as raylib.Quaternion is calling Quaternion.identity
+    ## calling q.mul with (calling quaternion_from_euler with 0.1, 0.0, 0.0)
+    ## ```
+
+enchanting raylib.Quaternion:
+
+    @mutates
+    weave mul with other as raylib.Quaternion into raylib.Quaternion:
+        return calling raymath.QuaternionMultiply with (essence of self), other
+
+    ## Spherically interpolates the receiver towards `other`.
+    ##
+    ## ## Parameters
+    ## - `other`: the target rotation.
+    ## - `t`: blend factor in `[0, 1]`.
+    ##
+    ## ## Returns
+    ## The receiver, slerped towards `other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var q as raylib.Quaternion is calling Quaternion.identity
+    ## calling q.slerp_to with (calling quaternion_from_euler with 0.0, 1.5, 0.0), 0.5
+    ## ```
+
+    @mutates
+    weave slerp_to with other as raylib.Quaternion, t as f32 into raylib.Quaternion:
+        return calling raymath.QuaternionSlerp with (essence of self), other, t
+
+    ## Interpolates the receiver towards `other` with normalized linear interpolation.
+    ##
+    ## ## Parameters
+    ## - `other`: the target rotation.
+    ## - `t`: blend factor in `[0, 1]`.
+    ## - Faster than `slerp_to` and adequate for small angles.
+    ##
+    ## ## Returns
+    ## The receiver, nlerped towards `other`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var q as raylib.Quaternion is calling Quaternion.identity
+    ## calling q.nlerp_to with (calling quaternion_from_euler with 0.0, 0.1, 0.0), 0.5
+    ## ```
+
+    @mutates
+    weave nlerp_to with other as raylib.Quaternion, t as f32 into raylib.Quaternion:
+        return calling raymath.QuaternionNlerp with (essence of self), other, t
+
+    ## Interpolates cubically towards `other` with explicit tangents.
+    ##
+    ## ## Parameters
+    ## - `t1`: outgoing tangent.
+    ## - `other`: destination rotation.
+    ## - `t2`: incoming tangent.
+    ## - `t`: blend factor in `[0, 1]`.
+    ##
+    ## ## Returns
+    ## The receiver, following the GLTF 2.0 cubic interpolation rule.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var q as raylib.Quaternion is calling Quaternion.identity
+    ## calling q.cubic_hermite_to with q, q, q, 0.5
+    ## ```
+
+    @mutates
+    weave cubic_hermite_to with t1 as raylib.Quaternion, other as raylib.Quaternion, t2 as raylib.Quaternion, t as f32 into raylib.Quaternion:
+        return calling raymath.QuaternionCubicHermiteSpline with (essence of self), t1, other, t2, t
+
+    ## Builds the rotation matrix equivalent to the quaternion.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` with the rotation.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var q as raylib.Quaternion is calling Quaternion.identity
+    ## var m as raylib.Matrix is calling q.to_matrix
+    ## ```
+
+    weave to_matrix into raylib.Matrix:
+        return calling raymath.QuaternionToMatrix with (essence of self)
+
+    ## Converts the quaternion to Euler angles (roll, pitch, yaw).
+    ##
+    ## ## Parameters
+    ## - The result is in radians and uses ZYX order.
+    ## - A degenerate quaternion can yield `NaN`; the wrapper reports the C value as-is, because `maybe` models absence, not a malformed number.
+    ##
+    ## ## Returns
+    ## A new `raylib.Vector3` with the Euler angles.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var q as raylib.Quaternion is calling Quaternion.identity
+    ## var e as raylib.Vector3 is calling q.to_euler
+    ## ```
+
+    weave to_euler into raylib.Vector3:
+        return calling raymath.QuaternionToEuler with (essence of self)
+
+    ## Extracts the rotation axis and angle from the quaternion.
+    ##
+    ## ## Returns
+    ## An `AxisAngle` with the normalized axis and the angle in radians.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var q as raylib.Quaternion is calling Quaternion.identity
+    ## var aa as AxisAngle is calling q.to_axis_angle
+    ## ```
+
+    weave to_axis_angle into AxisAngle:
+        var axis as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+        var angle as f32 is 0.0
+        calling raymath.QuaternionToAxisAngle with (essence of self), (sigil of axis), (sigil of angle)
+        return with axis is axis, angle is angle
+
+enchanting raylib.Matrix:
+
+    ## Returns the identity matrix.
+    ##
+    ## ## Returns
+    ## A `raylib.Matrix` with ones on the diagonal.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## ```
+
+    weave ritual identity into raylib.Matrix:
+        return calling raymath.MatrixIdentity
+
+    ## Returns the all-zero matrix.
+    ##
+    ## ## Returns
+    ## A `raylib.Matrix` with every component at `0.0`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.zero
+    ## ```
+
+    weave ritual zero into raylib.Matrix:
+        return with m0 is 0.0, m4 is 0.0, m8 is 0.0, m12 is 0.0, m1 is 0.0, m5 is 0.0, m9 is 0.0, m13 is 0.0, m2 is 0.0, m6 is 0.0, m10 is 0.0, m14 is 0.0, m3 is 0.0, m7 is 0.0, m11 is 0.0, m15 is 0.0
+
+    ## Builds a translation matrix.
+    ##
+    ## ## Parameters
+    ## - `x`, `y`, `z`: the translation offset.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` that translates by the given offset.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.from_translation with 1.0, 2.0, 3.0
+    ## ```
+
+    weave ritual from_translation with x as f32, y as f32, z as f32 into raylib.Matrix:
+        return calling raymath.MatrixTranslate with x, y, z
+
+    ## Builds a scaling matrix.
+    ##
+    ## ## Parameters
+    ## - `x`, `y`, `z`: the per-axis scale factors.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` that scales by the given factors.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.from_scale with 2.0, 2.0, 2.0
+    ## ```
+
+    weave ritual from_scale with x as f32, y as f32, z as f32 into raylib.Matrix:
+        return calling raymath.MatrixScale with x, y, z
+
+    ## Builds a rotation matrix around an axis.
+    ##
+    ## ## Parameters
+    ## - `axis`: the rotation axis.
+    ## - `angle`: the rotation in radians.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` with the rotation.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.rotation with (calling Vector3.new with 0.0, 0.0, 1.0), 1.5707963
+    ## ```
+
+    weave ritual rotation with axis as raylib.Vector3, angle as f32 into raylib.Matrix:
+        return calling raymath.MatrixRotate with axis, angle
+
+    ## Builds a rotation matrix around the X axis.
+    ##
+    ## ## Parameters
+    ## - `angle`: the rotation in radians.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` with the rotation.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.rotation_x with 1.5707963
+    ## ```
+
+    weave ritual rotation_x with angle as f32 into raylib.Matrix:
+        return calling raymath.MatrixRotateX with angle
+
+    ## Builds a rotation matrix around the Y axis.
+    ##
+    ## ## Parameters
+    ## - `angle`: the rotation in radians.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` with the rotation.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.rotation_y with 1.5707963
+    ## ```
+
+    weave ritual rotation_y with angle as f32 into raylib.Matrix:
+        return calling raymath.MatrixRotateY with angle
+
+    ## Builds a rotation matrix around the Z axis.
+    ##
+    ## ## Parameters
+    ## - `angle`: the rotation in radians.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` with the rotation.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.rotation_z with 1.5707963
+    ## ```
+
+    weave ritual rotation_z with angle as f32 into raylib.Matrix:
+        return calling raymath.MatrixRotateZ with angle
+
+    ## Builds a rotation matrix from Euler angles in XYZ order.
+    ##
+    ## ## Parameters
+    ## - `angle`: the Euler angles in radians.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` with the rotation.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.rotation_xyz with (calling Vector3.new with 0.1, 0.2, 0.3)
+    ## ```
+
+    weave ritual rotation_xyz with angle as raylib.Vector3 into raylib.Matrix:
+        return calling raymath.MatrixRotateXYZ with angle
+
+    ## Builds a rotation matrix from Euler angles in ZYX order.
+    ##
+    ## ## Parameters
+    ## - `angle`: the Euler angles in radians.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` with the rotation.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.rotation_zyx with (calling Vector3.new with 0.1, 0.2, 0.3)
+    ## ```
+
+    weave ritual rotation_zyx with angle as raylib.Vector3 into raylib.Matrix:
+        return calling raymath.MatrixRotateZYX with angle
+
+    ## Builds a perspective projection matrix from a frustum.
+    ##
+    ## ## Parameters
+    ## - `left`, `right`, `bottom`, `top`: the frustum planes.
+    ## - `near_plane`, `far_plane`: the depth range. All six are `f64` in the C signature.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` with the projection.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.frustum with -1.0, 1.0, -1.0, 1.0, 0.1, 100.0
+    ## ```
+
+    weave ritual frustum with left as f64, right as f64, bottom as f64, top as f64, near_plane as f64, far_plane as f64 into raylib.Matrix:
+        return calling raymath.MatrixFrustum with left, right, bottom, top, near_plane, far_plane
+
+    ## Builds a perspective projection matrix.
+    ##
+    ## ## Parameters
+    ## - `fov_y`: vertical field of view in radians.
+    ## - `aspect`: width divided by height.
+    ## - `near_plane`, `far_plane`: the depth range.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` with the projection.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.perspective with 0.7853982, 1.7777778, 0.1, 100.0
+    ## ```
+
+    weave ritual perspective with fov_y as f64, aspect as f64, near_plane as f64, far_plane as f64 into raylib.Matrix:
+        return calling raymath.MatrixPerspective with fov_y, aspect, near_plane, far_plane
+
+    ## Builds an orthographic projection matrix.
+    ##
+    ## ## Parameters
+    ## - `left`, `right`, `bottom`, `top`: the view volume bounds.
+    ## - `near_plane`, `far_plane`: the depth range.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` with the projection.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.ortho with -1.0, 1.0, -1.0, 1.0, 0.1, 100.0
+    ## ```
+
+    weave ritual ortho with left as f64, right as f64, bottom as f64, top as f64, near_plane as f64, far_plane as f64 into raylib.Matrix:
+        return calling raymath.MatrixOrtho with left, right, bottom, top, near_plane, far_plane
+
+    ## Builds a view matrix looking from `eye` towards `target`.
+    ##
+    ## ## Parameters
+    ## - `eye`: the camera position.
+    ## - `target`: the point to look at.
+    ## - `up`: the up vector.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` with the view transform.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.look_at with (calling Vector3.new with 0.0, 0.0, 10.0), (calling Vector3.zero), (calling Vector3.new with 0.0, 1.0, 0.0)
+    ## ```
+
+    weave ritual look_at with eye as raylib.Vector3, target as raylib.Vector3, up as raylib.Vector3 into raylib.Matrix:
+        return calling raymath.MatrixLookAt with eye, target, up
+
+    ## Builds a transform matrix from translation, rotation and scale.
+    ##
+    ## ## Parameters
+    ## - `translation`: the offset.
+    ## - `rotation`: the rotation quaternion.
+    ## - `scale`: the per-axis scale.
+    ##
+    ## ## Returns
+    ## A new `raylib.Matrix` combining the three components.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.compose with (calling Vector3.zero), (calling Vector4.identity), (calling Vector3.one)
+    ## ```
+
+    weave ritual compose with translation as raylib.Vector3, rotation as raylib.Quaternion, scale as raylib.Vector3 into raylib.Matrix:
+        return calling raymath.MatrixCompose with translation, rotation, scale
+
+    ## Adds `right` to the receiver, component-wise.
+    ##
+    ## ## Parameters
+    ## - `right`: the matrix to add.
+    ##
+    ## ## Returns
+    ## The receiver, now `self + right`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## calling m.add with (calling Matrix.identity)
+    ## ```
+
+    @mutates
+    weave add with right as raylib.Matrix into raylib.Matrix:
+        return calling raymath.MatrixAdd with (essence of self), right
+
+    ## Subtracts `right` from the receiver, component-wise.
+    ##
+    ## ## Parameters
+    ## - `right`: the matrix to subtract.
+    ##
+    ## ## Returns
+    ## The receiver, now `self - right`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## calling m.subtract with (calling Matrix.identity)
+    ## ```
+
+    @mutates
+    weave subtract with right as raylib.Matrix into raylib.Matrix:
+        return calling raymath.MatrixSubtract with (essence of self), right
+
+    ## Multiplies the receiver by `right`.
+    ##
+    ## ## Parameters
+    ## - `right`: the matrix to multiply by on the right. Order matters.
+    ##
+    ## ## Returns
+    ## The receiver, now `self * right`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## calling m.multiply with (calling Matrix.from_translation with 1.0, 2.0, 3.0)
+    ## ```
+
+    @mutates
+    weave multiply with right as raylib.Matrix into raylib.Matrix:
+        return calling raymath.MatrixMultiply with (essence of self), right
+
+    ## Multiplies every component of the receiver by `value`.
+    ##
+    ## ## Parameters
+    ## - `value`: the scalar multiplier.
+    ##
+    ## ## Returns
+    ## The receiver, now scaled by `value`.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## calling m.multiply_scalar with 2.0
+    ## ```
+
+    @mutates
+    weave multiply_scalar with value as f32 into raylib.Matrix:
+        return calling raymath.MatrixMultiplyValue with (essence of self), value
+
+    ## Transposes the receiver.
+    ##
+    ## ## Returns
+    ## The receiver, now transposed.
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## calling m.transpose
+    ## ```
+
+    @mutates
+    weave transpose into raylib.Matrix:
+        return calling raymath.MatrixTranspose with (essence of self)
+
+    ## Inverts the receiver.
+    ##
+    ## ## Parameters
+    ## - A singular matrix has no inverse: the C routine returns a matrix of garbage values, and there is no failure channel. Check `determinant` first if the input may be degenerate.
+    ##
+    ## ## Returns
+    ## The receiver, now its inverse (undefined for singular input).
+    ##
+    ## ## Memory
+    ## No allocation; the receiver is rewritten in place.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## calling m.invert
+    ## ```
+
+    @mutates
+    weave invert into raylib.Matrix:
+        return calling raymath.MatrixInvert with (essence of self)
+
+    ## Returns the determinant of the matrix.
+    ##
+    ## ## Returns
+    ## The determinant as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## var d as f32 is calling m.determinant   # 1.0
+    ## ```
+
+    weave determinant into f32:
+        return calling raymath.MatrixDeterminant with (essence of self)
+
+    ## Returns the trace of the matrix (the sum of its diagonal).
+    ##
+    ## ## Returns
+    ## The trace as `f32`.
+    ##
+    ## ## Memory
+    ## No allocation.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## var t as f32 is calling m.trace   # 4.0
+    ## ```
+
+    weave trace into f32:
+        return calling raymath.MatrixTrace with (essence of self)
+
+    ## Decomposes the matrix into translation, rotation and scale.
+    ##
+    ## ## Parameters
+    ## - The C routine removes shear while decomposing.
+    ##
+    ## ## Returns
+    ## A `MatrixParts` with the three named components.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var m as raylib.Matrix is calling Matrix.identity
+    ## var p as MatrixParts is calling m.parts
+    ## ```
+
+    weave parts into MatrixParts:
+        var translation as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+        var rotation as raylib.Quaternion is with x is 0.0, y is 0.0, z is 0.0, w is 1.0
+        var scale as raylib.Vector3 is with x is 1.0, y is 1.0, z is 1.0
+        calling raymath.MatrixDecompose with (essence of self), (sigil of translation), (sigil of rotation), (sigil of scale)
+        return with translation is translation, rotation is rotation, scale is scale
+
+# --- Tests ---
+
+test "Vector2.new stores both components":
+    
+    let v is calling Vector2.new with 3.0, 4.0
+    calling ward.assert_almost_eq with v.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with v.y, 4.0, 0.0001
+
+test "Vector2.new accepts negative and zero components":
+    
+    let v is calling Vector2.new with -1.5, 0.0
+    calling ward.assert_almost_eq with v.x, -1.5, 0.0001
+    calling ward.assert_almost_eq with v.y, 0.0, 0.0001
+
+test "Vector2.new keeps large components finite":
+    
+    let v is calling Vector2.new with 1000000.0, -1000000.0
+    calling ward.assert_almost_eq with v.x, 1000000.0, 1.0
+    calling ward.assert_almost_eq with v.y, -1000000.0, 1.0
+
+test "Vector2.zero is the additive identity":
+    
+    let z is calling Vector2.zero
+    calling ward.assert_almost_eq with z.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with z.y, 0.0, 0.0001
+
+test "Vector2.zero added to a vector leaves it unchanged":
+    
+    let z is calling Vector2.zero
+    let v is calling Vector2.new with 2.0, -3.0
+    let r is calling v.get_add with z
+    calling ward.assert_almost_eq with r.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.y, -3.0, 0.0001
+
+test "Vector2.zero has zero length":
+    
+    let z is calling Vector2.zero
+    calling ward.assert_almost_eq with (calling z.length), 0.0, 0.0001
+
+test "Vector2.one has both components at one":
+    
+    let o is calling Vector2.one
+    calling ward.assert_almost_eq with o.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with o.y, 1.0, 0.0001
+
+test "Vector2.one scaled by zero is the zero vector":
+    
+    let o is calling Vector2.one
+    let r is calling o.get_scale with 0.0
+    calling ward.assert_almost_eq with r.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 0.0, 0.0001
+
+test "Vector2.one has length sqrt of two":
+    
+    let o is calling Vector2.one
+    calling ward.assert_almost_eq with (calling o.length), 1.4142135, 0.0001
+
+test "Vector2.splat fills both components":
+    
+    let s is calling Vector2.splat with 2.5
+    calling ward.assert_almost_eq with s.x, 2.5, 0.0001
+    calling ward.assert_almost_eq with s.y, 2.5, 0.0001
+
+test "Vector2.splat with zero equals Vector2.zero":
+    
+    let s is calling Vector2.splat with 0.0
+    let z is calling Vector2.zero
+    calling ward.assert_almost_eq with s.x, z.x, 0.0001
+    calling ward.assert_almost_eq with s.y, z.y, 0.0001
+
+test "Vector2.splat with a negative value fills both lanes":
+    
+    let s is calling Vector2.splat with -4.0
+    calling ward.assert_almost_eq with s.x, -4.0, 0.0001
+    calling ward.assert_almost_eq with s.y, -4.0, 0.0001
+
+test "Vector2.get_add sums component-wise":
+    
+    let a is calling Vector2.new with 1.0, 2.0
+    let b is calling Vector2.new with 3.0, 4.0
+    let c is calling a.get_add with b
+    calling ward.assert_almost_eq with c.x, 4.0, 0.0001
+    calling ward.assert_almost_eq with c.y, 6.0, 0.0001
+
+test "Vector2.get_add is commutative":
+    
+    let a is calling Vector2.new with 1.0, 2.0
+    let b is calling Vector2.new with 3.0, -4.0
+    let c is calling a.get_add with b
+    let d is calling b.get_add with a
+    calling ward.assert_almost_eq with c.x, d.x, 0.0001
+    calling ward.assert_almost_eq with c.y, d.y, 0.0001
+
+test "Vector2.add mutates the receiver in place":
+    
+    var v is calling Vector2.new with 1.0, 2.0
+    calling v.add with (calling Vector2.new with 1.0, 1.0)
+    calling ward.assert_almost_eq with v.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with v.y, 3.0, 0.0001
+
+test "Vector2.get_add_scalar adds to both lanes":
+    
+    let v is calling Vector2.new with 1.0, 2.0
+    let r is calling v.get_add_scalar with 0.5
+    calling ward.assert_almost_eq with r.x, 1.5, 0.0001
+    calling ward.assert_almost_eq with r.y, 2.5, 0.0001
+
+test "Vector2.get_add_scalar with zero is the identity":
+    
+    let v is calling Vector2.new with -1.0, 2.0
+    let r is calling v.get_add_scalar with 0.0
+    calling ward.assert_almost_eq with r.x, -1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 2.0, 0.0001
+
+test "Vector2.add_scalar mutates the receiver":
+    
+    var v is calling Vector2.new with 1.0, 2.0
+    calling v.add_scalar with -1.0
+    calling ward.assert_almost_eq with v.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with v.y, 1.0, 0.0001
+
+test "Vector2.get_subtract subtracts component-wise":
+    
+    let a is calling Vector2.new with 5.0, 7.0
+    let b is calling Vector2.new with 2.0, 3.0
+    let c is calling a.get_subtract with b
+    calling ward.assert_almost_eq with c.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with c.y, 4.0, 0.0001
+
+test "Vector2.get_subtract of a vector with itself is zero":
+    
+    let a is calling Vector2.new with 5.0, 7.0
+    let c is calling a.get_subtract with a
+    calling ward.assert_almost_eq with c.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with c.y, 0.0, 0.0001
+
+test "Vector2.subtract mutates the receiver":
+    
+    var v is calling Vector2.new with 5.0, 7.0
+    calling v.subtract with (calling Vector2.new with 1.0, 2.0)
+    calling ward.assert_almost_eq with v.x, 4.0, 0.0001
+    calling ward.assert_almost_eq with v.y, 5.0, 0.0001
+
+test "Vector2.get_subtract_scalar subtracts from both lanes":
+    
+    let v is calling Vector2.new with 5.0, 7.0
+    let r is calling v.get_subtract_scalar with 2.0
+    calling ward.assert_almost_eq with r.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 5.0, 0.0001
+
+test "Vector2.get_subtract_scalar with zero is the identity":
+    
+    let v is calling Vector2.new with 5.0, 7.0
+    let r is calling v.get_subtract_scalar with 0.0
+    calling ward.assert_almost_eq with r.x, 5.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 7.0, 0.0001
+
+test "Vector2.subtract_scalar mutates the receiver":
+    
+    var v is calling Vector2.new with 5.0, 7.0
+    calling v.subtract_scalar with 5.0
+    calling ward.assert_almost_eq with v.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with v.y, 2.0, 0.0001
+
+test "Vector2.get_multiply multiplies component-wise":
+    
+    let a is calling Vector2.new with 2.0, 3.0
+    let b is calling Vector2.new with 4.0, 5.0
+    let c is calling a.get_multiply with b
+    calling ward.assert_almost_eq with c.x, 8.0, 0.0001
+    calling ward.assert_almost_eq with c.y, 15.0, 0.0001
+
+test "Vector2.get_multiply by one is the identity":
+    
+    let a is calling Vector2.new with 2.0, 3.0
+    let c is calling a.get_multiply with (calling Vector2.one)
+    calling ward.assert_almost_eq with c.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with c.y, 3.0, 0.0001
+
+test "Vector2.multiply mutates the receiver":
+    
+    var v is calling Vector2.new with 2.0, 3.0
+    calling v.multiply with (calling Vector2.new with 2.0, 2.0)
+    calling ward.assert_almost_eq with v.x, 4.0, 0.0001
+    calling ward.assert_almost_eq with v.y, 6.0, 0.0001
+
+test "Vector2.get_scale scales both lanes":
+    
+    let v is calling Vector2.new with 2.0, -3.0
+    let r is calling v.get_scale with 2.0
+    calling ward.assert_almost_eq with r.x, 4.0, 0.0001
+    calling ward.assert_almost_eq with r.y, -6.0, 0.0001
+
+test "Vector2.get_scale by zero yields the zero vector":
+    
+    let v is calling Vector2.new with 2.0, -3.0
+    let r is calling v.get_scale with 0.0
+    calling ward.assert_almost_eq with r.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 0.0, 0.0001
+
+test "Vector2.get_scale by a negative factor flips the direction":
+    
+    let v is calling Vector2.new with 2.0, -3.0
+    let r is calling v.get_scale with -1.0
+    calling ward.assert_almost_eq with r.x, -2.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 3.0, 0.0001
+
+test "Vector2.get_divide divides component-wise":
+    
+    let a is calling Vector2.new with 8.0, 6.0
+    let b is calling Vector2.new with 2.0, 3.0
+    let c is calling a.get_divide with b
+    calling ward.assert_almost_eq with c.x, 4.0, 0.0001
+    calling ward.assert_almost_eq with c.y, 2.0, 0.0001
+
+test "Vector2.get_divide by one is the identity":
+    
+    let a is calling Vector2.new with 8.0, 6.0
+    let c is calling a.get_divide with (calling Vector2.one)
+    calling ward.assert_almost_eq with c.x, 8.0, 0.0001
+    calling ward.assert_almost_eq with c.y, 6.0, 0.0001
+
+test "Vector2.get_divide by zero yields inf, as in C":
+    
+    let a is calling Vector2.new with 8.0, 6.0
+    let c is calling a.get_divide with (calling Vector2.zero)
+    calling ward.assert_true with (c.x > 1000000.0)
+
+test "Vector2.get_negate flips both signs":
+    
+    let v is calling Vector2.new with 1.0, -2.0
+    let r is calling v.get_negate
+    calling ward.assert_almost_eq with r.x, -1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 2.0, 0.0001
+
+test "Vector2.get_negate twice is the identity":
+    
+    let v is calling Vector2.new with 1.0, -2.0
+    var tmp is calling v.get_negate
+    let r is calling tmp.get_negate
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, -2.0, 0.0001
+
+test "Vector2.negate mutates the receiver":
+    
+    var v is calling Vector2.new with 1.0, -2.0
+    calling v.negate
+    calling ward.assert_almost_eq with v.x, -1.0, 0.0001
+    calling ward.assert_almost_eq with v.y, 2.0, 0.0001
+
+test "Vector2.get_invert reciprocates each lane":
+    
+    let v is calling Vector2.new with 2.0, 4.0
+    let r is calling v.get_invert
+    calling ward.assert_almost_eq with r.x, 0.5, 0.0001
+    calling ward.assert_almost_eq with r.y, 0.25, 0.0001
+
+test "Vector2.get_invert of one is one":
+    
+    let v is calling Vector2.one
+    let r is calling v.get_invert
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 1.0, 0.0001
+
+test "Vector2.get_invert of zero yields inf, as in C":
+    
+    let v is calling Vector2.zero
+    let r is calling v.get_invert
+    calling ward.assert_true with (r.x > 1000000.0)
+
+test "Vector2.get_normalize yields unit length":
+    
+    let v is calling Vector2.new with 3.0, 4.0
+    let n is calling v.get_normalize
+    calling ward.assert_almost_eq with (calling n.length), 1.0, 0.0001
+
+test "Vector2.get_normalize of the zero vector is the zero vector":
+    
+    let v is calling Vector2.zero
+    let n is calling v.get_normalize
+    calling ward.assert_almost_eq with n.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with n.y, 0.0, 0.0001
+
+test "Vector2.normalize mutates the receiver":
+    
+    var v is calling Vector2.new with 0.0, 5.0
+    calling v.normalize
+    calling ward.assert_almost_eq with (calling v.length), 1.0, 0.0001
+
+test "Vector2.get_clamp bounds both lanes":
+    
+    let v is calling Vector2.new with 5.0, -5.0
+    let lo is calling Vector2.splat with -1.0
+    let hi is calling Vector2.splat with 1.0
+    let r is calling v.get_clamp with lo, hi
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, -1.0, 0.0001
+
+test "Vector2.get_clamp leaves in-range components untouched":
+    
+    let v is calling Vector2.new with 0.5, -0.5
+    let lo is calling Vector2.splat with -1.0
+    let hi is calling Vector2.splat with 1.0
+    let r is calling v.get_clamp with lo, hi
+    calling ward.assert_almost_eq with r.x, 0.5, 0.0001
+    calling ward.assert_almost_eq with r.y, -0.5, 0.0001
+
+test "Vector2.clamp mutates the receiver":
+    
+    var v is calling Vector2.new with 5.0, -5.0
+    calling v.clamp with (calling Vector2.splat with -1.0), (calling Vector2.splat with 1.0)
+    calling ward.assert_almost_eq with v.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with v.y, -1.0, 0.0001
+
+test "Vector2.get_clamp_magnitude shortens a long vector":
+    
+    let v is calling Vector2.new with 10.0, 0.0
+    let r is calling v.get_clamp_magnitude with 0.0, 2.0
+    calling ward.assert_almost_eq with (calling r.length), 2.0, 0.0001
+
+test "Vector2.get_clamp_magnitude keeps a short vector unchanged":
+    
+    let v is calling Vector2.new with 1.0, 0.0
+    let r is calling v.get_clamp_magnitude with 0.0, 2.0
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 0.0, 0.0001
+
+test "Vector2.get_clamp_magnitude leaves the zero vector unchanged":
+    
+    let v is calling Vector2.zero
+    let r is calling v.get_clamp_magnitude with 1.0, 2.0
+    calling ward.assert_almost_eq with (calling r.length), 0.0, 0.0001
+
+test "Vector2.get_clamp_magnitude lengthens a short vector to the minimum":
+    
+    let v is calling Vector2.new with 0.5, 0.0
+    let r is calling v.get_clamp_magnitude with 1.0, 2.0
+    calling ward.assert_almost_eq with (calling r.length), 1.0, 0.0001
+
+test "Vector2.get_lerp_to at t=0 is the receiver":
+    
+    let a is calling Vector2.new with 1.0, 2.0
+    let b is calling Vector2.splat with 10.0
+    let r is calling a.get_lerp_to with b, 0.0
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 2.0, 0.0001
+
+test "Vector2.get_lerp_to at t=1 is the target":
+    
+    let a is calling Vector2.new with 1.0, 2.0
+    let b is calling Vector2.splat with 10.0
+    let r is calling a.get_lerp_to with b, 1.0
+    calling ward.assert_almost_eq with r.x, 10.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 10.0, 0.0001
+
+test "Vector2.get_lerp_to at t=0.5 is the midpoint":
+    
+    let a is calling Vector2.zero
+    let b is calling Vector2.splat with 10.0
+    let r is calling a.get_lerp_to with b, 0.5
+    calling ward.assert_almost_eq with r.x, 5.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 5.0, 0.0001
+
+test "Vector2.get_move_towards stops at the target":
+    
+    let a is calling Vector2.zero
+    let b is calling Vector2.new with 1.0, 0.0
+    let r is calling a.get_move_towards with b, 10.0
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 0.0, 0.0001
+
+test "Vector2.get_move_towards advances by max_distance":
+    
+    let a is calling Vector2.zero
+    let b is calling Vector2.new with 10.0, 0.0
+    let r is calling a.get_move_towards with b, 1.0
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 0.0, 0.0001
+
+test "Vector2.get_move_towards with zero distance is the receiver":
+    
+    let a is calling Vector2.new with 3.0, 4.0
+    let r is calling a.get_move_towards with (calling Vector2.zero), 0.0
+    calling ward.assert_almost_eq with r.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 4.0, 0.0001
+
+test "Vector2.get_rotate_by quarter turn maps x to y":
+    
+    let v is calling Vector2.new with 1.0, 0.0
+    let r is calling v.get_rotate_by with 1.5707963
+    calling ward.assert_almost_eq with r.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 1.0, 0.0001
+
+test "Vector2.get_rotate_by full turn is the identity":
+    
+    let v is calling Vector2.new with 1.0, 2.0
+    let r is calling v.get_rotate_by with 6.2831853
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 2.0, 0.0001
+
+test "Vector2.get_rotate_by preserves the length":
+    
+    let v is calling Vector2.new with 3.0, 4.0
+    let r is calling v.get_rotate_by with 0.7
+    calling ward.assert_almost_eq with (calling r.length), 5.0, 0.0001
+
+test "Vector2.length of a 3-4-5 triangle is 5":
+    
+    let v is calling Vector2.new with 3.0, 4.0
+    calling ward.assert_almost_eq with (calling v.length), 5.0, 0.0001
+
+test "Vector2.length of the zero vector is zero":
+    
+    let v is calling Vector2.zero
+    calling ward.assert_almost_eq with (calling v.length), 0.0, 0.0001
+
+test "Vector2.length of a unit vector is one":
+    
+    let v is calling Vector2.new with 1.0, 0.0
+    calling ward.assert_almost_eq with (calling v.length), 1.0, 0.0001
+
+test "Vector2.length_sq of a 3-4-5 triangle is 25":
+    
+    let v is calling Vector2.new with 3.0, 4.0
+    calling ward.assert_almost_eq with (calling v.length_sq), 25.0, 0.0001
+
+test "Vector2.length_sq of the zero vector is zero":
+    
+    let v is calling Vector2.zero
+    calling ward.assert_almost_eq with (calling v.length_sq), 0.0, 0.0001
+
+test "Vector2.length_sq equals the square of length":
+    
+    let v is calling Vector2.new with 2.0, 5.0
+    let n is calling v.length
+    calling ward.assert_almost_eq with (calling v.length_sq), n * n, 0.01
+
+test "Vector2.dot of orthogonal vectors is zero":
+    
+    let a is calling Vector2.new with 1.0, 0.0
+    let b is calling Vector2.new with 0.0, 1.0
+    calling ward.assert_almost_eq with (calling a.dot with b), 0.0, 0.0001
+
+test "Vector2.dot of a vector with itself is its length squared":
+    
+    let a is calling Vector2.new with 3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.dot with a), 25.0, 0.0001
+
+test "Vector2.dot is symmetric":
+    
+    let a is calling Vector2.new with 1.0, 2.0
+    let b is calling Vector2.new with -3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.dot with b), (calling b.dot with a), 0.0001
+
+test "Vector2.cross of unit axes is one":
+    
+    let a is calling Vector2.new with 1.0, 0.0
+    let b is calling Vector2.new with 0.0, 1.0
+    calling ward.assert_almost_eq with (calling a.cross with b), 1.0, 0.0001
+
+test "Vector2.cross is anticommutative":
+    
+    let a is calling Vector2.new with 1.0, 0.0
+    let b is calling Vector2.new with 0.0, 1.0
+    calling ward.assert_almost_eq with (calling a.cross with b), -(calling b.cross with a), 0.0001
+
+test "Vector2.cross of parallel vectors is zero":
+    
+    let a is calling Vector2.new with 2.0, 4.0
+    let b is calling Vector2.new with 1.0, 2.0
+    calling ward.assert_almost_eq with (calling a.cross with b), 0.0, 0.0001
+
+test "Vector2.distance_to of a 3-4-5 triangle is 5":
+    
+    let a is calling Vector2.zero
+    let b is calling Vector2.new with 3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.distance_to with b), 5.0, 0.0001
+
+test "Vector2.distance_to a point with itself is zero":
+    
+    let a is calling Vector2.new with 3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.distance_to with a), 0.0, 0.0001
+
+test "Vector2.distance_to is symmetric":
+    
+    let a is calling Vector2.new with 1.0, 2.0
+    let b is calling Vector2.new with 4.0, 6.0
+    calling ward.assert_almost_eq with (calling a.distance_to with b), (calling b.distance_to with a), 0.0001
+
+test "Vector2.distance_sq_to of a 3-4-5 triangle is 25":
+    
+    let a is calling Vector2.zero
+    let b is calling Vector2.new with 3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.distance_sq_to with b), 25.0, 0.0001
+
+test "Vector2.distance_sq_to a point with itself is zero":
+    
+    let a is calling Vector2.new with 3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.distance_sq_to with a), 0.0, 0.0001
+
+test "Vector2.distance_sq_to equals the square of distance_to":
+    
+    let a is calling Vector2.zero
+    let b is calling Vector2.new with 2.0, 5.0
+    let d is calling a.distance_to with b
+    calling ward.assert_almost_eq with (calling a.distance_sq_to with b), d * d, 0.01
+
+test "Vector2.angle_to of the x axis and y axis is a quarter turn":
+    
+    let a is calling Vector2.new with 1.0, 0.0
+    let b is calling Vector2.new with 0.0, 1.0
+    calling ward.assert_almost_eq with (calling a.angle_to with b), 1.5707963, 0.0001
+
+test "Vector2.angle_to a vector with itself is zero":
+    
+    let a is calling Vector2.new with 1.0, 2.0
+    calling ward.assert_almost_eq with (calling a.angle_to with a), 0.0, 0.0001
+
+test "Vector2.angle_to the opposite direction is a half turn":
+    
+    let a is calling Vector2.new with 1.0, 0.0
+    let b is calling Vector2.new with -1.0, 0.0
+    calling ward.assert_almost_eq with (calling a.angle_to with b), 3.1415927, 0.001
+
+test "Vector2.angle_line_to is a negative quarter turn for a 45 degree line":
+    
+    let a is calling Vector2.new with 1.0, 0.0
+    let b is calling Vector2.new with 1.0, 1.0
+    calling ward.assert_almost_eq with (calling a.angle_line_to with b), -1.5707963, 0.001
+
+test "Vector2.angle_line_to of a vector with itself is zero":
+    
+    let a is calling Vector2.new with 1.0, 0.0
+    calling ward.assert_almost_eq with (calling a.angle_line_to with a), 0.0, 0.0001
+
+test "Vector2.angle_line_to of opposite axes is a half turn":
+    
+    let a is calling Vector2.new with 1.0, 0.0
+    let b is calling Vector2.new with -1.0, 0.0
+    calling ward.assert_almost_eq with (calling a.angle_line_to with b), -3.1415927, 0.001
+
+test "Vector2.min_with picks the smaller lane":
+    
+    let a is calling Vector2.new with 1.0, 5.0
+    let b is calling Vector2.new with 3.0, 2.0
+    let r is calling a.min_with with b
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 2.0, 0.0001
+
+test "Vector2.min_with a vector with itself is the vector":
+    
+    let a is calling Vector2.new with 1.0, 5.0
+    let r is calling a.min_with with a
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 5.0, 0.0001
+
+test "Vector2.min_with is commutative":
+    
+    let a is calling Vector2.new with 1.0, 5.0
+    let b is calling Vector2.new with 3.0, 2.0
+    let r is calling a.min_with with b
+    let s is calling b.min_with with a
+    calling ward.assert_almost_eq with r.x, s.x, 0.0001
+    calling ward.assert_almost_eq with r.y, s.y, 0.0001
+
+test "Vector2.max_with picks the larger lane":
+    
+    let a is calling Vector2.new with 1.0, 5.0
+    let b is calling Vector2.new with 3.0, 2.0
+    let r is calling a.max_with with b
+    calling ward.assert_almost_eq with r.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 5.0, 0.0001
+
+test "Vector2.max_with a vector with itself is the vector":
+    
+    let a is calling Vector2.new with 1.0, 5.0
+    let r is calling a.max_with with a
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 5.0, 0.0001
+
+test "Vector2.max_with is commutative":
+    
+    let a is calling Vector2.new with 1.0, 5.0
+    let b is calling Vector2.new with 3.0, 2.0
+    let r is calling a.max_with with b
+    let s is calling b.max_with with a
+    calling ward.assert_almost_eq with r.x, s.x, 0.0001
+    calling ward.assert_almost_eq with r.y, s.y, 0.0001
+
+test "Vector2.reflect_in flips the component along the normal":
+    
+    let v is calling Vector2.new with 1.0, -1.0
+    let n is calling Vector2.new with 0.0, 1.0
+    let r is calling v.reflect_in with n
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 1.0, 0.0001
+
+test "Vector2.reflect_in preserves the length":
+    
+    let v is calling Vector2.new with 3.0, -4.0
+    let n is calling Vector2.new with 0.0, 1.0
+    let r is calling v.reflect_in with n
+    calling ward.assert_almost_eq with (calling r.length), 5.0, 0.0001
+
+test "Vector2.reflect_in twice is the identity":
+    
+    let v is calling Vector2.new with 3.0, -4.0
+    let n is calling Vector2.new with 0.0, 1.0
+    var tmp is calling v.reflect_in with n
+    let r is calling tmp.reflect_in with n
+    calling ward.assert_almost_eq with r.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with r.y, -4.0, 0.0001
+
+test "Vector2.refract_through returns a unit direction":
+    
+    let v is calling Vector2.new with 0.0, -1.0
+    let n is calling Vector2.new with 0.0, 1.0
+    let r is calling v.refract_through with n, 1.0
+    calling ward.assert_almost_eq with (calling r.length), 1.0, 0.001
+
+test "Vector2.refract_through with ratio one is the incoming direction":
+    
+    let v is calling Vector2.new with 0.0, -1.0
+    let n is calling Vector2.new with 0.0, 1.0
+    let r is calling v.refract_through with n, 1.0
+    calling ward.assert_almost_eq with r.x, 0.0, 0.001
+    calling ward.assert_almost_eq with r.y, -1.0, 0.001
+
+test "Vector2.refract_through keeps the sign of the normal component":
+    
+    let v is calling Vector2.new with 1.0, -1.0
+    let n is calling Vector2.new with 0.0, 1.0
+    let r is calling v.refract_through with n, 1.5
+    calling ward.assert_true with (r.y < 0.0)
+
+test "Vector2.transform_by the identity is the identity":
+    
+    let v is calling Vector2.new with 3.0, 4.0
+    let m is calling Matrix.identity
+    let r is calling v.transform_by with m
+    calling ward.assert_almost_eq with r.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 4.0, 0.0001
+
+test "Vector2.transform_by a translation shifts the point":
+    
+    let v is calling Vector2.zero
+    let m is calling Matrix.from_translation with 2.0, 3.0, 0.0
+    let r is calling v.transform_by with m
+    calling ward.assert_almost_eq with r.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 3.0, 0.0001
+
+test "Vector2.transform_by a scale doubles both lanes":
+    
+    let v is calling Vector2.new with 1.0, 2.0
+    let m is calling Matrix.from_scale with 2.0, 2.0, 1.0
+    let r is calling v.transform_by with m
+    calling ward.assert_almost_eq with r.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 4.0, 0.0001
+
+test "Vector3.new stores all three components":
+    
+    let v is calling Vector3.new with 1.0, 2.0, 3.0
+    calling ward.assert_almost_eq with v.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with v.y, 2.0, 0.0001
+    calling ward.assert_almost_eq with v.z, 3.0, 0.0001
+
+test "Vector3.new accepts negatives and zero":
+    
+    let v is calling Vector3.new with -1.0, 0.0, 2.5
+    calling ward.assert_almost_eq with v.x, -1.0, 0.0001
+    calling ward.assert_almost_eq with v.y, 0.0, 0.0001
+    calling ward.assert_almost_eq with v.z, 2.5, 0.0001
+
+test "Vector3.new keeps large components finite":
+    
+    let v is calling Vector3.new with 1000000.0, 0.0, -1000000.0
+    calling ward.assert_almost_eq with v.x, 1000000.0, 1.0
+    calling ward.assert_almost_eq with v.z, -1000000.0, 1.0
+
+test "Vector3.zero has zero length":
+    
+    let z is calling Vector3.zero
+    calling ward.assert_almost_eq with (calling z.length), 0.0, 0.0001
+
+test "Vector3.zero is the additive identity":
+    
+    let z is calling Vector3.zero
+    let v is calling Vector3.one
+    let r is calling v.get_add with z
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 1.0, 0.0001
+
+test "Vector3.zero has all components at zero":
+    
+    let z is calling Vector3.zero
+    calling ward.assert_almost_eq with z.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with z.y, 0.0, 0.0001
+    calling ward.assert_almost_eq with z.z, 0.0, 0.0001
+
+test "Vector3.one has all components at one":
+    
+    let o is calling Vector3.one
+    calling ward.assert_almost_eq with o.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with o.y, 1.0, 0.0001
+    calling ward.assert_almost_eq with o.z, 1.0, 0.0001
+
+test "Vector3.one has length sqrt of three":
+    
+    let o is calling Vector3.one
+    calling ward.assert_almost_eq with (calling o.length), 1.7320508, 0.0001
+
+test "Vector3.one negated twice is one":
+    
+    let o is calling Vector3.one
+    var tmp0 is calling o.get_negate
+    let r is calling tmp0.get_negate
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+
+test "Vector3.splat fills all three lanes":
+    
+    let s is calling Vector3.splat with 2.5
+    calling ward.assert_almost_eq with s.x, 2.5, 0.0001
+    calling ward.assert_almost_eq with s.y, 2.5, 0.0001
+    calling ward.assert_almost_eq with s.z, 2.5, 0.0001
+
+test "Vector3.splat with zero equals Vector3.zero":
+    
+    let s is calling Vector3.splat with 0.0
+    let z is calling Vector3.zero
+    calling ward.assert_almost_eq with s.x, z.x, 0.0001
+    calling ward.assert_almost_eq with s.z, z.z, 0.0001
+
+test "Vector3.splat keeps the lanes equal":
+    
+    let s is calling Vector3.splat with -3.5
+    calling ward.assert_almost_eq with s.x, s.y, 0.0001
+    calling ward.assert_almost_eq with s.y, s.z, 0.0001
+
+test "Vector3.radians_to_degrees converts a half turn":
+    
+    let d is calling Vector3.radians_to_degrees with 3.14159265
+    calling ward.assert_almost_eq with d.x, 180.0, 0.01
+
+test "Vector3.radians_to_degrees of zero is zero":
+    
+    let d is calling Vector3.radians_to_degrees with 0.0
+    calling ward.assert_almost_eq with d.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with d.z, 0.0, 0.0001
+
+test "Vector3.radians_to_degrees fills every lane":
+    
+    let d is calling Vector3.radians_to_degrees with 1.0
+    calling ward.assert_almost_eq with d.x, d.y, 0.0001
+    calling ward.assert_almost_eq with d.y, d.z, 0.0001
+
+test "Vector3.degrees_to_radians converts 180 degrees":
+    
+    let r is calling Vector3.degrees_to_radians with 180.0
+    calling ward.assert_almost_eq with r.x, 3.14159265, 0.01
+
+test "Vector3.degrees_to_radians of zero is zero":
+    
+    let r is calling Vector3.degrees_to_radians with 0.0
+    calling ward.assert_almost_eq with r.x, 0.0, 0.0001
+
+test "Vector3 round-trips radians to degrees":
+    
+    let d is calling Vector3.radians_to_degrees with 1.0
+    let r is calling Vector3.degrees_to_radians with d.x
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+
+test "Vector3.get_add sums component-wise":
+    
+    let a is calling Vector3.new with 1.0, 2.0, 3.0
+    let b is calling Vector3.new with 4.0, 5.0, 6.0
+    let c is calling a.get_add with b
+    calling ward.assert_almost_eq with c.x, 5.0, 0.0001
+    calling ward.assert_almost_eq with c.y, 7.0, 0.0001
+    calling ward.assert_almost_eq with c.z, 9.0, 0.0001
+
+test "Vector3.get_add is commutative":
+    
+    let a is calling Vector3.new with 1.0, 2.0, 3.0
+    let b is calling Vector3.new with -4.0, 5.0, -6.0
+    calling ward.assert_almost_eq with (calling a.get_add with b).z, (calling b.get_add with a).z, 0.0001
+
+test "Vector3.add mutates the receiver":
+    
+    var v is calling Vector3.one
+    calling v.add with (calling Vector3.one)
+    calling ward.assert_almost_eq with v.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with v.z, 2.0, 0.0001
+
+test "Vector3.get_add_scalar adds to every lane":
+    
+    let v is calling Vector3.new with 1.0, 2.0, 3.0
+    let r is calling v.get_add_scalar with 1.0
+    calling ward.assert_almost_eq with r.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 4.0, 0.0001
+
+test "Vector3.get_add_scalar with zero is the identity":
+    
+    let v is calling Vector3.new with 1.0, 2.0, 3.0
+    let r is calling v.get_add_scalar with 0.0
+    calling ward.assert_almost_eq with r.y, 2.0, 0.0001
+
+test "Vector3.add_scalar mutates the receiver":
+    
+    var v is calling Vector3.zero
+    calling v.add_scalar with 5.0
+    calling ward.assert_almost_eq with v.x, 5.0, 0.0001
+    calling ward.assert_almost_eq with v.z, 5.0, 0.0001
+
+test "Vector3.get_subtract subtracts component-wise":
+    
+    let a is calling Vector3.new with 5.0, 7.0, 9.0
+    let b is calling Vector3.new with 1.0, 2.0, 3.0
+    let c is calling a.get_subtract with b
+    calling ward.assert_almost_eq with c.x, 4.0, 0.0001
+    calling ward.assert_almost_eq with c.z, 6.0, 0.0001
+
+test "Vector3.get_subtract of a vector with itself is zero":
+    
+    let a is calling Vector3.one
+    let c is calling a.get_subtract with a
+    calling ward.assert_almost_eq with (calling c.length), 0.0, 0.0001
+
+test "Vector3.subtract mutates the receiver":
+    
+    var v is calling Vector3.one
+    calling v.subtract with (calling Vector3.one)
+    calling ward.assert_almost_eq with (calling v.length), 0.0, 0.0001
+
+test "Vector3.get_subtract_scalar subtracts from every lane":
+    
+    let v is calling Vector3.new with 5.0, 7.0, 9.0
+    let r is calling v.get_subtract_scalar with 5.0
+    calling ward.assert_almost_eq with r.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 4.0, 0.0001
+
+test "Vector3.get_subtract_scalar with zero is the identity":
+    
+    let v is calling Vector3.new with 5.0, 7.0, 9.0
+    let r is calling v.get_subtract_scalar with 0.0
+    calling ward.assert_almost_eq with r.y, 7.0, 0.0001
+
+test "Vector3.subtract_scalar mutates the receiver":
+    
+    var v is calling Vector3.splat with 3.0
+    calling v.subtract_scalar with 3.0
+    calling ward.assert_almost_eq with v.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with v.z, 0.0, 0.0001
+
+test "Vector3.get_multiply multiplies component-wise":
+    
+    let a is calling Vector3.new with 2.0, 3.0, 4.0
+    let b is calling Vector3.new with 5.0, 6.0, 7.0
+    let c is calling a.get_multiply with b
+    calling ward.assert_almost_eq with c.x, 10.0, 0.0001
+    calling ward.assert_almost_eq with c.z, 28.0, 0.0001
+
+test "Vector3.get_multiply by one is the identity":
+    
+    let a is calling Vector3.new with 2.0, 3.0, 4.0
+    let c is calling a.get_multiply with (calling Vector3.one)
+    calling ward.assert_almost_eq with c.y, 3.0, 0.0001
+
+test "Vector3.multiply mutates the receiver":
+    
+    var v is calling Vector3.splat with 2.0
+    calling v.multiply with (calling Vector3.splat with 3.0)
+    calling ward.assert_almost_eq with v.x, 6.0, 0.0001
+    calling ward.assert_almost_eq with v.z, 6.0, 0.0001
+
+test "Vector3.get_scale scales every lane":
+    
+    let v is calling Vector3.new with 1.0, -2.0, 3.0
+    let r is calling v.get_scale with 2.0
+    calling ward.assert_almost_eq with r.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.y, -4.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 6.0, 0.0001
+
+test "Vector3.get_scale by zero yields the zero vector":
+    
+    let v is calling Vector3.one
+    let r is calling v.get_scale with 0.0
+    calling ward.assert_almost_eq with (calling r.length), 0.0, 0.0001
+
+test "Vector3.get_scale by a negative factor flips the direction":
+    
+    let v is calling Vector3.new with 1.0, 2.0, 3.0
+    let r is calling v.get_scale with -1.0
+    calling ward.assert_almost_eq with r.x, -1.0, 0.0001
+    calling ward.assert_almost_eq with r.z, -3.0, 0.0001
+
+test "Vector3.get_divide divides component-wise":
+    
+    let a is calling Vector3.new with 8.0, 9.0, 10.0
+    let b is calling Vector3.splat with 2.0
+    let c is calling a.get_divide with b
+    calling ward.assert_almost_eq with c.x, 4.0, 0.0001
+    calling ward.assert_almost_eq with c.z, 5.0, 0.0001
+
+test "Vector3.get_divide by one is the identity":
+    
+    let a is calling Vector3.new with 8.0, 9.0, 10.0
+    let c is calling a.get_divide with (calling Vector3.one)
+    calling ward.assert_almost_eq with c.y, 9.0, 0.0001
+
+test "Vector3.get_divide by zero yields inf, as in C":
+    
+    let a is calling Vector3.one
+    let c is calling a.get_divide with (calling Vector3.zero)
+    calling ward.assert_true with (c.x > 1000000.0)
+
+test "Vector3.get_negate flips every sign":
+    
+    let v is calling Vector3.new with 1.0, -2.0, 3.0
+    let r is calling v.get_negate
+    calling ward.assert_almost_eq with r.x, -1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.z, -3.0, 0.0001
+
+test "Vector3.get_negate twice is the identity":
+    
+    let v is calling Vector3.new with 1.0, -2.0, 3.0
+    var tmp is calling v.get_negate
+    let r is calling tmp.get_negate
+    calling ward.assert_almost_eq with r.z, 3.0, 0.0001
+
+test "Vector3.negate mutates the receiver":
+    
+    var v is calling Vector3.one
+    calling v.negate
+    calling ward.assert_almost_eq with v.x, -1.0, 0.0001
+    calling ward.assert_almost_eq with v.z, -1.0, 0.0001
+
+test "Vector3.get_invert reciprocates each lane":
+    
+    let v is calling Vector3.new with 2.0, 4.0, 5.0
+    let r is calling v.get_invert
+    calling ward.assert_almost_eq with r.x, 0.5, 0.0001
+    calling ward.assert_almost_eq with r.z, 0.2, 0.0001
+
+test "Vector3.get_invert of one is one":
+    
+    let v is calling Vector3.one
+    let r is calling v.get_invert
+    calling ward.assert_almost_eq with r.y, 1.0, 0.0001
+
+test "Vector3.get_invert of zero yields inf, as in C":
+    
+    let v is calling Vector3.zero
+    let r is calling v.get_invert
+    calling ward.assert_true with (r.x > 1000000.0)
+
+test "Vector3.get_normalize yields unit length":
+    
+    let v is calling Vector3.new with 0.0, 3.0, 4.0
+    let n is calling v.get_normalize
+    calling ward.assert_almost_eq with (calling n.length), 1.0, 0.0001
+
+test "Vector3.get_normalize of the zero vector is the zero vector":
+    
+    let v is calling Vector3.zero
+    let n is calling v.get_normalize
+    calling ward.assert_almost_eq with (calling n.length), 0.0, 0.0001
+
+test "Vector3.normalize mutates the receiver":
+    
+    var v is calling Vector3.new with 0.0, 0.0, 7.0
+    calling v.normalize
+    calling ward.assert_almost_eq with v.z, 1.0, 0.0001
+
+test "Vector3.get_clamp bounds every lane":
+    
+    let v is calling Vector3.new with 5.0, -5.0, 0.5
+    let lo is calling Vector3.splat with -1.0
+    let hi is calling Vector3.splat with 1.0
+    let r is calling v.get_clamp with lo, hi
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, -1.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 0.5, 0.0001
+
+test "Vector3.get_clamp leaves in-range values untouched":
+    
+    let v is calling Vector3.splat with 0.25
+    let lo is calling Vector3.splat with -1.0
+    let hi is calling Vector3.splat with 1.0
+    let r is calling v.get_clamp with lo, hi
+    calling ward.assert_almost_eq with r.x, 0.25, 0.0001
+
+test "Vector3.clamp mutates the receiver":
+    
+    var v is calling Vector3.splat with 5.0
+    calling v.clamp with (calling Vector3.splat with -1.0), (calling Vector3.splat with 1.0)
+    calling ward.assert_almost_eq with v.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with v.z, 1.0, 0.0001
+
+test "Vector3.get_clamp_magnitude shortens a long vector":
+    
+    let v is calling Vector3.new with 10.0, 0.0, 0.0
+    let r is calling v.get_clamp_magnitude with 0.0, 2.0
+    calling ward.assert_almost_eq with (calling r.length), 2.0, 0.0001
+
+test "Vector3.get_clamp_magnitude keeps a short vector unchanged":
+    
+    let v is calling Vector3.new with 1.0, 0.0, 0.0
+    let r is calling v.get_clamp_magnitude with 0.0, 2.0
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+
+test "Vector3.get_clamp_magnitude leaves the zero vector unchanged":
+    
+    let v is calling Vector3.zero
+    let r is calling v.get_clamp_magnitude with 1.0, 2.0
+    calling ward.assert_almost_eq with (calling r.length), 0.0, 0.0001
+
+test "Vector3.get_clamp_magnitude lengthens a short vector to the minimum":
+    
+    let v is calling Vector3.new with 0.5, 0.0, 0.0
+    let r is calling v.get_clamp_magnitude with 1.0, 2.0
+    calling ward.assert_almost_eq with (calling r.length), 1.0, 0.0001
+
+test "Vector3.get_lerp_to at t=0 is the receiver":
+    
+    let a is calling Vector3.new with 1.0, 2.0, 3.0
+    let b is calling Vector3.splat with 10.0
+    let r is calling a.get_lerp_to with b, 0.0
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 3.0, 0.0001
+
+test "Vector3.get_lerp_to at t=1 is the target":
+    
+    let a is calling Vector3.zero
+    let b is calling Vector3.splat with 10.0
+    let r is calling a.get_lerp_to with b, 1.0
+    calling ward.assert_almost_eq with r.y, 10.0, 0.0001
+
+test "Vector3.get_lerp_to at t=0.5 is the midpoint":
+    
+    let a is calling Vector3.zero
+    let b is calling Vector3.splat with 4.0
+    let r is calling a.get_lerp_to with b, 0.5
+    calling ward.assert_almost_eq with r.z, 2.0, 0.0001
+
+test "Vector3.get_move_towards stops at the target":
+    
+    let a is calling Vector3.zero
+    let b is calling Vector3.new with 0.0, 1.0, 0.0
+    let r is calling a.get_move_towards with b, 10.0
+    calling ward.assert_almost_eq with r.y, 1.0, 0.0001
+
+test "Vector3.get_move_towards advances by max_distance":
+    
+    let a is calling Vector3.zero
+    let b is calling Vector3.new with 0.0, 10.0, 0.0
+    let r is calling a.get_move_towards with b, 2.0
+    calling ward.assert_almost_eq with r.y, 2.0, 0.0001
+
+test "Vector3.get_move_towards with zero distance is the receiver":
+    
+    let a is calling Vector3.new with 3.0, 4.0, 5.0
+    let r is calling a.get_move_towards with (calling Vector3.zero), 0.0
+    calling ward.assert_almost_eq with r.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 5.0, 0.0001
+
+test "Vector3.get_cross_with of the unit axes is the third axis":
+    
+    let a is calling Vector3.new with 1.0, 0.0, 0.0
+    let b is calling Vector3.new with 0.0, 1.0, 0.0
+    let c is calling a.get_cross_with with b
+    calling ward.assert_almost_eq with c.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with c.z, 1.0, 0.0001
+
+test "Vector3.get_cross_with is anticommutative":
+    
+    let a is calling Vector3.new with 1.0, 0.0, 0.0
+    let b is calling Vector3.new with 0.0, 1.0, 0.0
+    let c is calling a.get_cross_with with b
+    let d is calling b.get_cross_with with a
+    calling ward.assert_almost_eq with c.z, -d.z, 0.0001
+
+test "Vector3.get_cross_with of parallel vectors is zero":
+    
+    let a is calling Vector3.new with 1.0, 2.0, 3.0
+    let b is calling Vector3.new with 2.0, 4.0, 6.0
+    let c is calling a.get_cross_with with b
+    calling ward.assert_almost_eq with (calling c.length), 0.0, 0.0001
+
+test "Vector3.get_project_onto the x axis keeps the x component":
+    
+    let v is calling Vector3.new with 2.0, 3.0, 4.0
+    let axis is calling Vector3.new with 1.0, 0.0, 0.0
+    let r is calling v.get_project_onto with axis
+    calling ward.assert_almost_eq with r.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 0.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 0.0, 0.0001
+
+test "Vector3.get_project_onto a perpendicular vector is zero":
+    
+    let v is calling Vector3.new with 1.0, 0.0, 0.0
+    let axis is calling Vector3.new with 0.0, 1.0, 0.0
+    let r is calling v.get_project_onto with axis
+    calling ward.assert_almost_eq with r.x, 0.0, 0.0001
+
+test "Vector3.project_onto mutates the receiver":
+    
+    var v is calling Vector3.new with 2.0, 3.0, 0.0
+    calling v.project_onto with (calling Vector3.new with 1.0, 0.0, 0.0)
+    calling ward.assert_almost_eq with v.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with v.y, 0.0, 0.0001
+
+test "Vector3.get_reject_from removes the parallel part":
+    
+    let v is calling Vector3.new with 2.0, 3.0, 0.0
+    let axis is calling Vector3.new with 1.0, 0.0, 0.0
+    let r is calling v.get_reject_from with axis
+    calling ward.assert_almost_eq with r.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 3.0, 0.0001
+
+test "Vector3.get_reject_from a parallel vector is zero":
+    
+    let v is calling Vector3.new with 3.0, 0.0, 0.0
+    let axis is calling Vector3.new with 1.0, 0.0, 0.0
+    let r is calling v.get_reject_from with axis
+    calling ward.assert_almost_eq with (calling r.length), 0.0, 0.0001
+
+test "Vector3.reject_from mutates the receiver":
+    
+    var v is calling Vector3.new with 2.0, 3.0, 0.0
+    calling v.reject_from with (calling Vector3.new with 1.0, 0.0, 0.0)
+    calling ward.assert_almost_eq with v.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with v.y, 3.0, 0.0001
+
+test "Vector3.get_rotate_by_quaternion with identity keeps the vector":
+    
+    let v is calling Vector3.new with 1.0, 2.0, 3.0
+    let q is calling quaternion_identity
+    let r is calling v.get_rotate_by_quaternion with q
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 3.0, 0.0001
+
+test "Vector3.get_rotate_by_quaternion preserves length":
+    
+    let v is calling Vector3.new with 1.0, 0.0, 0.0
+    let q is calling quaternion_from_axis_angle with (calling Vector3.new with 0.0, 1.0, 0.0), 1.5707963
+    let r is calling v.get_rotate_by_quaternion with q
+    calling ward.assert_almost_eq with (calling r.length), 1.0, 0.001
+
+test "Vector3.rotate_by_quaternion mutates the receiver":
+    
+    var v is calling Vector3.new with 1.0, 0.0, 0.0
+    calling v.rotate_by_quaternion with (calling quaternion_from_axis_angle with (calling Vector3.new with 0.0, 0.0, 1.0), 1.5707963)
+    calling ward.assert_almost_eq with v.x, 0.0, 0.001
+    calling ward.assert_almost_eq with v.y, 1.0, 0.001
+
+test "Vector3.length of the zero vector is zero":
+    
+    let v is calling Vector3.zero
+    calling ward.assert_almost_eq with (calling v.length), 0.0, 0.0001
+
+test "Vector3.length of a 3-4 axis vector is 5":
+    
+    let v is calling Vector3.new with 0.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling v.length), 5.0, 0.0001
+
+test "Vector3.length of a unit vector is one":
+    
+    let v is calling Vector3.new with 1.0, 0.0, 0.0
+    calling ward.assert_almost_eq with (calling v.length), 1.0, 0.0001
+
+test "Vector3.length_sq of a 3-4 axis vector is 25":
+    
+    let v is calling Vector3.new with 0.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling v.length_sq), 25.0, 0.0001
+
+test "Vector3.length_sq of the zero vector is zero":
+    
+    let v is calling Vector3.zero
+    calling ward.assert_almost_eq with (calling v.length_sq), 0.0, 0.0001
+
+test "Vector3.length_sq equals the square of length":
+    
+    let v is calling Vector3.new with 1.0, 2.0, 3.0
+    let n is calling v.length
+    calling ward.assert_almost_eq with (calling v.length_sq), n * n, 0.01
+
+test "Vector3.dot of orthogonal vectors is zero":
+    
+    let a is calling Vector3.new with 1.0, 0.0, 0.0
+    let b is calling Vector3.new with 0.0, 1.0, 0.0
+    calling ward.assert_almost_eq with (calling a.dot with b), 0.0, 0.0001
+
+test "Vector3.dot of a vector with itself is its length squared":
+    
+    let a is calling Vector3.new with 0.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.dot with a), 25.0, 0.0001
+
+test "Vector3.dot is symmetric":
+    
+    let a is calling Vector3.new with 1.0, 2.0, 3.0
+    let b is calling Vector3.new with -4.0, 5.0, 6.0
+    calling ward.assert_almost_eq with (calling a.dot with b), (calling b.dot with a), 0.0001
+
+test "Vector3.distance_to of a 3-4 axis vector is 5":
+    
+    let a is calling Vector3.zero
+    let b is calling Vector3.new with 0.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.distance_to with b), 5.0, 0.0001
+
+test "Vector3.distance_to a point with itself is zero":
+    
+    let a is calling Vector3.one
+    calling ward.assert_almost_eq with (calling a.distance_to with a), 0.0, 0.0001
+
+test "Vector3.distance_to is symmetric":
+    
+    let a is calling Vector3.new with 1.0, 2.0, 3.0
+    let b is calling Vector3.new with 4.0, 5.0, 6.0
+    calling ward.assert_almost_eq with (calling a.distance_to with b), (calling b.distance_to with a), 0.0001
+
+test "Vector3.distance_sq_to of a 3-4 axis vector is 25":
+    
+    let a is calling Vector3.zero
+    let b is calling Vector3.new with 0.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.distance_sq_to with b), 25.0, 0.0001
+
+test "Vector3.distance_sq_to a point with itself is zero":
+    
+    let a is calling Vector3.one
+    calling ward.assert_almost_eq with (calling a.distance_sq_to with a), 0.0, 0.0001
+
+test "Vector3.distance_sq_to equals the square of distance_to":
+    
+    let a is calling Vector3.zero
+    let b is calling Vector3.new with 1.0, 2.0, 2.0
+    let d is calling a.distance_to with b
+    calling ward.assert_almost_eq with (calling a.distance_sq_to with b), d * d, 0.01
+
+test "Vector3.angle_to orthogonal vectors is a quarter turn":
+    
+    let a is calling Vector3.new with 1.0, 0.0, 0.0
+    let b is calling Vector3.new with 0.0, 1.0, 0.0
+    calling ward.assert_almost_eq with (calling a.angle_to with b), 1.5707963, 0.001
+
+test "Vector3.angle_to a vector with itself is zero":
+    
+    let a is calling Vector3.new with 1.0, 2.0, 3.0
+    calling ward.assert_almost_eq with (calling a.angle_to with a), 0.0, 0.0001
+
+test "Vector3.angle_to opposite vectors is a half turn":
+    
+    let a is calling Vector3.new with 1.0, 0.0, 0.0
+    let b is calling Vector3.new with -1.0, 0.0, 0.0
+    calling ward.assert_almost_eq with (calling a.angle_to with b), 3.1415927, 0.001
+
+test "Vector3.perpendicular is orthogonal to the vector":
+    
+    let v is calling Vector3.new with 1.0, 0.0, 0.0
+    let p is calling v.perpendicular
+    calling ward.assert_almost_eq with (calling v.dot with p), 0.0, 0.001
+
+test "Vector3.perpendicular of the zero vector stays finite":
+    
+    let v is calling Vector3.zero
+    let p is calling v.perpendicular
+    calling ward.assert_true with (p.x < 1000000.0)
+
+test "Vector3.perpendicular has no NaNs":
+    
+    let v is calling Vector3.new with 0.0, 0.0, 1.0
+    let p is calling v.perpendicular
+    calling ward.assert_false with (p.x != p.x)
+
+test "Vector3.min_with picks the smaller lane":
+    
+    let a is calling Vector3.new with 1.0, 5.0, 3.0
+    let b is calling Vector3.new with 3.0, 2.0, 3.0
+    let r is calling a.min_with with b
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 3.0, 0.0001
+
+test "Vector3.min_with a vector with itself is the vector":
+    
+    let a is calling Vector3.one
+    let r is calling a.min_with with a
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+
+test "Vector3.min_with is commutative":
+    
+    let a is calling Vector3.new with 1.0, 5.0, 3.0
+    let b is calling Vector3.new with 3.0, 2.0, 0.0
+    calling ward.assert_almost_eq with (calling a.min_with with b).y, (calling b.min_with with a).y, 0.0001
+
+test "Vector3.max_with picks the larger lane":
+    
+    let a is calling Vector3.new with 1.0, 5.0, 3.0
+    let b is calling Vector3.new with 3.0, 2.0, 3.0
+    let r is calling a.max_with with b
+    calling ward.assert_almost_eq with r.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with r.y, 5.0, 0.0001
+
+test "Vector3.max_with a vector with itself is the vector":
+    
+    let a is calling Vector3.one
+    let r is calling a.max_with with a
+    calling ward.assert_almost_eq with r.z, 1.0, 0.0001
+
+test "Vector3.max_with is commutative":
+    
+    let a is calling Vector3.new with 1.0, 5.0, 3.0
+    let b is calling Vector3.new with 3.0, 2.0, 0.0
+    calling ward.assert_almost_eq with (calling a.max_with with b).z, (calling b.max_with with a).z, 0.0001
+
+test "Vector3.reflect_in flips the component along the normal":
+    
+    let v is calling Vector3.new with 1.0, -1.0, 0.0
+    let n is calling Vector3.new with 0.0, 1.0, 0.0
+    let r is calling v.reflect_in with n
+    calling ward.assert_almost_eq with r.y, 1.0, 0.0001
+
+test "Vector3.reflect_in preserves the length":
+    
+    let v is calling Vector3.new with 0.0, 3.0, 4.0
+    let n is calling Vector3.new with 0.0, 1.0, 0.0
+    let r is calling v.reflect_in with n
+    calling ward.assert_almost_eq with (calling r.length), 5.0, 0.0001
+
+test "Vector3.reflect_in twice is the identity":
+    
+    let v is calling Vector3.new with 1.0, -1.0, 2.0
+    let n is calling Vector3.new with 0.0, 1.0, 0.0
+    var tmp is calling v.reflect_in with n
+    let r is calling tmp.reflect_in with n
+    calling ward.assert_almost_eq with r.y, -1.0, 0.0001
+
+test "Vector3.refract_through with ratio one is the incoming direction":
+    
+    let v is calling Vector3.new with 0.0, -1.0, 0.0
+    let n is calling Vector3.new with 0.0, 1.0, 0.0
+    let r is calling v.refract_through with n, 1.0
+    calling ward.assert_almost_eq with r.y, -1.0, 0.001
+
+test "Vector3.refract_through returns a unit direction":
+    
+    let v is calling Vector3.new with 0.0, -1.0, 0.0
+    let n is calling Vector3.new with 0.0, 1.0, 0.0
+    let r is calling v.refract_through with n, 1.5
+    calling ward.assert_almost_eq with (calling r.length), 1.0, 0.001
+
+test "Vector3.refract_through keeps the ray on the incoming side":
+    
+    let v is calling Vector3.new with 1.0, -1.0, 0.0
+    let n is calling Vector3.new with 0.0, 1.0, 0.0
+    let r is calling v.refract_through with n, 1.5
+    calling ward.assert_true with (r.y < 0.0)
+
+test "Vector3.get_cubic_hermite_to at t=0 is the receiver":
+    
+    let a is calling Vector3.zero
+    let b is calling Vector3.one
+    let r is calling a.get_cubic_hermite_to with b, b, b, 0.0
+    calling ward.assert_almost_eq with r.x, 0.0, 0.0001
+
+test "Vector3.get_cubic_hermite_to at t=1 is the target":
+    
+    let a is calling Vector3.zero
+    let b is calling Vector3.one
+    let r is calling a.get_cubic_hermite_to with b, b, b, 1.0
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+
+test "Vector3.get_cubic_hermite_to stays finite midway":
+    
+    let a is calling Vector3.zero
+    let b is calling Vector3.one
+    let r is calling a.get_cubic_hermite_to with b, b, b, 0.5
+    calling ward.assert_true with (r.x < 1000000.0)
+
+test "Vector3.get_rotate_by_axis quarter turn maps x to y":
+    
+    let v is calling Vector3.new with 1.0, 0.0, 0.0
+    let axis is calling Vector3.new with 0.0, 0.0, 1.0
+    let r is calling v.rotate_by_axis with axis, 1.5707963
+    calling ward.assert_almost_eq with r.x, 0.0, 0.001
+    calling ward.assert_almost_eq with r.y, 1.0, 0.001
+
+test "Vector3.get_rotate_by_axis preserves the length":
+    
+    let v is calling Vector3.new with 0.0, 3.0, 4.0
+    let axis is calling Vector3.new with 1.0, 0.0, 0.0
+    let r is calling v.rotate_by_axis with axis, 0.7
+    calling ward.assert_almost_eq with (calling r.length), 5.0, 0.001
+
+test "Vector3.get_rotate_by_axis around the same axis keeps the vector":
+    
+    let v is calling Vector3.new with 0.0, 0.0, 5.0
+    let axis is calling Vector3.new with 0.0, 0.0, 1.0
+    let r is calling v.rotate_by_axis with axis, 1.0
+    calling ward.assert_almost_eq with r.z, 5.0, 0.001
+
+test "Vector3.transform_by the identity is the identity":
+    
+    let v is calling Vector3.new with 1.0, 2.0, 3.0
+    let m is calling Matrix.identity
+    let r is calling v.transform_by with m
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 3.0, 0.0001
+
+test "Vector3.transform_by a translation shifts the point":
+    
+    let v is calling Vector3.zero
+    let m is calling Matrix.from_translation with 1.0, 2.0, 3.0
+    let r is calling v.transform_by with m
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 3.0, 0.0001
+
+test "Vector3.transform_by a scale multiplies the lanes":
+    
+    let v is calling Vector3.one
+    let m is calling Matrix.from_scale with 2.0, 3.0, 4.0
+    let r is calling v.transform_by with m
+    calling ward.assert_almost_eq with r.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 4.0, 0.0001
+
+test "Vector3.barycentric_in at a vertex returns that vertex":
+    
+    let a is calling Vector3.new with 1.0, 0.0, 0.0
+    let b is calling Vector3.new with 0.0, 1.0, 0.0
+    let c is calling Vector3.new with 0.0, 0.0, 1.0
+    let r is calling a.barycentric_in with a, b, c
+    calling ward.assert_almost_eq with r.x, 1.0, 0.001
+
+test "Vector3.barycentric_in coordinates sum to one":
+    
+    let p is calling Vector3.new with 0.25, 0.25, 0.5
+    let a is calling Vector3.new with 1.0, 0.0, 0.0
+    let b is calling Vector3.new with 0.0, 1.0, 0.0
+    let c is calling Vector3.new with 0.0, 0.0, 1.0
+    let r is calling p.barycentric_in with a, b, c
+    let total is r.x + r.y + r.z
+    calling ward.assert_almost_eq with total, 1.0, 0.001
+
+test "Vector3.barycentric_in of the centroid is uniform":
+    
+    let p is calling Vector3.splat with 0.3333333
+    let a is calling Vector3.new with 1.0, 0.0, 0.0
+    let b is calling Vector3.new with 0.0, 1.0, 0.0
+    let c is calling Vector3.new with 0.0, 0.0, 1.0
+    let r is calling p.barycentric_in with a, b, c
+    calling ward.assert_almost_eq with r.x, 0.3333333, 0.001
+
+test "Vector3.unproject the origin with identity matrices is zero":
+    
+    let s is calling Vector3.zero
+    let m is calling Matrix.identity
+    let r is calling s.unproject with m, m
+    calling ward.assert_almost_eq with r.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with r.z, 0.0, 0.0001
+
+test "Vector3.unproject returns finite coordinates":
+    
+    let s is calling Vector3.new with 1.0, 2.0, 3.0
+    let m is calling Matrix.identity
+    let r is calling s.unproject with m, m
+    calling ward.assert_true with (r.x < 1000000.0)
+
+test "Vector3.unproject has no NaNs":
+    
+    let s is calling Vector3.one
+    let m is calling Matrix.identity
+    let r is calling s.unproject with m, m
+    calling ward.assert_false with (r.y != r.y)
+
+test "Vector4.new stores all four components":
+    
+    let v is calling Vector4.new with 1.0, 2.0, 3.0, 4.0
+    calling ward.assert_almost_eq with v.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with v.w, 4.0, 0.0001
+
+test "Vector4.new accepts negatives":
+    
+    let v is calling Vector4.new with -1.0, 0.0, 2.0, -3.0
+    calling ward.assert_almost_eq with v.x, -1.0, 0.0001
+    calling ward.assert_almost_eq with v.w, -3.0, 0.0001
+
+test "Vector4.new keeps large values finite":
+    
+    let v is calling Vector4.new with 1000000.0, 0.0, 0.0, -1000000.0
+    calling ward.assert_almost_eq with v.w, -1000000.0, 1.0
+
+test "Vector4.zero has zero length":
+    
+    let z is calling Vector4.zero
+    calling ward.assert_almost_eq with (calling z.length), 0.0, 0.0001
+
+test "Vector4.zero has all components at zero":
+    
+    let z is calling Vector4.zero
+    calling ward.assert_almost_eq with z.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with z.w, 0.0, 0.0001
+
+test "Vector4.zero is the additive identity":
+    
+    let z is calling Vector4.zero
+    let v is calling Vector4.one
+    let r is calling v.get_add with z
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+
+test "Vector4.one has all components at one":
+    
+    let o is calling Vector4.one
+    calling ward.assert_almost_eq with o.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with o.w, 1.0, 0.0001
+
+test "Vector4.one has length two":
+    
+    let o is calling Vector4.one
+    calling ward.assert_almost_eq with (calling o.length), 2.0, 0.0001
+
+test "Vector4.one scaled by zero is zero":
+    
+    let o is calling Vector4.one
+    let r is calling o.get_scale with 0.0
+    calling ward.assert_almost_eq with (calling r.length), 0.0, 0.0001
+
+test "Vector4.identity is the quaternion identity":
+    
+    let i is calling Vector4.identity
+    calling ward.assert_almost_eq with i.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with i.w, 1.0, 0.0001
+
+test "Vector4.identity has unit length":
+    
+    let i is calling Vector4.identity
+    calling ward.assert_almost_eq with (calling i.length), 1.0, 0.0001
+
+test "Vector4.identity equals quaternion_identity":
+    
+    let i is calling Vector4.identity
+    let q is calling quaternion_identity
+    calling ward.assert_almost_eq with i.w, q.w, 0.0001
+    calling ward.assert_almost_eq with i.x, q.x, 0.0001
+
+test "Vector4.splat fills all four lanes":
+    
+    let s is calling Vector4.splat with 2.5
+    calling ward.assert_almost_eq with s.x, 2.5, 0.0001
+    calling ward.assert_almost_eq with s.w, 2.5, 0.0001
+
+test "Vector4.splat with zero equals Vector4.zero":
+    
+    let s is calling Vector4.splat with 0.0
+    calling ward.assert_almost_eq with (calling s.length), 0.0, 0.0001
+
+test "Vector4.splat with a negative value fills every lane":
+    
+    let s is calling Vector4.splat with -2.0
+    calling ward.assert_almost_eq with s.z, -2.0, 0.0001
+    calling ward.assert_almost_eq with s.w, -2.0, 0.0001
+
+test "Vector4.get_add sums component-wise":
+    
+    let a is calling Vector4.one
+    let b is calling Vector4.splat with 2.0
+    let c is calling a.get_add with b
+    calling ward.assert_almost_eq with c.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with c.w, 3.0, 0.0001
+
+test "Vector4.get_add is commutative":
+    
+    let a is calling Vector4.one
+    let b is calling Vector4.new with 1.0, 2.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.get_add with b).y, (calling b.get_add with a).y, 0.0001
+
+test "Vector4.add mutates the receiver":
+    
+    var v is calling Vector4.one
+    calling v.add with (calling Vector4.one)
+    calling ward.assert_almost_eq with v.w, 2.0, 0.0001
+
+test "Vector4.get_add_scalar adds to every lane":
+    
+    let v is calling Vector4.zero
+    let r is calling v.get_add_scalar with 3.0
+    calling ward.assert_almost_eq with r.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with r.w, 3.0, 0.0001
+
+test "Vector4.get_add_scalar with zero is the identity":
+    
+    let v is calling Vector4.one
+    let r is calling v.get_add_scalar with 0.0
+    calling ward.assert_almost_eq with r.w, 1.0, 0.0001
+
+test "Vector4.add_scalar mutates the receiver":
+    
+    var v is calling Vector4.zero
+    calling v.add_scalar with 1.5
+    calling ward.assert_almost_eq with v.x, 1.5, 0.0001
+    calling ward.assert_almost_eq with v.w, 1.5, 0.0001
+
+test "Vector4.get_subtract subtracts component-wise":
+    
+    let a is calling Vector4.splat with 5.0
+    let b is calling Vector4.splat with 2.0
+    let c is calling a.get_subtract with b
+    calling ward.assert_almost_eq with c.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with c.w, 3.0, 0.0001
+
+test "Vector4.get_subtract of a vector with itself is zero":
+    
+    let a is calling Vector4.one
+    var d0 is calling a.get_subtract with a
+    calling ward.assert_almost_eq with (calling d0.length), 0.0, 0.0001
+
+test "Vector4.subtract mutates the receiver":
+    
+    var v is calling Vector4.splat with 5.0
+    calling v.subtract with (calling Vector4.splat with 5.0)
+    calling ward.assert_almost_eq with (calling v.length), 0.0, 0.0001
+
+test "Vector4.get_subtract_scalar subtracts from every lane":
+    
+    let v is calling Vector4.splat with 5.0
+    let r is calling v.get_subtract_scalar with 2.0
+    calling ward.assert_almost_eq with r.w, 3.0, 0.0001
+
+test "Vector4.get_subtract_scalar with zero is the identity":
+    
+    let v is calling Vector4.splat with 5.0
+    let r is calling v.get_subtract_scalar with 0.0
+    calling ward.assert_almost_eq with r.x, 5.0, 0.0001
+
+test "Vector4.subtract_scalar mutates the receiver":
+    
+    var v is calling Vector4.splat with 4.0
+    calling v.subtract_scalar with 4.0
+    calling ward.assert_almost_eq with v.w, 0.0, 0.0001
+
+test "Vector4.get_multiply multiplies component-wise":
+    
+    let a is calling Vector4.splat with 2.0
+    let b is calling Vector4.splat with 3.0
+    let c is calling a.get_multiply with b
+    calling ward.assert_almost_eq with c.x, 6.0, 0.0001
+    calling ward.assert_almost_eq with c.w, 6.0, 0.0001
+
+test "Vector4.get_multiply by one is the identity":
+    
+    let a is calling Vector4.new with 1.0, 2.0, 3.0, 4.0
+    let c is calling a.get_multiply with (calling Vector4.one)
+    calling ward.assert_almost_eq with c.w, 4.0, 0.0001
+
+test "Vector4.multiply mutates the receiver":
+    
+    var v is calling Vector4.splat with 2.0
+    calling v.multiply with (calling Vector4.splat with 2.0)
+    calling ward.assert_almost_eq with v.w, 4.0, 0.0001
+
+test "Vector4.get_scale scales every lane":
+    
+    let v is calling Vector4.new with 1.0, -2.0, 3.0, -4.0
+    let r is calling v.get_scale with 2.0
+    calling ward.assert_almost_eq with r.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.w, -8.0, 0.0001
+
+test "Vector4.get_scale by zero yields the zero vector":
+    
+    let v is calling Vector4.one
+    let r is calling v.get_scale with 0.0
+    calling ward.assert_almost_eq with (calling r.length), 0.0, 0.0001
+
+test "Vector4.get_scale by a negative factor flips the direction":
+    
+    let v is calling Vector4.one
+    let r is calling v.get_scale with -1.0
+    calling ward.assert_almost_eq with r.w, -1.0, 0.0001
+
+test "Vector4.get_divide divides component-wise":
+    
+    let a is calling Vector4.splat with 6.0
+    let b is calling Vector4.splat with 2.0
+    let c is calling a.get_divide with b
+    calling ward.assert_almost_eq with c.x, 3.0, 0.0001
+    calling ward.assert_almost_eq with c.w, 3.0, 0.0001
+
+test "Vector4.get_divide by one is the identity":
+    
+    let a is calling Vector4.new with 1.0, 2.0, 3.0, 4.0
+    let c is calling a.get_divide with (calling Vector4.one)
+    calling ward.assert_almost_eq with c.y, 2.0, 0.0001
+
+test "Vector4.get_divide by zero yields inf, as in C":
+    
+    let a is calling Vector4.one
+    let c is calling a.get_divide with (calling Vector4.zero)
+    calling ward.assert_true with (c.x > 1000000.0)
+
+test "Vector4.get_negate flips every sign":
+    
+    let v is calling Vector4.new with 1.0, -2.0, 3.0, -4.0
+    let r is calling v.get_negate
+    calling ward.assert_almost_eq with r.x, -1.0, 0.0001
+    calling ward.assert_almost_eq with r.w, 4.0, 0.0001
+
+test "Vector4.get_negate twice is the identity":
+    
+    let v is calling Vector4.new with 1.0, -2.0, 3.0, -4.0
+    var tmp is calling v.get_negate
+    let r is calling tmp.get_negate
+    calling ward.assert_almost_eq with r.z, 3.0, 0.0001
+
+test "Vector4.negate mutates the receiver":
+    
+    var v is calling Vector4.one
+    calling v.negate
+    calling ward.assert_almost_eq with v.w, -1.0, 0.0001
+
+test "Vector4.get_invert reciprocates each lane":
+    
+    let v is calling Vector4.new with 2.0, 4.0, 5.0, 10.0
+    let r is calling v.get_invert
+    calling ward.assert_almost_eq with r.x, 0.5, 0.0001
+    calling ward.assert_almost_eq with r.w, 0.1, 0.0001
+
+test "Vector4.get_invert of one is one":
+    
+    let v is calling Vector4.one
+    let r is calling v.get_invert
+    calling ward.assert_almost_eq with r.z, 1.0, 0.0001
+
+test "Vector4.get_invert of zero yields inf, as in C":
+    
+    let v is calling Vector4.zero
+    let r is calling v.get_invert
+    calling ward.assert_true with (r.w > 1000000.0)
+
+test "Vector4.get_normalize yields unit length":
+    
+    let v is calling Vector4.new with 0.0, 0.0, 3.0, 4.0
+    let n is calling v.get_normalize
+    calling ward.assert_almost_eq with (calling n.length), 1.0, 0.0001
+
+test "Vector4.get_normalize of the zero vector is the zero vector":
+    
+    let v is calling Vector4.zero
+    var n0 is calling v.get_normalize
+    calling ward.assert_almost_eq with (calling n0.length), 0.0, 0.0001
+
+test "Vector4.normalize mutates the receiver":
+    
+    var v is calling Vector4.new with 0.0, 0.0, 0.0, 5.0
+    calling v.normalize
+    calling ward.assert_almost_eq with v.w, 1.0, 0.0001
+
+test "Vector4.get_lerp_to at t=0 is the receiver":
+    
+    let a is calling Vector4.new with 1.0, 2.0, 3.0, 4.0
+    let b is calling Vector4.splat with 10.0
+    let r is calling a.get_lerp_to with b, 0.0
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.w, 4.0, 0.0001
+
+test "Vector4.get_lerp_to at t=1 is the target":
+    
+    let a is calling Vector4.zero
+    let b is calling Vector4.splat with 10.0
+    let r is calling a.get_lerp_to with b, 1.0
+    calling ward.assert_almost_eq with r.w, 10.0, 0.0001
+
+test "Vector4.get_lerp_to at t=0.5 is the midpoint":
+    
+    let a is calling Vector4.zero
+    let b is calling Vector4.splat with 4.0
+    let r is calling a.get_lerp_to with b, 0.5
+    calling ward.assert_almost_eq with r.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.w, 2.0, 0.0001
+
+test "Vector4.get_move_towards stops at the target":
+    
+    let a is calling Vector4.zero
+    let b is calling Vector4.new with 1.0, 0.0, 0.0, 0.0
+    let r is calling a.get_move_towards with b, 10.0
+    calling ward.assert_almost_eq with r.x, 1.0, 0.0001
+
+test "Vector4.get_move_towards advances by max_distance":
+    
+    let a is calling Vector4.zero
+    let b is calling Vector4.new with 10.0, 0.0, 0.0, 0.0
+    let r is calling a.get_move_towards with b, 2.0
+    calling ward.assert_almost_eq with r.x, 2.0, 0.0001
+
+test "Vector4.get_move_towards with zero distance is the receiver":
+    
+    let a is calling Vector4.one
+    let r is calling a.get_move_towards with (calling Vector4.zero), 0.0
+    calling ward.assert_almost_eq with r.w, 1.0, 0.0001
+
+test "Vector4.length of a 3-4 axis vector is 5":
+    
+    let v is calling Vector4.new with 0.0, 0.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling v.length), 5.0, 0.0001
+
+test "Vector4.length of the zero vector is zero":
+    
+    let v is calling Vector4.zero
+    calling ward.assert_almost_eq with (calling v.length), 0.0, 0.0001
+
+test "Vector4.length of a unit lane vector is one":
+    
+    let v is calling Vector4.new with 0.0, 0.0, 0.0, 1.0
+    calling ward.assert_almost_eq with (calling v.length), 1.0, 0.0001
+
+test "Vector4.length_sq of a 3-4 axis vector is 25":
+    
+    let v is calling Vector4.new with 0.0, 0.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling v.length_sq), 25.0, 0.0001
+
+test "Vector4.length_sq of the zero vector is zero":
+    
+    let v is calling Vector4.zero
+    calling ward.assert_almost_eq with (calling v.length_sq), 0.0, 0.0001
+
+test "Vector4.length_sq equals the square of length":
+    
+    let v is calling Vector4.new with 1.0, 2.0, 3.0, 4.0
+    let n is calling v.length
+    calling ward.assert_almost_eq with (calling v.length_sq), n * n, 0.01
+
+test "Vector4.dot of orthogonal vectors is zero":
+    
+    let a is calling Vector4.new with 1.0, 0.0, 0.0, 0.0
+    let b is calling Vector4.new with 0.0, 1.0, 0.0, 0.0
+    calling ward.assert_almost_eq with (calling a.dot with b), 0.0, 0.0001
+
+test "Vector4.dot of one with itself is four":
+    
+    let a is calling Vector4.one
+    calling ward.assert_almost_eq with (calling a.dot with a), 4.0, 0.0001
+
+test "Vector4.dot is symmetric":
+    
+    let a is calling Vector4.new with 1.0, 2.0, 3.0, 4.0
+    let b is calling Vector4.new with 4.0, 3.0, 2.0, 1.0
+    calling ward.assert_almost_eq with (calling a.dot with b), (calling b.dot with a), 0.0001
+
+test "Vector4.distance_to of a 3-4 axis vector is 5":
+    
+    let a is calling Vector4.zero
+    let b is calling Vector4.new with 0.0, 0.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.distance_to with b), 5.0, 0.0001
+
+test "Vector4.distance_to a vector with itself is zero":
+    
+    let a is calling Vector4.one
+    calling ward.assert_almost_eq with (calling a.distance_to with a), 0.0, 0.0001
+
+test "Vector4.distance_to is symmetric":
+    
+    let a is calling Vector4.zero
+    let b is calling Vector4.new with 1.0, 2.0, 2.0, 4.0
+    calling ward.assert_almost_eq with (calling a.distance_to with b), (calling b.distance_to with a), 0.0001
+
+test "Vector4.distance_sq_to of a 3-4 axis vector is 25":
+    
+    let a is calling Vector4.zero
+    let b is calling Vector4.new with 0.0, 0.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling a.distance_sq_to with b), 25.0, 0.0001
+
+test "Vector4.distance_sq_to a vector with itself is zero":
+    
+    let a is calling Vector4.one
+    calling ward.assert_almost_eq with (calling a.distance_sq_to with a), 0.0, 0.0001
+
+test "Vector4.distance_sq_to equals the square of distance_to":
+    
+    let a is calling Vector4.zero
+    let b is calling Vector4.new with 1.0, 2.0, 3.0, 4.0
+    let d is calling a.distance_to with b
+    calling ward.assert_almost_eq with (calling a.distance_sq_to with b), d * d, 0.01
+
+test "Vector4.min_with picks the smaller lane":
+    
+    let a is calling Vector4.one
+    let b is calling Vector4.splat with 0.5
+    let r is calling a.min_with with b
+    calling ward.assert_almost_eq with r.x, 0.5, 0.0001
+    calling ward.assert_almost_eq with r.w, 0.5, 0.0001
+
+test "Vector4.min_with a vector with itself is the vector":
+    
+    let a is calling Vector4.one
+    let r is calling a.min_with with a
+    calling ward.assert_almost_eq with r.w, 1.0, 0.0001
+
+test "Vector4.min_with is commutative":
+    
+    let a is calling Vector4.one
+    let b is calling Vector4.splat with 0.5
+    calling ward.assert_almost_eq with (calling a.min_with with b).y, (calling b.min_with with a).y, 0.0001
+
+test "Vector4.max_with picks the larger lane":
+    
+    let a is calling Vector4.one
+    let b is calling Vector4.splat with 2.0
+    let r is calling a.max_with with b
+    calling ward.assert_almost_eq with r.x, 2.0, 0.0001
+    calling ward.assert_almost_eq with r.w, 2.0, 0.0001
+
+test "Vector4.max_with a vector with itself is the vector":
+    
+    let a is calling Vector4.one
+    let r is calling a.max_with with a
+    calling ward.assert_almost_eq with r.z, 1.0, 0.0001
+
+test "Vector4.max_with is commutative":
+    
+    let a is calling Vector4.one
+    let b is calling Vector4.splat with 2.0
+    calling ward.assert_almost_eq with (calling a.max_with with b).x, (calling b.max_with with a).x, 0.0001
+
+test "Quaternion.get_mul with the identity is the identity":
+    
+    let q is calling quaternion_identity
+    let r is calling q.get_mul with q
+    calling ward.assert_almost_eq with r.w, 1.0, 0.0001
+    calling ward.assert_almost_eq with r.x, 0.0, 0.0001
+
+test "Quaternion.get_mul preserves unit length":
+    
+    let a is calling quaternion_from_euler with 0.1, 0.2, 0.3
+    let b is calling quaternion_from_euler with 0.4, 0.0, 0.0
+    let r is calling a.get_mul with b
+    calling ward.assert_almost_eq with (calling r.length), 1.0, 0.001
+
+test "Quaternion.mul mutates the receiver":
+    
+    var q is calling quaternion_from_axis_angle with (calling Vector3.new with 0.0, 0.0, 1.0), 1.5707963
+    let h is calling quaternion_from_axis_angle with (calling Vector3.new with 0.0, 0.0, 1.0), 1.5707963
+    calling q.mul with h
+    calling ward.assert_almost_eq with (calling q.length), 1.0, 0.001
+
+test "Quaternion.get_slerp_to at t=0 is the receiver":
+    
+    let a is calling quaternion_identity
+    let b is calling quaternion_from_euler with 0.0, 1.5, 0.0
+    let r is calling a.get_slerp_to with b, 0.0
+    calling ward.assert_almost_eq with r.w, a.w, 0.001
+    calling ward.assert_almost_eq with r.x, a.x, 0.001
+
+test "Quaternion.get_slerp_to at t=1 is the target":
+    
+    let a is calling quaternion_identity
+    let b is calling quaternion_from_euler with 0.0, 1.5, 0.0
+    let r is calling a.get_slerp_to with b, 1.0
+    calling ward.assert_almost_eq with r.y, b.y, 0.001
+
+test "Quaternion.get_slerp_to stays on the unit sphere":
+    
+    let a is calling quaternion_identity
+    let b is calling quaternion_from_euler with 0.0, 1.5, 0.0
+    let r is calling a.get_slerp_to with b, 0.5
+    calling ward.assert_almost_eq with (calling r.length), 1.0, 0.001
+
+test "Quaternion.get_nlerp_to at t=0 is the receiver":
+    
+    let a is calling quaternion_identity
+    let b is calling quaternion_from_euler with 0.0, 0.5, 0.0
+    let r is calling a.get_nlerp_to with b, 0.0
+    calling ward.assert_almost_eq with r.w, a.w, 0.001
+
+test "Quaternion.get_nlerp_to at t=1 is the target":
+    
+    let a is calling quaternion_identity
+    let b is calling quaternion_from_euler with 0.0, 0.5, 0.0
+    let r is calling a.get_nlerp_to with b, 1.0
+    calling ward.assert_almost_eq with r.y, b.y, 0.001
+
+test "Quaternion.get_nlerp_to halfway is between the endpoints":
+    
+    let a is calling quaternion_identity
+    let b is calling quaternion_from_euler with 0.0, 1.0, 0.0
+    let r is calling a.get_nlerp_to with b, 0.5
+    calling ward.assert_true with (r.y > 0.0)
+
+test "Quaternion.get_cubic_hermite_to at t=0 is the receiver":
+    
+    let q is calling quaternion_identity
+    let r is calling q.get_cubic_hermite_to with q, q, q, 0.0
+    calling ward.assert_almost_eq with r.w, 1.0, 0.001
+
+test "Quaternion.get_cubic_hermite_to at t=1 is the target":
+    
+    let q is calling quaternion_identity
+    let t is calling quaternion_from_euler with 0.0, 1.0, 0.0
+    let r is calling q.get_cubic_hermite_to with q, t, q, 1.0
+    calling ward.assert_almost_eq with r.y, t.y, 0.001
+
+test "Quaternion.get_cubic_hermite_to stays finite midway":
+    
+    let q is calling quaternion_identity
+    let t is calling quaternion_from_euler with 0.0, 1.0, 0.0
+    let r is calling q.get_cubic_hermite_to with q, t, q, 0.5
+    calling ward.assert_true with (r.w < 1000000.0)
+
+test "Quaternion.to_matrix of the identity is the identity":
+    
+    let q is calling quaternion_identity
+    let m is calling q.to_matrix
+    calling ward.assert_almost_eq with m.m0, 1.0, 0.001
+    calling ward.assert_almost_eq with m.m5, 1.0, 0.001
+
+test "Quaternion.to_matrix has unit determinant":
+    
+    let q is calling quaternion_from_euler with 0.3, 0.2, 0.1
+    let m is calling q.to_matrix
+    calling ward.assert_almost_eq with (calling m.determinant), 1.0, 0.01
+
+test "Quaternion.to_matrix of a quarter turn rotates the x axis":
+    
+    let q is calling quaternion_from_axis_angle with (calling Vector3.new with 0.0, 0.0, 1.0), 1.5707963
+    let m is calling q.to_matrix
+    let x is calling Vector3.new with 1.0, 0.0, 0.0
+    let r is calling x.transform_by with m
+    calling ward.assert_almost_eq with r.y, 1.0, 0.001
+
+test "Quaternion.to_euler of the identity is the zero vector":
+    
+    let q is calling quaternion_identity
+    let e is calling q.to_euler
+    calling ward.assert_almost_eq with e.x, 0.0, 0.001
+    calling ward.assert_almost_eq with e.z, 0.0, 0.001
+
+test "Quaternion.to_euler round-trips from_euler":
+    
+    let q is calling quaternion_from_euler with 0.1, 0.2, 0.3
+    let e is calling q.to_euler
+    calling ward.assert_almost_eq with e.x, 0.1, 0.001
+    calling ward.assert_almost_eq with e.z, 0.3, 0.001
+
+test "Quaternion.to_euler returns finite angles":
+    
+    let q is calling quaternion_from_euler with 0.5, 0.5, 0.5
+    let e is calling q.to_euler
+    calling ward.assert_false with (e.y != e.y)
+
+test "Quaternion.to_axis_angle round-trips from_axis_angle":
+    
+    let q is calling quaternion_from_axis_angle with (calling Vector3.new with 0.0, 1.0, 0.0), 1.0
+    let aa is calling q.to_axis_angle
+    calling ward.assert_almost_eq with aa.angle, 1.0, 0.001
+
+test "Quaternion.to_axis_angle of the identity has zero angle":
+    
+    let q is calling quaternion_identity
+    let aa is calling q.to_axis_angle
+    calling ward.assert_almost_eq with aa.angle, 0.0, 0.001
+
+test "Quaternion.to_axis_angle returns a normalised axis":
+    
+    let q is calling quaternion_from_axis_angle with (calling Vector3.new with 0.0, 1.0, 0.0), 1.0
+    let aa is calling q.to_axis_angle
+    calling ward.assert_almost_eq with (calling aa.axis.length), 1.0, 0.001
+
+test "Matrix.identity has ones on the diagonal":
+    
+    let m is calling Matrix.identity
+    calling ward.assert_almost_eq with m.m0, 1.0, 0.0001
+    calling ward.assert_almost_eq with m.m5, 1.0, 0.0001
+    calling ward.assert_almost_eq with m.m15, 1.0, 0.0001
+
+test "Matrix.identity has unit determinant":
+    
+    let m is calling Matrix.identity
+    calling ward.assert_almost_eq with (calling m.determinant), 1.0, 0.0001
+
+test "Matrix.identity has trace four":
+    
+    let m is calling Matrix.identity
+    calling ward.assert_almost_eq with (calling m.trace), 4.0, 0.0001
+
+test "Matrix.zero has every component at zero":
+    
+    let m is calling Matrix.zero
+    calling ward.assert_almost_eq with m.m0, 0.0, 0.0001
+    calling ward.assert_almost_eq with m.m15, 0.0, 0.0001
+
+test "Matrix.zero has zero determinant":
+    
+    let m is calling Matrix.zero
+    calling ward.assert_almost_eq with (calling m.determinant), 0.0, 0.0001
+
+test "Matrix.zero has zero trace":
+    
+    let m is calling Matrix.zero
+    calling ward.assert_almost_eq with (calling m.trace), 0.0, 0.0001
+
+test "Matrix.from_translation stores the offset":
+    
+    let m is calling Matrix.from_translation with 1.0, 2.0, 3.0
+    calling ward.assert_almost_eq with m.m12, 1.0, 0.0001
+    calling ward.assert_almost_eq with m.m13, 2.0, 0.0001
+    calling ward.assert_almost_eq with m.m14, 3.0, 0.0001
+
+test "Matrix.from_translation has unit determinant":
+    
+    let m is calling Matrix.from_translation with 1.0, 2.0, 3.0
+    calling ward.assert_almost_eq with (calling m.determinant), 1.0, 0.0001
+
+test "Matrix.from_translation with zero is the identity":
+    
+    let m is calling Matrix.from_translation with 0.0, 0.0, 0.0
+    calling ward.assert_almost_eq with m.m0, 1.0, 0.0001
+    calling ward.assert_almost_eq with m.m12, 0.0, 0.0001
+
+test "Matrix.from_scale stores the factors":
+    
+    let m is calling Matrix.from_scale with 2.0, 3.0, 4.0
+    calling ward.assert_almost_eq with m.m0, 2.0, 0.0001
+    calling ward.assert_almost_eq with m.m5, 3.0, 0.0001
+    calling ward.assert_almost_eq with m.m10, 4.0, 0.0001
+
+test "Matrix.from_scale with one is the identity":
+    
+    let m is calling Matrix.from_scale with 1.0, 1.0, 1.0
+    calling ward.assert_almost_eq with m.m0, 1.0, 0.0001
+    calling ward.assert_almost_eq with m.m15, 1.0, 0.0001
+
+test "Matrix.from_scale determinant is the product of factors":
+    
+    let m is calling Matrix.from_scale with 2.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling m.determinant), 24.0, 0.01
+
+test "Matrix.rotation with zero angle is the identity":
+    
+    let m is calling Matrix.rotation with (calling Vector3.new with 0.0, 0.0, 1.0), 0.0
+    calling ward.assert_almost_eq with m.m0, 1.0, 0.001
+    calling ward.assert_almost_eq with m.m5, 1.0, 0.001
+
+test "Matrix.rotation has unit determinant":
+    
+    let m is calling Matrix.rotation with (calling Vector3.new with 0.0, 1.0, 0.0), 1.0
+    calling ward.assert_almost_eq with (calling m.determinant), 1.0, 0.01
+
+test "Matrix.rotation of a quarter turn maps x to y":
+    
+    let m is calling Matrix.rotation with (calling Vector3.new with 0.0, 0.0, 1.0), 1.5707963
+    var xaxis is calling Vector3.new with 1.0, 0.0, 0.0
+    let r is calling xaxis.transform_by with m
+    calling ward.assert_almost_eq with r.y, 1.0, 0.001
+
+test "Matrix.rotation_x of zero is the identity":
+    
+    let m is calling Matrix.rotation_x with 0.0
+    calling ward.assert_almost_eq with m.m0, 1.0, 0.001
+    calling ward.assert_almost_eq with m.m15, 1.0, 0.001
+
+test "Matrix.rotation_x keeps the x axis fixed":
+    
+    let m is calling Matrix.rotation_x with 1.5707963
+    var xaxis is calling Vector3.new with 1.0, 0.0, 0.0
+    let r is calling xaxis.transform_by with m
+    calling ward.assert_almost_eq with r.x, 1.0, 0.001
+
+test "Matrix.rotation_x has unit determinant":
+    
+    let m is calling Matrix.rotation_x with 0.7
+    calling ward.assert_almost_eq with (calling m.determinant), 1.0, 0.01
+
+test "Matrix.rotation_y of zero is the identity":
+    
+    let m is calling Matrix.rotation_y with 0.0
+    calling ward.assert_almost_eq with m.m5, 1.0, 0.001
+
+test "Matrix.rotation_y keeps the y axis fixed":
+    
+    let m is calling Matrix.rotation_y with 1.5707963
+    var yaxis is calling Vector3.new with 0.0, 1.0, 0.0
+    let r is calling yaxis.transform_by with m
+    calling ward.assert_almost_eq with r.y, 1.0, 0.001
+
+test "Matrix.rotation_y has unit determinant":
+    
+    let m is calling Matrix.rotation_y with 0.7
+    calling ward.assert_almost_eq with (calling m.determinant), 1.0, 0.01
+
+test "Matrix.rotation_z of zero is the identity":
+    
+    let m is calling Matrix.rotation_z with 0.0
+    calling ward.assert_almost_eq with m.m10, 1.0, 0.001
+
+test "Matrix.rotation_z keeps the z axis fixed":
+    
+    let m is calling Matrix.rotation_z with 1.5707963
+    var zaxis is calling Vector3.new with 0.0, 0.0, 1.0
+    let r is calling zaxis.transform_by with m
+    calling ward.assert_almost_eq with r.z, 1.0, 0.001
+
+test "Matrix.rotation_z has unit determinant":
+    
+    let m is calling Matrix.rotation_z with 0.7
+    calling ward.assert_almost_eq with (calling m.determinant), 1.0, 0.01
+
+test "Matrix.rotation_xyz of zero is the identity":
+    
+    let m is calling Matrix.rotation_xyz with (calling Vector3.zero)
+    calling ward.assert_almost_eq with m.m0, 1.0, 0.001
+
+test "Matrix.rotation_xyz has unit determinant":
+    
+    let m is calling Matrix.rotation_xyz with (calling Vector3.new with 0.1, 0.2, 0.3)
+    calling ward.assert_almost_eq with (calling m.determinant), 1.0, 0.01
+
+test "Matrix.rotation_xyz accepts negative angles":
+    
+    let m is calling Matrix.rotation_xyz with (calling Vector3.new with -0.4, 0.0, 0.2)
+    calling ward.assert_true with (m.m0 < 1000000.0)
+
+test "Matrix.rotation_zyx of zero is the identity":
+    
+    let m is calling Matrix.rotation_zyx with (calling Vector3.zero)
+    calling ward.assert_almost_eq with m.m0, 1.0, 0.001
+
+test "Matrix.rotation_zyx has unit determinant":
+    
+    let m is calling Matrix.rotation_zyx with (calling Vector3.new with 0.1, 0.2, 0.3)
+    calling ward.assert_almost_eq with (calling m.determinant), 1.0, 0.01
+
+test "Matrix.rotation_zyx stays finite":
+    
+    let m is calling Matrix.rotation_zyx with (calling Vector3.new with 0.9, -0.3, 0.4)
+    calling ward.assert_false with (m.m0 != m.m0)
+
+test "Matrix.frustum returns a finite matrix":
+    
+    let m is calling Matrix.frustum with -1.0, 1.0, -1.0, 1.0, 0.1, 100.0
+    calling ward.assert_false with (m.m0 != m.m0)
+
+test "Matrix.frustum stores the near plane":
+    
+    let m is calling Matrix.frustum with -1.0, 1.0, -1.0, 1.0, 1.0, 100.0
+    calling ward.assert_true with (m.m10 != 0.0)
+
+test "Matrix.frustum with symmetric bounds has zero m8":
+    
+    let m is calling Matrix.frustum with -1.0, 1.0, -1.0, 1.0, 0.1, 100.0
+    calling ward.assert_almost_eq with m.m8, 0.0, 0.001
+
+test "Matrix.perspective returns a finite matrix":
+    
+    let m is calling Matrix.perspective with 0.7853982, 1.7777778, 0.1, 100.0
+    calling ward.assert_false with (m.m0 != m.m0)
+
+test "Matrix.perspective has non-zero m11":
+    
+    let m is calling Matrix.perspective with 0.7853982, 1.7777778, 0.1, 100.0
+    calling ward.assert_true with (m.m11 != 0.0)
+
+test "Matrix.perspective with a wider fov shrinks m0":
+    
+    let a is calling Matrix.perspective with 0.5, 1.0, 0.1, 100.0
+    let b is calling Matrix.perspective with 1.0, 1.0, 0.1, 100.0
+    calling ward.assert_true with (b.m0 < a.m0)
+
+test "Matrix.ortho returns a finite matrix":
+    
+    let m is calling Matrix.ortho with -1.0, 1.0, -1.0, 1.0, 0.1, 100.0
+    calling ward.assert_false with (m.m0 != m.m0)
+
+test "Matrix.ortho stores the inverse extents":
+    
+    let m is calling Matrix.ortho with -2.0, 2.0, -1.0, 1.0, 0.1, 100.0
+    calling ward.assert_almost_eq with m.m0, 0.5, 0.001
+
+test "Matrix.ortho of a unit box has unit m0":
+    
+    let m is calling Matrix.ortho with -1.0, 1.0, -1.0, 1.0, 0.1, 100.0
+    calling ward.assert_almost_eq with m.m0, 1.0, 0.001
+
+test "Matrix.look_at returns a finite matrix":
+    
+    let m is calling Matrix.look_at with (calling Vector3.new with 0.0, 0.0, 10.0), (calling Vector3.zero), (calling Vector3.new with 0.0, 1.0, 0.0)
+    calling ward.assert_false with (m.m0 != m.m0)
+
+test "Matrix.look_at has unit determinant":
+    
+    let m is calling Matrix.look_at with (calling Vector3.new with 0.0, 0.0, 10.0), (calling Vector3.zero), (calling Vector3.new with 0.0, 1.0, 0.0)
+    calling ward.assert_almost_eq with (calling m.determinant), 1.0, 0.01
+
+test "Matrix.look_at keeps the eye on the z axis":
+    
+    let m is calling Matrix.look_at with (calling Vector3.new with 0.0, 0.0, 10.0), (calling Vector3.zero), (calling Vector3.new with 0.0, 1.0, 0.0)
+    calling ward.assert_true with (m.m0 != 0.0)
+
+test "Matrix.compose of identity parts is the identity":
+    
+    let m is calling Matrix.compose with (calling Vector3.zero), (calling Vector4.identity), (calling Vector3.one)
+    calling ward.assert_almost_eq with m.m0, 1.0, 0.001
+    calling ward.assert_almost_eq with m.m15, 1.0, 0.001
+
+test "Matrix.compose stores the translation":
+    
+    let m is calling Matrix.compose with (calling Vector3.new with 1.0, 2.0, 3.0), (calling Vector4.identity), (calling Vector3.one)
+    calling ward.assert_almost_eq with m.m12, 1.0, 0.001
+    calling ward.assert_almost_eq with m.m14, 3.0, 0.001
+
+test "Matrix.compose with scale has the scale determinant":
+    
+    let m is calling Matrix.compose with (calling Vector3.zero), (calling Vector4.identity), (calling Vector3.splat with 2.0)
+    calling ward.assert_almost_eq with (calling m.determinant), 8.0, 0.01
+
+test "Matrix.get_add adds component-wise":
+    
+    let a is calling Matrix.identity
+    let b is calling Matrix.identity
+    let c is calling a.get_add with b
+    calling ward.assert_almost_eq with c.m0, 2.0, 0.0001
+    calling ward.assert_almost_eq with c.m15, 2.0, 0.0001
+
+test "Matrix.get_add with zero is the identity":
+    
+    let a is calling Matrix.identity
+    let z is calling Matrix.zero
+    let c is calling a.get_add with z
+    calling ward.assert_almost_eq with c.m0, 1.0, 0.0001
+
+test "Matrix.add mutates the receiver":
+    
+    var m is calling Matrix.identity
+    calling m.add with (calling Matrix.identity)
+    calling ward.assert_almost_eq with m.m5, 2.0, 0.0001
+
+test "Matrix.get_subtract subtracts component-wise":
+    
+    let a is calling Matrix.identity
+    let b is calling Matrix.identity
+    let c is calling a.get_subtract with b
+    calling ward.assert_almost_eq with c.m0, 0.0, 0.0001
+
+test "Matrix.get_subtract of a matrix with itself is zero":
+    
+    let a is calling Matrix.identity
+    let c is calling a.get_subtract with a
+    calling ward.assert_almost_eq with c.m15, 0.0, 0.0001
+
+test "Matrix.subtract mutates the receiver":
+    
+    var m is calling Matrix.identity
+    calling m.subtract with (calling Matrix.identity)
+    calling ward.assert_almost_eq with m.m0, 0.0, 0.0001
+
+test "Matrix.get_multiply by the identity is the identity":
+    
+    let a is calling Matrix.from_translation with 1.0, 2.0, 3.0
+    let i is calling Matrix.identity
+    let c is calling a.get_multiply with i
+    calling ward.assert_almost_eq with c.m12, 1.0, 0.0001
+    calling ward.assert_almost_eq with c.m14, 3.0, 0.0001
+
+test "Matrix.get_multiply is not commutative for translation and rotation":
+    
+    let t is calling Matrix.from_translation with 1.0, 0.0, 0.0
+    let r is calling Matrix.from_scale with 2.0, 2.0, 2.0
+    let a is calling t.get_multiply with r
+    let b is calling r.get_multiply with t
+    calling ward.assert_true with (a.m12 != b.m12)
+
+test "Matrix.multiply mutates the receiver":
+    
+    var m is calling Matrix.identity
+    calling m.multiply with (calling Matrix.from_translation with 1.0, 2.0, 3.0)
+    calling ward.assert_almost_eq with m.m12, 1.0, 0.0001
+
+test "Matrix.get_multiply_scalar by one is the identity":
+    
+    let m is calling Matrix.identity
+    let r is calling m.get_multiply_scalar with 1.0
+    calling ward.assert_almost_eq with r.m0, 1.0, 0.0001
+
+test "Matrix.get_multiply_scalar by two doubles the diagonal":
+    
+    let m is calling Matrix.identity
+    let r is calling m.get_multiply_scalar with 2.0
+    calling ward.assert_almost_eq with r.m5, 2.0, 0.0001
+
+test "Matrix.multiply_scalar mutates the receiver":
+    
+    var m is calling Matrix.identity
+    calling m.multiply_scalar with 3.0
+    calling ward.assert_almost_eq with m.m15, 3.0, 0.0001
+
+test "Matrix.get_transpose of the identity is the identity":
+    
+    let m is calling Matrix.identity
+    let t is calling m.get_transpose
+    calling ward.assert_almost_eq with t.m0, 1.0, 0.0001
+    calling ward.assert_almost_eq with t.m5, 1.0, 0.0001
+
+test "Matrix.get_transpose swaps off-diagonal entries":
+    
+    let m is calling Matrix.from_translation with 1.0, 2.0, 3.0
+    let t is calling m.get_transpose
+    calling ward.assert_almost_eq with t.m3, 1.0, 0.0001
+    calling ward.assert_almost_eq with t.m12, 0.0, 0.0001
+
+test "Matrix.transpose mutates the receiver":
+    
+    var m is calling Matrix.from_translation with 1.0, 2.0, 3.0
+    calling m.transpose
+    calling ward.assert_almost_eq with m.m3, 1.0, 0.0001
+
+test "Matrix.get_invert of the identity is the identity":
+    
+    let m is calling Matrix.identity
+    let i is calling m.get_invert
+    calling ward.assert_almost_eq with i.m0, 1.0, 0.001
+
+test "Matrix.get_invert round-trips a translation":
+    
+    let m is calling Matrix.from_translation with 1.0, 2.0, 3.0
+    let i is calling m.get_invert
+    calling ward.assert_almost_eq with i.m12, -1.0, 0.001
+    calling ward.assert_almost_eq with i.m14, -3.0, 0.001
+
+test "Matrix.invert of a singular matrix yields non-finite values":
+    
+    let m is calling Matrix.zero
+    let i is calling m.get_invert
+    calling ward.assert_false with (i.m0 == i.m0)
+
+test "Matrix.determinant of the identity is one":
+    
+    let m is calling Matrix.identity
+    calling ward.assert_almost_eq with (calling m.determinant), 1.0, 0.0001
+
+test "Matrix.determinant of zero is zero":
+    
+    let m is calling Matrix.zero
+    calling ward.assert_almost_eq with (calling m.determinant), 0.0, 0.0001
+
+test "Matrix.determinant of a scale is the product of factors":
+    
+    let m is calling Matrix.from_scale with 2.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling m.determinant), 24.0, 0.01
+
+test "Matrix.trace of the identity is four":
+    
+    let m is calling Matrix.identity
+    calling ward.assert_almost_eq with (calling m.trace), 4.0, 0.0001
+
+test "Matrix.trace of zero is zero":
+    
+    let m is calling Matrix.zero
+    calling ward.assert_almost_eq with (calling m.trace), 0.0, 0.0001
+
+test "Matrix.trace of a scale is the sum of factors plus the w lane":
+    
+    let m is calling Matrix.from_scale with 2.0, 3.0, 4.0
+    calling ward.assert_almost_eq with (calling m.trace), 10.0, 0.01
+
+test "Matrix.parts of a translation recovers the offset":
+    
+    let m is calling Matrix.from_translation with 1.0, 2.0, 3.0
+    let p is calling m.parts
+    calling ward.assert_almost_eq with p.translation.x, 1.0, 0.001
+    calling ward.assert_almost_eq with p.translation.z, 3.0, 0.001
+
+test "Matrix.parts of the identity recovers unit scale":
+    
+    let m is calling Matrix.identity
+    let p is calling m.parts
+    calling ward.assert_almost_eq with p.scale.x, 1.0, 0.001
+    calling ward.assert_almost_eq with p.scale.z, 1.0, 0.001
+
+test "Matrix.parts of a scale recovers the factors":
+    
+    let m is calling Matrix.from_scale with 2.0, 3.0, 4.0
+    let p is calling m.parts
+    calling ward.assert_almost_eq with p.scale.x, 2.0, 0.001
+    calling ward.assert_almost_eq with p.scale.z, 4.0, 0.001
+
+test "raymathx.clamp inside the range is the value":
+    
+    calling ward.assert_almost_eq with (calling clamp with 0.5, 0.0, 1.0), 0.5, 0.0001
+
+test "raymathx.clamp below the range is lo":
+    
+    calling ward.assert_almost_eq with (calling clamp with -5.0, 0.0, 1.0), 0.0, 0.0001
+
+test "raymathx.clamp above the range is hi":
+    
+    calling ward.assert_almost_eq with (calling clamp with 5.0, 0.0, 1.0), 1.0, 0.0001
+
+test "raymathx.lerp at t=0 is the start":
+    
+    calling ward.assert_almost_eq with (calling lerp with 0.0, 10.0, 0.0), 0.0, 0.0001
+
+test "raymathx.lerp at t=1 is the end":
+    
+    calling ward.assert_almost_eq with (calling lerp with 0.0, 10.0, 1.0), 10.0, 0.0001
+
+test "raymathx.lerp at t=0.5 is the midpoint":
+    
+    calling ward.assert_almost_eq with (calling lerp with 0.0, 10.0, 0.5), 5.0, 0.0001
+
+test "raymathx.normalize_in maps the range start to zero":
+    
+    calling ward.assert_almost_eq with (calling normalize_in with 0.0, 0.0, 10.0), 0.0, 0.0001
+
+test "raymathx.normalize_in maps the range end to one":
+    
+    calling ward.assert_almost_eq with (calling normalize_in with 10.0, 0.0, 10.0), 1.0, 0.0001
+
+test "raymathx.normalize_in maps the midpoint to a half":
+    
+    calling ward.assert_almost_eq with (calling normalize_in with 5.0, 0.0, 10.0), 0.5, 0.0001
+
+test "raymathx.remap maps to the output range":
+    
+    calling ward.assert_almost_eq with (calling remap with 5.0, 0.0, 10.0, 0.0, 100.0), 50.0, 0.0001
+
+test "raymathx.remap maps the input start to the output start":
+    
+    calling ward.assert_almost_eq with (calling remap with 0.0, 0.0, 10.0, 100.0, 200.0), 100.0, 0.0001
+
+test "raymathx.remap maps the input end to the output end":
+    
+    calling ward.assert_almost_eq with (calling remap with 10.0, 0.0, 10.0, 100.0, 200.0), 200.0, 0.0001
+
+test "raymathx.wrap inside the range is the value":
+    
+    calling ward.assert_almost_eq with (calling wrap with 10.0, 0.0, 360.0), 10.0, 0.0001
+
+test "raymathx.wrap above the range subtracts the span":
+    
+    calling ward.assert_almost_eq with (calling wrap with 370.0, 0.0, 360.0), 10.0, 0.0001
+
+test "raymathx.wrap below the range adds the span":
+    
+    calling ward.assert_almost_eq with (calling wrap with -10.0, 0.0, 360.0), 350.0, 0.0001
+
+test "raymathx.approx_eq of equal values is true":
+    
+    calling ward.assert_true with (calling approx_eq with 1.0, 1.0)
+
+test "raymathx.approx_eq of far values is false":
+    
+    calling ward.assert_false with (calling approx_eq with 1.0, 2.0)
+
+test "raymathx.approx_eq absorbs float rounding":
+    
+    calling ward.assert_true with (calling approx_eq with 0.1 + 0.2, 0.3)
+
+test "raymathx.quaternion_identity is a unit quaternion":
+    
+    let q is calling quaternion_identity
+    calling ward.assert_almost_eq with q.w, 1.0, 0.0001
+    calling ward.assert_almost_eq with (calling q.length), 1.0, 0.0001
+
+test "raymathx.quaternion_identity has zero vector part":
+    
+    let q is calling quaternion_identity
+    calling ward.assert_almost_eq with q.x, 0.0, 0.0001
+    calling ward.assert_almost_eq with q.z, 0.0, 0.0001
+
+test "raymathx.quaternion_identity composes to itself":
+    
+    let q is calling quaternion_identity
+    let r is calling q.get_mul with q
+    calling ward.assert_almost_eq with r.w, 1.0, 0.0001
+
+test "raymathx.quaternion_from_axis_angle is unit length":
+    
+    let q is calling quaternion_from_axis_angle with (calling Vector3.new with 0.0, 1.0, 0.0), 1.0
+    calling ward.assert_almost_eq with (calling q.length), 1.0, 0.001
+
+test "raymathx.quaternion_from_axis_angle of zero angle is the identity":
+    
+    let q is calling quaternion_from_axis_angle with (calling Vector3.new with 0.0, 1.0, 0.0), 0.0
+    calling ward.assert_almost_eq with q.w, 1.0, 0.001
+
+test "raymathx.quaternion_from_axis_angle stores the angle":
+    
+    let q is calling quaternion_from_axis_angle with (calling Vector3.new with 0.0, 1.0, 0.0), 1.0
+    let aa is calling q.to_axis_angle
+    calling ward.assert_almost_eq with aa.angle, 1.0, 0.001
+
+test "raymathx.quaternion_from_euler is unit length":
+    
+    let q is calling quaternion_from_euler with 0.1, 0.2, 0.3
+    calling ward.assert_almost_eq with (calling q.length), 1.0, 0.001
+
+test "raymathx.quaternion_from_euler of zeros is the identity":
+    
+    let q is calling quaternion_from_euler with 0.0, 0.0, 0.0
+    calling ward.assert_almost_eq with q.w, 1.0, 0.001
+
+test "raymathx.quaternion_from_euler round-trips to_euler":
+    
+    let q is calling quaternion_from_euler with 0.1, 0.2, 0.3
+    let e is calling q.to_euler
+    calling ward.assert_almost_eq with e.x, 0.1, 0.001
+
+test "raymathx.quaternion_from_matrix of the identity is the identity":
+    
+    let m is calling Matrix.identity
+    let q is calling quaternion_from_matrix with m
+    calling ward.assert_almost_eq with q.w, 1.0, 0.001
+
+test "raymathx.quaternion_from_matrix is unit length":
+    
+    let m is calling Matrix.rotation_z with 0.7
+    let q is calling quaternion_from_matrix with m
+    calling ward.assert_almost_eq with (calling q.length), 1.0, 0.001
+
+test "raymathx.quaternion_from_matrix round-trips to_matrix":
+    
+    let m is calling Matrix.rotation_y with 0.5
+    let q is calling quaternion_from_matrix with m
+    let back is calling q.to_matrix
+    calling ward.assert_almost_eq with back.m0, m.m0, 0.001
+
+test "raymathx.quaternion_from_vector_to_vector of equal vectors is the identity":
+    
+    let v is calling Vector3.new with 1.0, 0.0, 0.0
+    let q is calling quaternion_from_vector_to_vector with v, v
+    calling ward.assert_almost_eq with q.w, 1.0, 0.001
+
+test "raymathx.quaternion_from_vector_to_vector is unit length":
+    
+    let a is calling Vector3.new with 1.0, 0.0, 0.0
+    let b is calling Vector3.new with 0.0, 1.0, 0.0
+    let q is calling quaternion_from_vector_to_vector with a, b
+    calling ward.assert_almost_eq with (calling q.length), 1.0, 0.001
+
+test "raymathx.quaternion_from_vector_to_vector rotates the source onto the target":
+    
+    let a is calling Vector3.new with 1.0, 0.0, 0.0
+    let b is calling Vector3.new with 0.0, 1.0, 0.0
+    let q is calling quaternion_from_vector_to_vector with a, b
+    let r is calling a.get_rotate_by_quaternion with q
+    calling ward.assert_almost_eq with r.y, 1.0, 0.001

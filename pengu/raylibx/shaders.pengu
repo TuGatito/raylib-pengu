@@ -1,0 +1,604 @@
+## raylibx/shaders.pengu
+## Layer-2 wrapper over the 10 shader functions of the `raylib` binding, which become 15
+## wrappers: the shader is the subject of all of them, so they are methods on the nominal
+## `raylib.Shader`, plus the three module-level lifecycle entries.
+##
+## The family's reason to exist is that **one C function covers every uniform type through a
+## `void*` and an enum**:
+##
+##     float v = 0.5f;
+##     SetShaderValue(shader, loc, &v, SHADER_UNIFORM_FLOAT);          # binding
+##     calling shader.set_float with loc, 0.5                          # wrapper
+##
+## `SetShaderValue` therefore appears seven times, once per uniform type, each typed. That is
+## contract section 2's "one C function may become several wrappers when the type is what
+## varies", and it is what removes both the `void*` and the enum from the call site.
+##
+## This is family `shaders` of `raylibx`; see `docs/plans/raylibx_shaders.md`.
+##
+## ## The silent fallback, and what the wrapper does about it
+## Measured: raylib **never fails to return a shader**. A missing file and empty source both
+## yield the *default* shader with `IsShaderValid() == true`, so there is no sentinel to fold
+## and the caller would silently get the wrong program. Only a source that is non-empty and
+## fails to compile reports `false`.
+##
+## The wrapper therefore checks the precondition first: `load_shader` requires both paths to
+## be files, and `load_shader_from_memory` requires both sources to be non-empty. After that,
+## `maybe none` means "your shader did not load", covering both the precondition and a
+## compile failure. To detect a *fallback* for any other reason, ask for one of your own
+## uniforms: `location` returns `maybe none` when the shader has fallen back to the default.
+##
+## ## Needs a window
+## Measured: loading a shader compiles GLSL, so it needs a graphics context, and this
+## environment has one. Unlike the earlier families, **every wrapped function here is
+## asserted against a live window**, including a real GLSL 330 compile.
+##
+## ## Memory
+## A shader is a GPU program: `unload_shader` releases it, and the wrapper never copies or
+## frees anything else. The temporary C strings for names and paths are released by `std.ffi`.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raylibx_shaders
+##
+## weave main into int:
+##     var shader as maybe raylib.Shader is calling raylibx_shaders.load_shader_from_memory with vs, fs
+##     if shader is present:
+##         var prog as raylib.Shader is calling shader.unwrap
+##         defer calling raylibx_shaders.unload_shader with prog
+##         var loc as maybe int is calling prog.location with "u_time"
+##         if loc is present:
+##             calling prog.set_float with (calling loc.unwrap), 1.5
+##     return 0
+## ```
+
+
+import raylib
+import std.ffi
+import std.ward
+
+enchanting raylib.Shader:
+
+    ## Reports whether the shader holds a usable GPU program.
+    ##
+    ## ## Returns
+    ## `true` when raylib considers the shader valid.
+    ##
+    ## ## Notes
+    ## **It cannot detect a fallback.** Measured: a missing file and empty source both yield the default shader, which reports `true`. Use `location` on one of your own uniforms to tell them apart.
+    ## This is the predicate the two loaders use, which is why they check their preconditions first.
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ok as bool is calling prog.is_valid
+    ## ```
+
+    weave is_valid into bool:
+            return calling raylib.IsShaderValid with (essence of self)
+
+    ## Returns the location raylib assigned to a uniform.
+    ##
+    ## ## Parameters
+    ## - `name`: the uniform's name, exactly as it appears in the source.
+    ##
+    ## ## Returns
+    ## `some` with the location, or `maybe none` when the shader has no such uniform.
+    ##
+    ## ## Notes
+    ## Measured: raylib returns `-1` for a name the program does not declare, which is the predicate.
+    ## A location is a small integer, not a handle: it stays valid for the shader's lifetime and is what the `set_*` methods expect.
+    ## Because a fallback to the default shader has none of your uniforms, **this is how a fallback is detected** (see `load_shader`).
+    ## Do not confuse it with `SetShaderValue`'s `locIndex`, which is an index into raylib's own location table — this returns that index.
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var loc as maybe int is calling prog.location with "u_time"
+    ## ```
+
+    weave location with name as string into maybe int:
+            let c_name as ref to frozen char is calling ffi.cstr_from_string with name
+            var loc as int is calling raylib.GetShaderLocation with (essence of self), c_name
+            if loc < 0:
+                return maybe none
+            return some loc
+
+    ## Returns the location raylib assigned to a vertex attribute.
+    ##
+    ## ## Parameters
+    ## - `name`: the vertex attribute's name, exactly as it appears in the source.
+    ##
+    ## ## Returns
+    ## `some` with the location, or `maybe none` when the shader has no such vertex attribute.
+    ##
+    ## ## Notes
+    ## Measured: raylib returns `-1` for a name the program does not declare, which is the predicate.
+    ## A location is a small integer, not a handle: it stays valid for the shader's lifetime and is what the `set_*` methods expect.
+    ## Because a fallback to the default shader has none of your uniforms, **this is how a fallback is detected** (see `load_shader`).
+    ## Do not confuse it with `SetShaderValue`'s `locIndex`, which is an index into raylib's own location table — this returns that index.
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var loc as maybe int is calling prog.location_attrib with "u_time"
+    ## ```
+
+    weave location_attrib with name as string into maybe int:
+            let c_name as ref to frozen char is calling ffi.cstr_from_string with name
+            var loc as int is calling raylib.GetShaderLocationAttrib with (essence of self), c_name
+            if loc < 0:
+                return maybe none
+            return some loc
+
+    ## Uploads a `f32` uniform.
+    ##
+    ## ## Parameters
+    ## - `loc`: the location from `location`.
+    ## - `value`: the value to upload.
+    ##
+    ## ## Returns
+    ## Nothing; the GPU program's uniform is updated.
+    ##
+    ## ## Notes
+    ## Measured: the call is accepted for a real compiled program; this environment cannot read the framebuffer back, so the *value* is not asserted by the tests (see the family plan).
+    ## An out-of-range or `-1` location is silently ignored by raylib; pass the `maybe`'s unwrapped value so a missing uniform is a compile-time-visible decision.
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling prog.set_float with (calling loc.unwrap), 1.5
+    ## ```
+
+    weave set_float with loc as int, value as f32 into void:
+            let ptr as ref to frozen void is transmute (sigil of value) to (ref to frozen void)
+            calling raylib.SetShaderValue with (essence of self), loc, ptr, (raylib.SHADER_UNIFORM_FLOAT to int)
+
+    ## Uploads a `int` uniform.
+    ##
+    ## ## Parameters
+    ## - `loc`: the location from `location`.
+    ## - `value`: the value to upload.
+    ##
+    ## ## Returns
+    ## Nothing; the GPU program's uniform is updated.
+    ##
+    ## ## Notes
+    ## Measured: the call is accepted for a real compiled program; this environment cannot read the framebuffer back, so the *value* is not asserted by the tests (see the family plan).
+    ## An out-of-range or `-1` location is silently ignored by raylib; pass the `maybe`'s unwrapped value so a missing uniform is a compile-time-visible decision.
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling prog.set_int with (calling loc.unwrap), 2
+    ## ```
+
+    weave set_int with loc as int, value as int into void:
+            let ptr as ref to frozen void is transmute (sigil of value) to (ref to frozen void)
+            calling raylib.SetShaderValue with (essence of self), loc, ptr, (raylib.SHADER_UNIFORM_INT to int)
+
+    ## Uploads a `raylib.Vector2` uniform.
+    ##
+    ## ## Parameters
+    ## - `loc`: the location from `location`.
+    ## - `value`: the value to upload.
+    ##
+    ## ## Returns
+    ## Nothing; the GPU program's uniform is updated.
+    ##
+    ## ## Notes
+    ## Measured: the call is accepted for a real compiled program; this environment cannot read the framebuffer back, so the *value* is not asserted by the tests (see the family plan).
+    ## An out-of-range or `-1` location is silently ignored by raylib; pass the `maybe`'s unwrapped value so a missing uniform is a compile-time-visible decision.
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling prog.set_vec2 with (calling loc.unwrap), (with x is 0.0, y is 0.0)
+    ## ```
+
+    weave set_vec2 with loc as int, value as raylib.Vector2 into void:
+            let ptr as ref to frozen void is transmute (sigil of value) to (ref to frozen void)
+            calling raylib.SetShaderValue with (essence of self), loc, ptr, (raylib.SHADER_UNIFORM_VEC2 to int)
+
+    ## Uploads a `raylib.Vector3` uniform.
+    ##
+    ## ## Parameters
+    ## - `loc`: the location from `location`.
+    ## - `value`: the value to upload.
+    ##
+    ## ## Returns
+    ## Nothing; the GPU program's uniform is updated.
+    ##
+    ## ## Notes
+    ## Measured: the call is accepted for a real compiled program; this environment cannot read the framebuffer back, so the *value* is not asserted by the tests (see the family plan).
+    ## An out-of-range or `-1` location is silently ignored by raylib; pass the `maybe`'s unwrapped value so a missing uniform is a compile-time-visible decision.
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling prog.set_vec3 with (calling loc.unwrap), (with x is 0.0, y is 0.0, z is 0.0)
+    ## ```
+
+    weave set_vec3 with loc as int, value as raylib.Vector3 into void:
+            let ptr as ref to frozen void is transmute (sigil of value) to (ref to frozen void)
+            calling raylib.SetShaderValue with (essence of self), loc, ptr, (raylib.SHADER_UNIFORM_VEC3 to int)
+
+    ## Uploads a `raylib.Vector4` uniform.
+    ##
+    ## ## Parameters
+    ## - `loc`: the location from `location`.
+    ## - `value`: the value to upload.
+    ##
+    ## ## Returns
+    ## Nothing; the GPU program's uniform is updated.
+    ##
+    ## ## Notes
+    ## Measured: the call is accepted for a real compiled program; this environment cannot read the framebuffer back, so the *value* is not asserted by the tests (see the family plan).
+    ## An out-of-range or `-1` location is silently ignored by raylib; pass the `maybe`'s unwrapped value so a missing uniform is a compile-time-visible decision.
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling prog.set_vec4 with (calling loc.unwrap), (with x is 0.0, y is 0.0, z is 0.0, w is 0.0)
+    ## ```
+
+    weave set_vec4 with loc as int, value as raylib.Vector4 into void:
+            let ptr as ref to frozen void is transmute (sigil of value) to (ref to frozen void)
+            calling raylib.SetShaderValue with (essence of self), loc, ptr, (raylib.SHADER_UNIFORM_VEC4 to int)
+
+    ## Uploads a `Matrix` uniform.
+    ##
+    ## ## Parameters
+    ## - `loc`: the location from `location`.
+    ## - `value`: the matrix to upload.
+    ##
+    ## ## Returns
+    ## Nothing; the GPU program's uniform is updated.
+    ##
+    ## ## Notes
+    ## This is the entry raylib uses internally for `mvp` and the other transform matrices, and it is the one you need when writing your own camera code.
+    ## It takes the matrix **by value**, unlike the other setters, because the binding does.
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling prog.set_matrix with (calling loc.unwrap), mvp
+    ## ```
+
+    weave set_matrix with loc as int, value as raylib.Matrix into void:
+            calling raylib.SetShaderValueMatrix with (essence of self), loc, value
+
+    ## Binds a texture to a `sampler2D` uniform.
+    ##
+    ## ## Parameters
+    ## - `loc`: the location from `location`.
+    ## - `value`: the texture to sample.
+    ##
+    ## ## Returns
+    ## Nothing; the sampler is bound.
+    ##
+    ## ## Notes
+    ## The texture must stay alive while the shader uses it: raylib binds the GPU handle, it does not copy the pixels.
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling prog.set_texture with (calling loc.unwrap), texture
+    ## ```
+
+    weave set_texture with loc as int, value as raylib.Texture2D into void:
+            calling raylib.SetShaderValueTexture with (essence of self), loc, value
+
+    ## Uploads an array of `floats` as a uniform array.
+    ##
+    ## ## Parameters
+    ## - `loc`: the location from `location`.
+    ## - `values`: the elements to upload; an empty slice is a no-op.
+    ##
+    ## ## Returns
+    ## Nothing; the GPU program's uniform array is updated.
+    ##
+    ## ## Notes
+    ## raylib reads exactly `values.length` elements, so the slice's length is what the shader sees: a shorter slice than the array declares leaves the rest untouched.
+    ## `count` is the number of scalars, so this covers `uniform float u[4]`; for an array of vectors raylib counts *elements*, a different convention this wrapper deliberately does not expose (see the family plan).
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling prog.set_floats with (calling loc.unwrap), (values at 0 to (values.length))
+    ## ```
+
+    weave set_floats with loc as int, values as slice of f32 into void:
+            if (values.length) == 0:
+                return
+            let ptr as ref to frozen void is transmute (sigil of (values at 0)) to (ref to frozen void)
+            calling raylib.SetShaderValueV with (essence of self), loc, ptr, (raylib.SHADER_UNIFORM_FLOAT to int), (values.length)
+
+    ## Uploads an array of `ints` as a uniform array.
+    ##
+    ## ## Parameters
+    ## - `loc`: the location from `location`.
+    ## - `values`: the elements to upload; an empty slice is a no-op.
+    ##
+    ## ## Returns
+    ## Nothing; the GPU program's uniform array is updated.
+    ##
+    ## ## Notes
+    ## raylib reads exactly `values.length` elements, so the slice's length is what the shader sees: a shorter slice than the array declares leaves the rest untouched.
+    ## Same count convention as `set_floats`, for integer arrays.
+    ##
+    ## ## Memory
+    ## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling prog.set_ints with (calling loc.unwrap), (values at 0 to (values.length))
+    ## ```
+
+    weave set_ints with loc as int, values as slice of int into void:
+            if (values.length) == 0:
+                return
+            let ptr as ref to frozen void is transmute (sigil of (values at 0)) to (ref to frozen void)
+            calling raylib.SetShaderValueV with (essence of self), loc, ptr, (raylib.SHADER_UNIFORM_INT to int), (values.length)
+
+
+## Loads a shader program from a vertex and a fragment source file.
+##
+## ## Parameters
+## - `vs_path`: the vertex shader file.
+## - `fs_path`: the fragment shader file.
+##
+## ## Returns
+## `some` with the loaded shader, or `maybe none` when a path is not a file or the sources fail to compile.
+##
+## ## Notes
+## **The precondition check is the wrapper's addition, and it is measured.** raylib substitutes the *default* shader when a file cannot be read, and that default is valid, so the binding would hand back a working shader that is not yours. Requiring both paths to be files first makes `maybe none` mean what it says.
+## A file that exists but does not compile reports invalid on its own, so it needs no pre-check.
+## **Requires a window**: loading compiles GLSL.
+##
+## ## Memory
+## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+##
+## ## Example
+## ```pengu
+## var shader as maybe raylib.Shader is calling raylibx_shaders.load_shader with "vs.glsl", "fs.glsl"
+## ```
+
+weave load_shader with vs_path as string, fs_path as string into maybe raylib.Shader:
+        let c_vs as ref to frozen char is calling ffi.cstr_from_string with vs_path
+        let c_fs as ref to frozen char is calling ffi.cstr_from_string with fs_path
+        if not (calling raylib.IsPathFile with c_vs):
+            return maybe none
+        if not (calling raylib.IsPathFile with c_fs):
+            return maybe none
+        var shader as raylib.Shader is calling raylib.LoadShader with c_vs, c_fs
+        if calling raylib.IsShaderValid with shader:
+            return some shader
+        return maybe none
+
+## Compiles a shader program from two strings of GLSL source.
+##
+## ## Parameters
+## - `vs_code`: the vertex shader source.
+## - `fs_code`: the fragment shader source.
+##
+## ## Returns
+## `some` with the compiled shader, or `maybe none` when a source is empty or fails to compile.
+##
+## ## Notes
+## **Empty source is the trap this guards against.** Measured: `LoadShaderFromMemory("", "")` returns the *default* shader, valid and silent, exactly as a missing file does. The wrapper rejects empty sources first so `maybe none` means the shader did not load.
+## Source that is non-empty but invalid reports invalid by itself.
+## **Requires a window**: compiling GLSL needs a context.
+##
+## ## Memory
+## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+##
+## ## Example
+## ```pengu
+## var shader as maybe raylib.Shader is calling raylibx_shaders.load_shader_from_memory with vs, fs
+## ```
+
+weave load_shader_from_memory with vs_code as string, fs_code as string into maybe raylib.Shader:
+        if vs_code == "":
+            return maybe none
+        if fs_code == "":
+            return maybe none
+        let c_vs as ref to frozen char is calling ffi.cstr_from_string with vs_code
+        let c_fs as ref to frozen char is calling ffi.cstr_from_string with fs_code
+        var shader as raylib.Shader is calling raylib.LoadShaderFromMemory with c_vs, c_fs
+        if calling raylib.IsShaderValid with shader:
+            return some shader
+        return maybe none
+
+## Releases a shader program's GPU resources.
+##
+## ## Parameters
+## - `shader`: the shader to release.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## Do not unload the shader raylib is currently using: check `is_valid` if it came from somewhere you do not control.
+## The default shader is managed by raylib; unloading it by mistake is the caller's problem, not the wrapper's.
+##
+## ## Memory
+## No allocation and nothing to release; a uniform is a message to the GPU, not a resource.
+##
+## ## Example
+## ```pengu
+## calling raylibx_shaders.unload_shader with prog
+## ```
+
+weave unload_shader with shader as raylib.Shader into void:
+        calling raylib.UnloadShader with shader
+
+# --- Tests ---
+
+# This family is fully testable, because a shader load is a GLSL compile and this environment
+# has a graphics context. The window lifecycle comes from the binding: the wrapper does not
+# wrap `InitWindow`/`CloseWindow` (contract section 9 row 8).
+
+# The sources are raw triple-quoted strings: raw because GLSL is full of braces, which a
+# normal literal would read as interpolation, and triple-quoted because GLSL is line-oriented
+# and `#version` must be followed by a real newline. The language guide names shaders as the
+# motivating case for raw literals.
+weave vertex_source into string:
+    return r"""#version 330
+in vec3 vertexPosition;
+in vec2 vertexTexCoord;
+in vec4 vertexColor;
+uniform mat4 mvp;
+out vec2 fragTexCoord;
+out vec4 fragColor;
+void main() {
+    fragTexCoord = vertexTexCoord;
+    fragColor = vertexColor;
+    gl_Position = mvp*vec4(vertexPosition, 1.0);
+}
+"""
+
+weave fragment_source into string:
+    return r"""#version 330
+in vec2 fragTexCoord;
+in vec4 fragColor;
+uniform sampler2D texture0;
+uniform vec4 colDiffuse;
+uniform float u_scalar;
+uniform int u_count;
+uniform vec2 u_pair;
+uniform vec3 u_triple;
+uniform vec4 u_quad;
+out vec4 finalColor;
+void main() {
+    finalColor = fragColor*texture(texture0, fragTexCoord)*colDiffuse + vec4(u_scalar, u_pair.x, u_triple.y, u_quad.w) + vec4(float(u_count));
+}
+"""
+
+test "a real shader compiles from memory and reports valid":
+    calling raylib.InitWindow with 120, 80, "raylibx_shaders load"
+    defer calling raylib.CloseWindow
+    var loaded as maybe raylib.Shader is calling load_shader_from_memory with (calling vertex_source), (calling fragment_source)
+    calling ward.assert_maybe_present with loaded
+    var prog as raylib.Shader is calling loaded.unwrap
+    defer calling unload_shader with prog
+    calling ward.assert_true with (calling prog.is_valid)
+
+test "location finds a declared uniform and none for a missing one":
+    calling raylib.InitWindow with 120, 80, "raylibx_shaders location"
+    defer calling raylib.CloseWindow
+    var loaded as maybe raylib.Shader is calling load_shader_from_memory with (calling vertex_source), (calling fragment_source)
+    var prog as raylib.Shader is calling loaded.unwrap
+    defer calling unload_shader with prog
+    var found as maybe int is calling prog.location with "u_scalar"
+    calling ward.assert_maybe_present with found
+    calling ward.assert_true with ((calling found.unwrap) >= 0)
+    var missing as maybe int is calling prog.location with "u_does_not_exist"
+    calling ward.assert_maybe_none with missing
+
+test "location_attrib finds a declared attribute and none for a missing one":
+    calling raylib.InitWindow with 120, 80, "raylibx_shaders attrib"
+    defer calling raylib.CloseWindow
+    var loaded as maybe raylib.Shader is calling load_shader_from_memory with (calling vertex_source), (calling fragment_source)
+    var prog as raylib.Shader is calling loaded.unwrap
+    defer calling unload_shader with prog
+    var found as maybe int is calling prog.location_attrib with "vertexPosition"
+    calling ward.assert_maybe_present with found
+    var missing as maybe int is calling prog.location_attrib with "a_does_not_exist"
+    calling ward.assert_maybe_none with missing
+
+# A helper so the setters test reads as a sequence of uploads rather than a pile of unwraps.
+weave must_location with prog as raylib.Shader, name as string into int:
+    var loc as maybe int is calling prog.location with name
+    calling ward.assert_maybe_present with loc
+    return calling loc.unwrap
+
+test "every typed setter is callable on a compiled program":
+    calling raylib.InitWindow with 120, 80, "raylibx_shaders setters"
+    defer calling raylib.CloseWindow
+    var loaded as maybe raylib.Shader is calling load_shader_from_memory with (calling vertex_source), (calling fragment_source)
+    var prog as raylib.Shader is calling loaded.unwrap
+    defer calling unload_shader with prog
+    calling prog.set_float with (calling must_location with prog, "u_scalar"), 0.5
+    calling prog.set_int with (calling must_location with prog, "u_count"), 3
+    calling prog.set_vec2 with (calling must_location with prog, "u_pair"), (with x is 0.25, y is 0.75)
+    calling prog.set_vec3 with (calling must_location with prog, "u_triple"), (with x is 0.1, y is 0.2, z is 0.3)
+    calling prog.set_vec4 with (calling must_location with prog, "u_quad"), (with x is 0.0, y is 0.0, z is 0.0, w is 1.0)
+    var m as raylib.Matrix is with m0 is 1.0, m4 is 0.0, m8 is 0.0, m12 is 0.0, m1 is 0.0, m5 is 1.0, m9 is 0.0, m13 is 0.0, m2 is 0.0, m6 is 0.0, m10 is 1.0, m14 is 0.0, m3 is 0.0, m7 is 0.0, m11 is 0.0, m15 is 1.0
+    calling prog.set_matrix with (calling must_location with prog, "mvp"), m
+    var tex as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    calling prog.set_texture with (calling must_location with prog, "texture0"), tex
+    var values as list of f32 is [0.5, 0.25, 0.75]
+    defer banish values
+    calling prog.set_floats with (calling must_location with prog, "u_scalar"), (values at 0 to (values.length))
+    var counts as list of int is [1, 2, 3]
+    defer banish counts
+    calling prog.set_ints with (calling must_location with prog, "u_count"), (counts at 0 to (counts.length))
+
+test "an empty array is a no-op for the array setters":
+    calling raylib.InitWindow with 120, 80, "raylibx_shaders empty arrays"
+    defer calling raylib.CloseWindow
+    var loaded as maybe raylib.Shader is calling load_shader_from_memory with (calling vertex_source), (calling fragment_source)
+    var prog as raylib.Shader is calling loaded.unwrap
+    defer calling unload_shader with prog
+    var floats as list of f32 is list of f32
+    defer banish floats
+    var ints as list of int is list of int
+    defer banish ints
+    calling prog.set_floats with 0, (floats at 0 to 0)
+    calling prog.set_ints with 0, (ints at 0 to 0)
+
+test "empty or invalid source is none, and a missing file is none":
+    calling raylib.InitWindow with 120, 80, "raylibx_shaders failures"
+    defer calling raylib.CloseWindow
+    var empty as maybe raylib.Shader is calling load_shader_from_memory with "", ""
+    calling ward.assert_maybe_none with empty
+    var half as maybe raylib.Shader is calling load_shader_from_memory with (calling vertex_source), ""
+    calling ward.assert_maybe_none with half
+    var bad as maybe raylib.Shader is calling load_shader_from_memory with "this is not glsl", "neither is this"
+    calling ward.assert_maybe_none with bad
+    var missing as maybe raylib.Shader is calling load_shader with "/tmp/raylibx_shaders_absent_vs.glsl", "/tmp/raylibx_shaders_absent_fs.glsl"
+    calling ward.assert_maybe_none with missing
+
+test "a shader loads from files that exist":
+    calling raylib.InitWindow with 120, 80, "raylibx_shaders files"
+    defer calling raylib.CloseWindow
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var vs_path as string is "/tmp/raylibx_shaders_{(seed to string)}_vs.glsl"
+    var fs_path as string is "/tmp/raylibx_shaders_{(seed to string)}_fs.glsl"
+    let c_vs_path as ref to frozen char is calling ffi.cstr_from_string with vs_path
+    let c_fs_path as ref to frozen char is calling ffi.cstr_from_string with fs_path
+    defer calling raylib.FileRemove with c_vs_path
+    defer calling raylib.FileRemove with c_fs_path
+    let c_vs_src as ref to frozen char is calling ffi.cstr_from_string with (calling vertex_source)
+    let c_fs_src as ref to frozen char is calling ffi.cstr_from_string with (calling fragment_source)
+    calling raylib.SaveFileText with c_vs_path, c_vs_src
+    calling raylib.SaveFileText with c_fs_path, c_fs_src
+    var loaded as maybe raylib.Shader is calling load_shader with vs_path, fs_path
+    calling ward.assert_maybe_present with loaded
+    var prog as raylib.Shader is calling loaded.unwrap
+    defer calling unload_shader with prog
+    calling ward.assert_maybe_present with (calling prog.location with "u_scalar")

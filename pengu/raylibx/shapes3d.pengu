@@ -1,0 +1,610 @@
+## raylibx/shapes3d.pengu
+## Layer-2 wrapper over the 21 primitive 3D shape functions of the `raylib` binding.
+##
+## The family splits by the anchor rule of `docs/plans/raylibx.md` D9, extended to 3D:
+## raylib marks the functions whose first argument *is* the anchor with a `V` in the name.
+##
+## - **4 methods on `raylib.Vector3`**: `draw_point`, `draw_cube`, `draw_cube_wires`,
+##   `draw_plane`. Each drops the binding's `_v` suffix, so `pos.draw_cube with extent, color`
+##   reads as "at `pos`, draw a cube of `size`".
+## - **17 module-level functions**: everything else, with the binding's exact names. The
+##   sphere and cylinder families take a `Vector3` centre but carry no `V`, so they stay
+##   here; making them methods would invent names that no longer say which C function runs.
+##
+## This is family `shapes3d` of `raylibx`; see `docs/plans/raylibx_shapes3d.md`.
+##
+## ## Drawing needs a 3D mode
+## Every entry issues a raylib drawing command and is only meaningful between `BeginMode3D`
+## and `EndMode3D`. The tests assert only the empty-slice guard of `draw_triangle_strip_3d`;
+## the rest of the surface is type-checked by `draw_api_probe` and not called in CI.
+##
+## ## Memory
+## No allocation and nothing to release. The only FFI boundary is `slice of Vector3` ->
+## `ref to void` in `draw_triangle_strip_3d`, which guards the empty slice before taking
+## the address of element zero.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raylibx_shapes3d
+##
+## weave main into int:
+##     var center as raylib.Vector3 is with x is 0.0, y is 1.0, z is 0.0
+##     calling center.draw_cube with (with x is 1.0, y is 1.0, z is 1.0), raylib.GREEN
+##     calling draw_grid with 10, 1.0
+##     return 0
+## ```
+
+
+import raylib
+import std.ffi
+import std.ward
+
+enchanting raylib.Vector3:
+
+    ## Sets a single 3D point at this position.
+    ##
+    ## ## Parameters
+    ## - `color`: the point colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current 3D frame.
+    ##
+    ## ## Notes
+    ## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+    ## calling pos.draw_point with raylib.RED
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## Nothing; a one-pixel point is drawn into the current 3D frame.
+    ## ```
+
+    weave draw_point with color as raylib.Color into void:
+        calling raylib.DrawPoint3D with (essence of self), color
+
+    ## Draws a filled cube centred on this point.
+    ##
+    ## ## Parameters
+    ## - `extent`: the width, height and length of the cube.
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current 3D frame.
+    ##
+    ## ## Notes
+    ## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+    ## calling center.draw_cube with (with x is 1.0, y is 1.0, z is 1.0), raylib.GREEN
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## Nothing; the cube is drawn into the current 3D frame.
+    ## ```
+
+    weave draw_cube with extent as raylib.Vector3, color as raylib.Color into void:
+        calling raylib.DrawCubeV with (essence of self), extent, color
+
+    ## Draws the wireframe of a cube centred on this point.
+    ##
+    ## ## Parameters
+    ## - `extent`: the width, height and length of the cube.
+    ## - `color`: the wire colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current 3D frame.
+    ##
+    ## ## Notes
+    ## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+    ## calling center.draw_cube_wires with (with x is 1.0, y is 1.0, z is 1.0), raylib.WHITE
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## Nothing; the wireframe is drawn into the current 3D frame.
+    ## ```
+
+    weave draw_cube_wires with extent as raylib.Vector3, color as raylib.Color into void:
+        calling raylib.DrawCubeWiresV with (essence of self), extent, color
+
+    ## Draws a filled plane centred on this point.
+    ##
+    ## ## Parameters
+    ## - `extent`: the plane's width and length in world units, as a `Vector2`.
+    ## - `color`: the fill colour.
+    ##
+    ## ## Returns
+    ## Nothing; the shape is drawn into the current 3D frame.
+    ##
+    ## ## Notes
+    ## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+    ## calling center.draw_plane with (with x is 10.0, y is 10.0), raylib.LIGHTGRAY
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## Nothing; the plane is drawn into the current 3D frame.
+    ## ```
+
+    weave draw_plane with extent as raylib.Vector2, color as raylib.Color into void:
+        calling raylib.DrawPlane with (essence of self), extent, color
+
+## Draws a 3D line between two points.
+##
+## ## Parameters
+## - `start`, `end`: the line endpoints.
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_line_3d with a, b, raylib.RED
+## ```
+
+weave draw_line_3d with start as raylib.Vector3, end as raylib.Vector3, color as raylib.Color into void:
+    calling raylib.DrawLine3D with start, end, color
+
+## Draws a 3D circle outline oriented by a rotation axis.
+##
+## ## Parameters
+## - `center`: the circle centre.
+## - `radius`: the circle radius.
+## - `rotation_axis`: the axis the circle is rotated around.
+## - `rotation_angle`: the rotation in degrees.
+## - `color`: the outline colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_circle_3d with center, 1.0, (with x is 0.0, y is 1.0, z is 0.0), 90.0, raylib.RED
+## ```
+
+weave draw_circle_3d with center as raylib.Vector3, radius as f32, rotation_axis as raylib.Vector3, rotation_angle as f32, color as raylib.Color into void:
+    calling raylib.DrawCircle3D with center, radius, rotation_axis, rotation_angle, color
+
+## Draws a filled 3D triangle.
+##
+## ## Parameters
+## - `v1`, `v2`, `v3`: the triangle vertices.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_triangle_3d with a, b, c, raylib.RED
+## ```
+
+weave draw_triangle_3d with v1 as raylib.Vector3, v2 as raylib.Vector3, v3 as raylib.Vector3, color as raylib.Color into void:
+    calling raylib.DrawTriangle3D with v1, v2, v3, color
+
+## Draws a filled triangle strip through a list of points.
+##
+## ## Parameters
+## - `points`: the strip vertices, in order.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+## An empty `points` slice draws nothing and is not an error: the guard exists because taking the address of element zero of an empty slice is out of bounds.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_triangle_strip_3d with (points at 0 to 3), raylib.BLUE
+## ```
+
+weave draw_triangle_strip_3d with points as slice of raylib.Vector3, color as raylib.Color into void:
+    if (points.length) == 0:
+        return
+    let raw as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+    calling raylib.DrawTriangleStrip3D with raw, (points.length), color
+
+## Draws a filled cube from separate dimensions.
+##
+## ## Parameters
+## - `position`: the cube **centre**.
+## - `width`, `height`, `length`: the size along each axis.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+## The vector method `draw_cube` wraps `DrawCubeV` instead; both take a `Vector3` centre, but this one takes the three dimensions separately. They differ only in the C function, which is why both names exist.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_cube with center, 1.0, 1.0, 1.0, raylib.GREEN
+## ```
+
+weave draw_cube with position as raylib.Vector3, width as f32, height as f32, length as f32, color as raylib.Color into void:
+    calling raylib.DrawCube with position, width, height, length, color
+
+## Draws the wireframe of a cube from separate dimensions.
+##
+## ## Parameters
+## - `position`: the cube **centre**.
+## - `width`, `height`, `length`: the size along each axis.
+## - `color`: the wire colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_cube_wires with center, 1.0, 1.0, 1.0, raylib.WHITE
+## ```
+
+weave draw_cube_wires with position as raylib.Vector3, width as f32, height as f32, length as f32, color as raylib.Color into void:
+    calling raylib.DrawCubeWires with position, width, height, length, color
+
+## Draws a filled sphere.
+##
+## ## Parameters
+## - `center`: the sphere centre.
+## - `radius`: the sphere radius.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+## This stays a free function even though its first argument is the natural subject: raylib has no `DrawSphereV`, so there is no `V` name to key the anchor rule on (see the family plan D3).
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_sphere with center, 1.0, raylib.BLUE
+## ```
+
+weave draw_sphere with center as raylib.Vector3, radius as f32, color as raylib.Color into void:
+    calling raylib.DrawSphere with center, radius, color
+
+## Draws a filled sphere with explicit tessellation.
+##
+## ## Parameters
+## - `center`: the sphere centre.
+## - `radius`: the sphere radius.
+## - `rings`: the number of horizontal rings.
+## - `slices`: the number of vertical slices.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_sphere_ex with center, 1.0, 8, 8, raylib.BLUE
+## ```
+
+weave draw_sphere_ex with center as raylib.Vector3, radius as f32, rings as int, slices as int, color as raylib.Color into void:
+    calling raylib.DrawSphereEx with center, radius, rings, slices, color
+
+## Draws the wireframe of a sphere with explicit tessellation.
+##
+## ## Parameters
+## - `center`: the sphere centre.
+## - `radius`: the sphere radius.
+## - `rings`: the number of horizontal rings.
+## - `slices`: the number of vertical slices.
+## - `color`: the wire colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_sphere_wires with center, 1.0, 8, 8, raylib.BLUE
+## ```
+
+weave draw_sphere_wires with center as raylib.Vector3, radius as f32, rings as int, slices as int, color as raylib.Color into void:
+    calling raylib.DrawSphereWires with center, radius, rings, slices, color
+
+## Draws a filled cylinder with its base centre at a position.
+##
+## ## Parameters
+## - `position`: the **base** centre.
+## - `radius_top`, `radius_bottom`: the radii at each end; different values give a cone or a truncated cone.
+## - `height`: the cylinder height.
+## - `sides`: the number of sides.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+## `position` is the **base**, not the centre of mass: the cylinder extends upwards from it.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_cylinder with pos, 1.0, 1.0, 2.0, 12, raylib.PURPLE
+## ```
+
+weave draw_cylinder with position as raylib.Vector3, radius_top as f32, radius_bottom as f32, height as f32, sides as int, color as raylib.Color into void:
+    calling raylib.DrawCylinder with position, radius_top, radius_bottom, height, sides, color
+
+## Draws a filled cylinder between two points.
+##
+## ## Parameters
+## - `start`, `end`: the two end centres.
+## - `start_radius`, `end_radius`: the radius at each end.
+## - `sides`: the number of sides.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+## Two equally good anchors, so this is not a method: which end would be the receiver?
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_cylinder_ex with a, b, 1.0, 0.5, 12, raylib.PURPLE
+## ```
+
+weave draw_cylinder_ex with start as raylib.Vector3, end as raylib.Vector3, start_radius as f32, end_radius as f32, sides as int, color as raylib.Color into void:
+    calling raylib.DrawCylinderEx with start, end, start_radius, end_radius, sides, color
+
+## Draws the wireframe of a cylinder with its base centre at a position.
+##
+## ## Parameters
+## - `position`: the **base** centre.
+## - `radius_top`, `radius_bottom`: the radii at each end.
+## - `height`: the cylinder height.
+## - `sides`: the number of sides.
+## - `color`: the wire colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_cylinder_wires with pos, 1.0, 1.0, 2.0, 12, raylib.PURPLE
+## ```
+
+weave draw_cylinder_wires with position as raylib.Vector3, radius_top as f32, radius_bottom as f32, height as f32, sides as int, color as raylib.Color into void:
+    calling raylib.DrawCylinderWires with position, radius_top, radius_bottom, height, sides, color
+
+## Draws the wireframe of a cylinder between two points.
+##
+## ## Parameters
+## - `start`, `end`: the two end centres.
+## - `start_radius`, `end_radius`: the radius at each end.
+## - `sides`: the number of sides.
+## - `color`: the wire colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_cylinder_wires_ex with a, b, 1.0, 0.5, 12, raylib.PURPLE
+## ```
+
+weave draw_cylinder_wires_ex with start as raylib.Vector3, end as raylib.Vector3, start_radius as f32, end_radius as f32, sides as int, color as raylib.Color into void:
+    calling raylib.DrawCylinderWiresEx with start, end, start_radius, end_radius, sides, color
+
+## Draws a filled capsule between two points.
+##
+## ## Parameters
+## - `start`, `end`: the two cap centres.
+## - `radius`: the capsule radius.
+## - `rings`: the number of rings per cap.
+## - `slices`: the number of slices around the axis.
+## - `color`: the fill colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_capsule with a, b, 0.5, 8, 8, raylib.YELLOW
+## ```
+
+weave draw_capsule with start as raylib.Vector3, end as raylib.Vector3, radius as f32, rings as int, slices as int, color as raylib.Color into void:
+    calling raylib.DrawCapsule with start, end, radius, rings, slices, color
+
+## Draws the wireframe of a capsule between two points.
+##
+## ## Parameters
+## - `start`, `end`: the two cap centres.
+## - `radius`: the capsule radius.
+## - `rings`: the number of rings per cap.
+## - `slices`: the number of slices around the axis.
+## - `color`: the wire colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_capsule_wires with a, b, 0.5, 8, 8, raylib.YELLOW
+## ```
+
+weave draw_capsule_wires with start as raylib.Vector3, end as raylib.Vector3, radius as f32, rings as int, slices as int, color as raylib.Color into void:
+    calling raylib.DrawCapsuleWires with start, end, radius, rings, slices, color
+
+## Draws a ray as a line from its origin along its direction.
+##
+## ## Parameters
+## - `ray`: the ray to draw, as `raylib.Ray` (`position` plus `direction`).
+## - `color`: the line colour.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+## Kept as a free function rather than a `Ray` method: `Ray` has no other wrapper methods and no row in the master plan's registry, so giving it one method would be a registry decision rather than a family one.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_ray with ray, raylib.RED
+## ```
+
+weave draw_ray with ray as raylib.Ray, color as raylib.Color into void:
+    calling raylib.DrawRay with ray, color
+
+## Draws a ground grid on the world XZ plane.
+##
+## ## Parameters
+## - `slices`: the number of lines to draw in each direction.
+## - `spacing`: the distance between lines in world units.
+##
+## ## Returns
+## Nothing; the shape is drawn into the current 3D frame.
+##
+## ## Notes
+## Requires an active 3D drawing frame (`BeginMode3D`/`EndMode3D`). Calling it outside one is undefined by raylib.
+## The only function in the family that takes no colour: it uses raylib's own grid colour.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## calling draw_grid with 10, 1.0
+## ```
+
+weave draw_grid with slices as int, spacing as f32 into void:
+    calling raylib.DrawGrid with slices, spacing
+
+# --- Tests ---
+
+test "draw_triangle_strip_3d on an empty slice is a no-op":
+    var empty as list of raylib.Vector3 is list of raylib.Vector3
+    defer banish empty
+    calling draw_triangle_strip_3d with (empty at 0 to 0), raylib.RED
+
+# The whole family is window-bound: every entry below issues a raylib drawing command
+# that is only meaningful between BeginMode3D and EndMode3D, so none of it is asserted
+# in CI. This probe exists so that every public signature is type-checked at build time.
+weave draw_api_probe into void:
+    var a as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    var b as raylib.Vector3 is with x is 1.0, y is 0.0, z is 0.0
+    var c as raylib.Vector3 is with x is 1.0, y is 1.0, z is 0.0
+    var d as raylib.Vector3 is with x is 1.0, y is 1.0, z is 1.0
+    var box as raylib.Vector3 is with x is 1.0, y is 1.0, z is 1.0
+    var flat as raylib.Vector2 is with x is 10.0, y is 10.0
+    var col as raylib.Color is raylib.RED
+    var strip as list of raylib.Vector3 is list of raylib.Vector3
+    defer banish strip
+    var ray as raylib.Ray is with position is (with x is 0.0, y is 0.0, z is 0.0), direction is (with x is 0.0, y is 1.0, z is 0.0)
+    calling a.draw_point with col
+    calling a.draw_cube with box, col
+    calling a.draw_cube_wires with box, col
+    calling a.draw_plane with flat, col
+    calling draw_line_3d with a, b, col
+    calling draw_circle_3d with a, 1.0, (with x is 0.0, y is 1.0, z is 0.0), 90.0, col
+    calling draw_triangle_3d with a, b, c, col
+    calling draw_triangle_strip_3d with (strip at 0 to 0), col
+    calling draw_cube with a, 1.0, 1.0, 1.0, col
+    calling draw_cube_wires with a, 1.0, 1.0, 1.0, col
+    calling draw_sphere with a, 1.0, col
+    calling draw_sphere_ex with a, 1.0, 8, 8, col
+    calling draw_sphere_wires with a, 1.0, 8, 8, col
+    calling draw_cylinder with a, 1.0, 1.0, 2.0, 12, col
+    calling draw_cylinder_ex with a, b, 1.0, 0.5, 12, col
+    calling draw_cylinder_wires with a, 1.0, 1.0, 2.0, 12, col
+    calling draw_cylinder_wires_ex with a, b, 1.0, 0.5, 12, col
+    calling draw_capsule with a, b, 0.5, 8, 8, col
+    calling draw_capsule_wires with a, b, 0.5, 8, 8, col
+    calling draw_ray with ray, col
+    calling draw_grid with 10, 1.0

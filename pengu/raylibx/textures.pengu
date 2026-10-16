@@ -1,0 +1,545 @@
+## raylibx/textures.pengu
+## Layer-2 wrapper over the 19 available texture functions of the `raylib` binding.
+##
+## A texture is a GPU handle, and almost everything you do with one is an action on it, so
+## this family is mostly methods on the nominal types `raylib.Texture` and
+## `raylib.RenderTexture`:
+##
+##     calling raylib.DrawTexturePro with tex, src, dst, origin, rot, tint   # binding
+##     calling tex.draw_pro with src, dst, origin, rot, tint                 # wrapper
+##
+## `Texture2D` and `RenderTexture2D` are aliases of those two runes, so a caller that writes
+## `raylib.Texture2D` gets these methods too; the wrapper enchants the nominal names because
+## enchanting an alias pair emits duplicate C symbols (the `raymathx` lesson).
+##
+## What stays module-level is the resource lifecycle: the four loaders and the two unloaders,
+## matching `unload_font` in `raylibx_text` and `unload_image` in `raylibx_images`.
+##
+## This is family `textures` of `raylibx`; see `docs/plans/raylibx_textures.md`.
+##
+## ## This family needs a window
+## Measured: a texture cannot exist without a graphics context. The loaders fail *gracefully*
+## headless (they return an invalid zeroed texture, which the `maybe` catches), and
+## `is_valid`, `unload_texture`, `unload_render_texture` and `generate_mipmaps` are safe to
+## call on an invalid texture. Everything else -- the six draws, `set_filter`, `set_wrap`,
+## `update` and `update_rec` -- either does nothing meaningful or crashes without a context,
+## so it is type-checked by `textures_api_probe` and never called in CI.
+##
+## ## Memory
+## Nothing is copied and nothing is `MemFree`d: a texture is a handle, not a heap buffer.
+## The releases are `unload_texture` and `unload_render_texture`, which raylib itself makes
+## safe to call on an invalid texture.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raylibx_textures
+##
+## weave main into int:
+##     var tex as maybe raylib.Texture2D is calling raylibx_textures.load_texture with "sprite.png"
+##     if tex is present:
+##         var img as raylib.Texture2D is calling tex.unwrap
+##         calling img.set_filter with raylib.TEXTURE_FILTER_BILINEAR
+##         calling img.draw_at with (with x is 10.0, y is 10.0), raylib.WHITE
+##     return 0
+## ```
+import raylib
+import std.ffi
+import std.ward
+
+enchanting raylib.Texture:
+
+    ## Draws the texture at an integer position.
+    ##
+    ## ## Parameters
+    ## - `x`: the top-left column.
+    ## - `y`: the top-left row.
+    ## - `tint`: a colour multiplied into the texture; `raylib.WHITE` draws it unchanged.
+    ##
+    ## ## Returns
+    ## Nothing; the texture is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`).
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling tex.draw with 10, 10, raylib.WHITE
+    ## ```
+    weave draw with x as int, y as int, tint as raylib.Color into void:
+        calling raylib.DrawTexture with (essence of self), x, y, tint
+
+    ## Draws the texture at a `Vector2` position.
+    ##
+    ## ## Parameters
+    ## - `position`: the top-left corner.
+    ## - `tint`: a colour multiplied into the texture.
+    ##
+    ## ## Returns
+    ## Nothing; the texture is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling tex.draw_at with (with x is 10.0, y is 10.0), raylib.WHITE
+    ## ```
+    weave draw_at with position as raylib.Vector2, tint as raylib.Color into void:
+        calling raylib.DrawTextureV with (essence of self), position, tint
+
+    ## Draws the texture rotated and scaled around its top-left corner.
+    ##
+    ## ## Parameters
+    ## - `position`: where the texture's top-left corner lands.
+    ## - `rotation`: the rotation in degrees.
+    ## - `scale`: the scale factor applied to both axes.
+    ## - `tint`: a colour multiplied into the texture.
+    ##
+    ## ## Returns
+    ## Nothing; the texture is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## The rotation pivot in this form is the texture's top-left corner; use `draw_pro` when the pivot has to be somewhere else.
+    ## Requires an active drawing frame.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling tex.draw_ex with (with x is 10.0, y is 10.0), 45.0, 2.0, raylib.WHITE
+    ## ```
+    weave draw_ex with position as raylib.Vector2, rotation as f32, scale as f32, tint as raylib.Color into void:
+        calling raylib.DrawTextureEx with (essence of self), position, rotation, scale, tint
+
+    ## Draws a sub-rectangle of the texture.
+    ##
+    ## ## Parameters
+    ## - `rec`: the source rectangle inside the texture, in pixels.
+    ## - `position`: where that rectangle's top-left corner lands.
+    ## - `tint`: a colour multiplied into the texture.
+    ##
+    ## ## Returns
+    ## Nothing; the texture is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## The destination keeps the source size: this crops, it does not scale. Use `draw_pro` to scale.
+    ## Requires an active drawing frame.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling tex.draw_rec with (with x is 0.0, y is 0.0, width is 16.0, height is 16.0), pos, raylib.WHITE
+    ## ```
+    weave draw_rec with rec as raylib.Rectangle, position as raylib.Vector2, tint as raylib.Color into void:
+        calling raylib.DrawTextureRec with (essence of self), rec, position, tint
+
+    ## Draws a source rectangle into a destination rectangle, with rotation around an origin.
+    ##
+    ## ## Parameters
+    ## - `src_rec`: the region of the texture to read.
+    ## - `dst_rec`: the region of the screen to write, which may be a different size.
+    ## - `origin`: the rotation pivot, relative to `dst_rec`'s top-left corner.
+    ## - `rotation`: the rotation in degrees.
+    ## - `tint`: a colour multiplied into the texture.
+    ##
+    ## ## Returns
+    ## Nothing; the texture is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## This is the full-control form: it is the only one that scales and rotates at once, and the only one whose pivot is free.
+    ## Requires an active drawing frame.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling tex.draw_pro with src, dst, (with x is 0.0, y is 0.0), 0.0, raylib.WHITE
+    ## ```
+    weave draw_pro with src_rec as raylib.Rectangle, dst_rec as raylib.Rectangle, origin as raylib.Vector2, rotation as f32, tint as raylib.Color into void:
+        calling raylib.DrawTexturePro with (essence of self), src_rec, dst_rec, origin, rotation, tint
+
+    ## Draws the texture as a nine-slice that stretches without distorting its corners.
+    ##
+    ## ## Parameters
+    ## - `patch`: the nine-slice layout, as a `raylib.NPatchInfo`.
+    ## - `dst_rec`: the region of the screen to fill.
+    ## - `origin`: the rotation pivot, relative to `dst_rec`'s top-left corner.
+    ## - `rotation`: the rotation in degrees.
+    ## - `tint`: a colour multiplied into the texture.
+    ##
+    ## ## Returns
+    ## Nothing; the texture is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## This is what makes buttons and panels scale cleanly: the borders keep their thickness and only the middle stretches.
+    ## Requires an active drawing frame.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling tex.draw_npatch with patch, dst, (with x is 0.0, y is 0.0), 0.0, raylib.WHITE
+    ## ```
+    weave draw_npatch with patch as raylib.NPatchInfo, dst_rec as raylib.Rectangle, origin as raylib.Vector2, rotation as f32, tint as raylib.Color into void:
+        calling raylib.DrawTextureNPatch with (essence of self), patch, dst_rec, origin, rotation, tint
+
+    ## Uploads a whole texture worth of pixels into the GPU texture.
+    ##
+    ## ## Parameters
+    ## - `pixels`: the pixel data, in the texture's own format and size.
+    ##
+    ## ## Returns
+    ## Nothing; the GPU texture is rewritten in place.
+    ##
+    ## ## Notes
+    ## **Requires a graphics context.** Measured: calling this on an invalid texture without a window crashes.
+    ## raylib reads the texture's own dimensions, so `pixels` must hold exactly `width * height * bytes-per-pixel` bytes; a shorter buffer reads past its end.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling tex.update with (pixels at 0 to (pixels.length))
+    ## ```
+    weave update with pixels as slice of byte into void:
+        var raw as ref to void is calling ffi.null_void
+        if (pixels.length) > 0:
+            set raw is transmute (sigil of (pixels at 0)) to (ref to void)
+        calling raylib.UpdateTexture with (essence of self), (transmute raw to ref to frozen void)
+
+    ## Uploads pixels into a sub-rectangle of the GPU texture.
+    ##
+    ## ## Parameters
+    ## - `rec`: the rectangle to rewrite.
+    ## - `pixels`: the pixel data for that rectangle, in the texture's format.
+    ##
+    ## ## Returns
+    ## Nothing; the GPU texture is rewritten in place.
+    ##
+    ## ## Notes
+    ## **Requires a graphics context.** Same caveat as `update`, and `pixels` must be exactly `rec.width * rec.height` pixels' worth of bytes.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling tex.update_rec with rec, (pixels at 0 to (pixels.length))
+    ## ```
+    weave update_rec with rec as raylib.Rectangle, pixels as slice of byte into void:
+        var raw as ref to void is calling ffi.null_void
+        if (pixels.length) > 0:
+            set raw is transmute (sigil of (pixels at 0)) to (ref to void)
+        calling raylib.UpdateTextureRec with (essence of self), rec, (transmute raw to ref to frozen void)
+
+    ## Rebuilds the texture with a mipmap chain.
+    ##
+    ## ## Returns
+    ## Nothing; the GPU texture is replaced by a mipmapped one.
+    ##
+    ## ## Notes
+    ## Mipmaps need a filter that uses them: pair this with `set_filter with raylib.TEXTURE_FILTER_BILINEAR` or `TRILINEAR`, otherwise the chain is built and ignored.
+    ## **Requires a graphics context** for a real texture; it is a no-op on an invalid one, which is why the CI test can call it.
+    ##
+    ## ## Memory
+    ## raylib frees the old texture and allocates the new one; nothing is left to the caller.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling tex.generate_mipmaps
+    ## ```
+    weave generate_mipmaps into void:
+        calling raylib.GenTextureMipmaps with self
+
+    ## Sets how the texture is sampled when it is scaled.
+    ##
+    ## ## Parameters
+    ## - `filter`: the sampling mode, as a `raylib.TextureFilter`.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## **Requires a graphics context.** Measured: this crashes on an invalid texture.
+    ## `TEXTURE_FILTER_POINT` is the pixel-art choice; `BILINEAR` is the default and `TRILINEAR` needs mipmaps.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling tex.set_filter with raylib.TEXTURE_FILTER_POINT
+    ## ```
+    weave set_filter with filter as raylib.TextureFilter into void:
+        calling raylib.SetTextureFilter with (essence of self), (filter to int)
+
+    ## Sets how the texture behaves when sampled outside its bounds.
+    ##
+    ## ## Parameters
+    ## - `wrap`: the wrapping mode, as a `raylib.TextureWrap`.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## **Requires a graphics context.** Measured: this crashes on an invalid texture.
+    ## `TEXTURE_WRAP_REPEAT` is what makes tiled backgrounds work; it needs power-of-two dimensions on some drivers.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling tex.set_wrap with raylib.TEXTURE_WRAP_REPEAT
+    ## ```
+    weave set_wrap with wrap as raylib.TextureWrap into void:
+        calling raylib.SetTextureWrap with (essence of self), (wrap to int)
+
+    ## Reports whether the texture holds a usable GPU handle.
+    ##
+    ## ## Returns
+    ## `true` when raylib considers the texture valid.
+    ##
+    ## ## Notes
+    ## This is the predicate behind every `load_texture*` `maybe` in this family, and it is safe to call without a window: a zeroed `Texture2D` reports `false`.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ok as bool is calling tex.is_valid
+    ## ```
+    weave is_valid into bool:
+        return calling raylib.IsTextureValid with (essence of self)
+
+enchanting raylib.RenderTexture:
+
+    ## Reports whether the render target holds usable GPU handles.
+    ##
+    ## ## Returns
+    ## `true` when raylib considers the render texture valid.
+    ##
+    ## ## Notes
+    ## Safe to call without a window: a zeroed `RenderTexture2D` reports `false`, which is what makes `load_render_texture`'s `maybe` testable headless.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ok as bool is calling target.is_valid
+    ## ```
+    weave is_valid into bool:
+        return calling raylib.IsRenderTextureValid with (essence of self)
+
+## Loads a texture from an image file.
+##
+## ## Parameters
+## - `path`: the image file to upload.
+##
+## ## Returns
+## `some` with a valid texture, or `maybe none` when the file is missing or the upload fails.
+##
+## ## Notes
+## The file is decoded on the CPU and then uploaded to the GPU, so this needs a graphics context for the second half; without one it reports `maybe none` rather than crashing.
+##
+## ## Memory
+## The texture is a GPU resource: release it with `unload_texture`.
+##
+## ## Example
+## ```pengu
+## var tex as maybe raylib.Texture2D is calling raylibx_textures.load_texture with "sprite.png"
+## ```
+weave load_texture with path as string into maybe raylib.Texture:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    var tex as raylib.Texture is calling raylib.LoadTexture with c_path
+    if calling raylib.IsTextureValid with tex:
+        return some tex
+    return maybe none
+
+## Uploads an existing image as a texture.
+##
+## ## Parameters
+## - `image`: the source image; it is read, not consumed.
+##
+## ## Returns
+## `some` with a valid texture, or `maybe none` when the upload fails.
+##
+## ## Notes
+## The pair to `raylibx_images`: build or load an image on the CPU, then upload it once.
+##
+## ## Memory
+## The image stays the caller's to unload; the returned texture is released with `unload_texture`.
+##
+## ## Example
+## ```pengu
+## var tex as maybe raylib.Texture2D is calling raylibx_textures.load_texture_from_image with img
+## ```
+weave load_texture_from_image with image as raylib.Image into maybe raylib.Texture:
+    var tex as raylib.Texture is calling raylib.LoadTextureFromImage with image
+    if calling raylib.IsTextureValid with tex:
+        return some tex
+    return maybe none
+
+## Uploads an image as a cubemap texture.
+##
+## ## Parameters
+## - `image`: the source image holding the six faces.
+## - `layout`: how the faces are arranged; raylib fails when it cannot detect the layout.
+##
+## ## Returns
+## `some` with a valid texture, or `maybe none` when raylib cannot read the layout or the upload fails.
+##
+## ## Notes
+## Measured: raylib reports a failure for a layout it cannot detect instead of guessing, which the `maybe` surfaces.
+##
+## ## Memory
+## Release the texture with `unload_texture`.
+##
+## ## Example
+## ```pengu
+## var sky as maybe raylib.TextureCubemap is calling raylibx_textures.load_texture_cubemap with img, 0
+## ```
+weave load_texture_cubemap with image as raylib.Image, layout as int into maybe raylib.Texture:
+    var tex as raylib.Texture is calling raylib.LoadTextureCubemap with image, layout
+    if calling raylib.IsTextureValid with tex:
+        return some tex
+    return maybe none
+
+## Creates a render target: a texture you can draw into.
+##
+## ## Parameters
+## - `width`: the target width in pixels.
+## - `height`: the target height in pixels.
+##
+## ## Returns
+## `some` with a valid render texture, or `maybe none` when the framebuffer cannot be created.
+##
+## ## Notes
+## The target owns two GPU textures (colour and depth) plus a framebuffer. Draw into it by binding it as the drawing target, which the `drawing` family will expose as a method on this type.
+##
+## ## Memory
+## Release it with `unload_render_texture`, which frees all three resources.
+##
+## ## Example
+## ```pengu
+## var target as maybe raylib.RenderTexture2D is calling raylibx_textures.load_render_texture with 256, 256
+## ```
+weave load_render_texture with width as int, height as int into maybe raylib.RenderTexture:
+    var target as raylib.RenderTexture is calling raylib.LoadRenderTexture with width, height
+    if calling raylib.IsRenderTextureValid with target:
+        return some target
+    return maybe none
+
+## Releases a texture's GPU resources.
+##
+## ## Parameters
+## - `texture`: the texture to release.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## Measured safe on an invalid texture, so a `maybe none` result can be passed straight in.
+## Do not use the texture after this call, and do not release a texture whose drawing is still queued.
+##
+## ## Memory
+## This is the release for every texture this family hands back.
+##
+## ## Example
+## ```pengu
+## calling raylibx_textures.unload_texture with tex
+## ```
+weave unload_texture with texture as raylib.Texture into void:
+    calling raylib.UnloadTexture with texture
+
+## Releases a render target's GPU resources.
+##
+## ## Parameters
+## - `target`: the render texture to release.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## Frees both textures and the framebuffer in one call. Measured safe on an invalid target.
+##
+## ## Memory
+## This is the release for every render texture this family hands back.
+##
+## ## Example
+## ```pengu
+## calling raylibx_textures.unload_render_texture with target
+## ```
+weave unload_render_texture with target as raylib.RenderTexture into void:
+    calling raylib.UnloadRenderTexture with target
+
+# --- Tests ---
+
+test "is_valid is false for a zeroed texture":
+    var tex as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    calling ward.assert_false with (calling tex.is_valid)
+
+test "is_valid is false for a zeroed render texture":
+    var tex as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    var target as raylib.RenderTexture is with id is 0, texture is tex, depth is tex
+    calling ward.assert_false with (calling target.is_valid)
+
+test "unloading an invalid texture is safe":
+    var tex as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    calling unload_texture with tex
+    var target as raylib.RenderTexture is with id is 0, texture is tex, depth is tex
+    calling unload_render_texture with target
+
+test "generate_mipmaps on an invalid texture is a no-op":
+    var tex as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    calling tex.generate_mipmaps
+
+test "load_texture is none for a missing file":
+    var tex as maybe raylib.Texture2D is calling load_texture with "/tmp/raylibx_textures_absent.png"
+    calling ward.assert_maybe_none with tex
+
+test "load_texture_from_image is none without a graphics context":
+    var img as raylib.Image is calling raylib.GenImageColor with 4, 4, raylib.RED
+    defer calling raylib.UnloadImage with img
+    var tex as maybe raylib.Texture2D is calling load_texture_from_image with img
+    calling ward.assert_maybe_none with tex
+
+test "load_texture_cubemap is none for an undetectable layout":
+    var img as raylib.Image is calling raylib.GenImageColor with 4, 4, raylib.RED
+    defer calling raylib.UnloadImage with img
+    var tex as maybe raylib.TextureCubemap is calling load_texture_cubemap with img, 0
+    calling ward.assert_maybe_none with tex
+
+test "load_render_texture is none without a graphics context":
+    var target as maybe raylib.RenderTexture2D is calling load_render_texture with 64, 64
+    calling ward.assert_maybe_none with target
+
+# The window-bound surface: the six draws, set_filter, set_wrap, update and update_rec all
+# need a graphics context (measured: three of them crash outright on an invalid texture), so
+# this probe only type-checks them. It is not invoked by any test.
+weave textures_api_probe with tex as raylib.Texture2D, patch as raylib.NPatchInfo, pixels as slice of byte into void:
+    calling tex.draw with 0, 0, raylib.WHITE
+    calling tex.draw_at with (with x is 0.0, y is 0.0), raylib.WHITE
+    calling tex.draw_ex with (with x is 0.0, y is 0.0), 0.0, 1.0, raylib.WHITE
+    calling tex.draw_rec with (with x is 0.0, y is 0.0, width is 1.0, height is 1.0), (with x is 0.0, y is 0.0), raylib.WHITE
+    calling tex.draw_pro with (with x is 0.0, y is 0.0, width is 1.0, height is 1.0), (with x is 0.0, y is 0.0, width is 1.0, height is 1.0), (with x is 0.0, y is 0.0), 0.0, raylib.WHITE
+    calling tex.draw_npatch with patch, (with x is 0.0, y is 0.0, width is 1.0, height is 1.0), (with x is 0.0, y is 0.0), 0.0, raylib.WHITE
+    calling tex.set_filter with raylib.TEXTURE_FILTER_POINT
+    calling tex.set_wrap with raylib.TEXTURE_WRAP_CLAMP
+    calling tex.update with pixels
+    calling tex.update_rec with (with x is 0.0, y is 0.0, width is 1.0, height is 1.0), pixels

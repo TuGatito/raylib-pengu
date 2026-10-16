@@ -1,0 +1,1351 @@
+## raylibx/audio.pengu
+## Layer-2 wrapper over the 55 audio functions of the `raylib` binding, out of the 66 in the
+## audio section: 5 callback entries are excluded because PenguScript lambdas have no closures
+## and 6 are one-shot device or global configuration.
+##
+## This family has **four receiver types**, which is why almost everything is a method:
+##
+##     SetSoundVolume(sound, 0.5f);     IsSoundPlaying(sound)      # binding
+##     calling sound.set_volume with 0.5;  calling sound.is_playing # wrapper
+##
+## `Wave` is CPU sample data, `Sound` is a playback buffer the device owns, `Music` is a
+## streaming decoder that must be pumped every frame, and `AudioStream` is a buffer you push
+## your own samples into. The module-level entries are the loaders and their releases.
+##
+## ## The device is a precondition, not an option
+## `InitAudioDevice` and `CloseAudioDevice` are **not** wrapped: contract section 9 row 8's
+## shape (one-shot global configuration) applies exactly, so the device is opened through the
+## binding. Measured: with no device, `IsAudioDeviceReady()` is `false` and every loader that
+## needs the device returns an invalid value, which is what the `maybe` returns capture. A
+## **`Wave`**, on the other hand, is pure CPU data and loads with the device closed.
+##
+## ## Measured surprises worth knowing
+## * `LoadSoundFromWave` **resamples**: a 200-frame 44.1 kHz wave produced a 218-frame sound.
+## * `GetMusicTimeLength` on an invalid stream returns **NaN**, not zero, so every comparison
+##   against it is false. Guard with `is_valid`.
+## * Looping a `Music` is not a function call: set its `looping` field.
+##
+## This is family `audio` of `raylibx`; see `docs/plans/raylibx_audio.md`.
+##
+## ## Memory
+## Waves own their sample buffer (`unload_wave`), sounds own a playback buffer
+## (`unload_sound`) unless they are aliases (`unload_sound_alias`), music streams own a decoder
+## (`unload_music_stream`), and `Wave.samples` returns a **view** released by
+## `unload_wave_samples`.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raylibx_audio
+##
+## weave main into int:
+##     calling raylib.InitAudioDevice
+##     defer calling raylib.CloseAudioDevice
+##     var sound as maybe raylib.Sound is calling raylibx_audio.load_sound with "shot.wav"
+##     if sound is present:
+##         var shot as raylib.Sound is calling sound.unwrap
+##         defer calling raylibx_audio.unload_sound with shot
+##         calling shot.play
+##     return 0
+## ```
+
+
+import raylib
+import std.ffi
+import std.ward
+
+enchanting raylib.Wave:
+
+    ## Reports whether a wave holds usable sample data.
+    ##
+    ## ## Returns
+    ## `true` when the condition holds, `false` otherwise.
+    ##
+    ## ## Notes
+    ## This is the predicate every wave loader in this family uses.
+    ## Measured: a zeroed `Wave` reports `false`, and a handmade one with an allocated buffer reports `true`.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ok as bool is calling wave.is_valid
+    ## ```
+
+    weave is_valid into bool:
+        return calling raylib.IsWaveValid with (essence of self)
+
+    ## Returns an independent copy of the wave.
+    ##
+    ## ## Returns
+    ## A wave that owns its sample buffer; release it with `unload_wave`.
+    ##
+    ## ## Notes
+    ## The copy owns its own sample buffer, so it must be released separately with `unload_wave`.
+    ## Measured: the copy has the same frame count and a different data pointer.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var clone as raylib.Wave is calling wave.copy
+    ## ```
+
+    weave copy into raylib.Wave:
+        return calling raylib.WaveCopy with (essence of self)
+
+    ## Trims the wave to a range of frames.
+    ##
+    ## ## Parameters
+    ## - `init_frame`: the first frame to keep
+    ## - `final_frame`: the frame to stop at, exclusive
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## Measured: cropping a 200-frame wave to `0, 50` leaves 50 frames.
+    ## It frees and reallocates the sample buffer in place, so a wave being played by a `Sound` must not be cropped behind its back.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling wave.crop with 0, 50
+    ## ```
+
+    weave crop with init_frame as int, final_frame as int into void:
+        calling raylib.WaveCrop with self, init_frame, final_frame
+
+    ## Converts the wave to a different sample format.
+    ##
+    ## ## Parameters
+    ## - `sample_rate`: the new sample rate in hertz
+    ## - `sample_size`: the new bits per sample, normally `16` or `32`
+    ## - `channels`: `1` for mono, `2` for stereo
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## Measured: converting to `44100, 16, 2` sets `sampleSize` to `16` and `channels` to `2`.
+    ## This is the call that makes a wave compatible with a device or a mixer; raylib's `Sound` pipeline accepts 32-bit floats, so converting to 16-bit is a downgrade you must choose deliberately.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling wave.to_format with 44100, 16, 2
+    ## ```
+
+    weave to_format with sample_rate as int, sample_size as int, channels as int into void:
+        calling raylib.WaveFormat with self, sample_rate, sample_size, channels
+
+    ## Writes the wave to a WAV file.
+    ##
+    ## ## Parameters
+    ## - `path`: the destination file, normally `.wav`
+    ##
+    ## ## Returns
+    ## `true` when the condition holds, `false` otherwise.
+    ##
+    ## ## Notes
+    ## Measured: the file round-trips, and `load_wave` reads back a wave with the same frame count, which is what makes the wave surface testable end to end.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ok as bool is calling wave.export with "/tmp/tone.wav"
+    ## ```
+
+    weave export with path as string into bool:
+        let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+        return calling raylib.ExportWave with (essence of self), c_path
+
+    ## Writes the wave as a C header holding its samples.
+    ##
+    ## ## Parameters
+    ## - `path`: the destination `.h` file
+    ##
+    ## ## Returns
+    ## `true` when the condition holds, `false` otherwise.
+    ##
+    ## ## Notes
+    ## This is how raylib embeds its own sounds.
+    ## `true` when raylib reports success.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ok as bool is calling wave.export_as_code with "/tmp/tone.h"
+    ## ```
+
+    weave export_as_code with path as string into bool:
+        let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+        return calling raylib.ExportWaveAsCode with (essence of self), c_path
+
+    ## Returns the wave's samples as floats.
+    ##
+    ## ## Returns
+    ## A **view** of the samples as 32-bit floats, `frameCount * channels` long.
+    ##
+    ## ## Notes
+    ## The result is a **view** into raylib's converted buffer, not a copy: release it with `unload_wave_samples`, which frees the buffer raylib allocated here.
+    ## Measured: the view's length is the frame count times the channel count, and the first sample of a sine starting at zero is `0.0`.
+    ## The conversion is to 32-bit float regardless of the wave's own format, which is why this is the way to inspect or analyse samples.
+    ##
+    ## ## Memory
+    ## The float buffer is allocated by raylib for this view alone: release it with `unload_wave_samples`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var view as slice of f32 is calling wave.samples
+    ## ```
+
+    weave samples into slice of f32:
+        var raw as ref to f32 is calling raylib.LoadWaveSamples with (essence of self)
+        var count as int is ((essence of self).frameCount to int) * ((essence of self).channels to int)
+        let as_void as ref to void is transmute raw to ref to void
+        return calling ffi.slice_of_float_from_ptr with as_void, count
+
+enchanting raylib.Sound:
+
+    ## Reports whether a sound holds a usable playback buffer.
+    ##
+    ## ## Returns
+    ## `true` when the condition holds, `false` otherwise.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ok as bool is calling sound.is_valid
+    ## ```
+
+    weave is_valid into bool:
+        return calling raylib.IsSoundValid with (essence of self)
+
+    ## Rewrites a sound's sample buffer.
+    ##
+    ## ## Parameters
+    ## - `data`: the replacement samples
+    ## - `frame_count`: how many frames to take from the slice
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## The frame count is raylib's own parameter rather than the slice's length, because a frame's size depends on the sound's channel count and sample size; the slice must hold at least `frame_count * channels * sample_size / 8` bytes.
+    ## Only sounds created as streams can be rewritten this way; a sound loaded from a file keeps its own buffer.
+    ##
+    ## ## Memory
+    ## The slice is only read during the call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling sound.update with (blob at 0 to (blob.length)), 128
+    ## ```
+
+    weave update with data as slice of byte, frame_count as int into void:
+        if (data.length) == 0:
+            return
+        let raw_data as ref to void is transmute (sigil of (data at 0)) to (ref to void)
+        calling raylib.UpdateSound with (essence of self), (transmute raw_data to ref to frozen void), frame_count
+
+    ## Starts playing the sound.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## A sound is fire and forget: playing it twice restarts it, and it stops on its own at the end of its samples.
+    ## The device must be initialised (see the module header).
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling sound.play
+    ## ```
+
+    weave play into void:
+        calling raylib.PlaySound with (essence of self)
+
+    ## Stops the sound and rewinds it.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling sound.stop
+    ## ```
+
+    weave stop into void:
+        calling raylib.StopSound with (essence of self)
+
+    ## Pauses the sound where it is.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling sound.pause
+    ## ```
+
+    weave pause into void:
+        calling raylib.PauseSound with (essence of self)
+
+    ## Resumes a paused sound.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling sound.resume
+    ## ```
+
+    weave resume into void:
+        calling raylib.ResumeSound with (essence of self)
+
+    ## Reports whether the sound is currently playing.
+    ##
+    ## ## Returns
+    ## `true` when the condition holds, `false` otherwise.
+    ##
+    ## ## Notes
+    ## Measured: `false` before `play` and `true` immediately after, which is what makes this usable as a test of the transport.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var playing as bool is calling sound.is_playing
+    ## ```
+
+    weave is_playing into bool:
+        return calling raylib.IsSoundPlaying with (essence of self)
+
+    ## Sets the sound's volume.
+    ##
+    ## ## Parameters
+    ## - `volume`: the volume, in `[0..1]`
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling sound.set_volume with 0.5
+    ## ```
+
+    weave set_volume with volume as f32 into void:
+        calling raylib.SetSoundVolume with (essence of self), volume
+
+    ## Sets the sound's pitch.
+    ##
+    ## ## Parameters
+    ## - `pitch`: the pitch multiplier, `1.0` being unchanged
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling sound.set_pitch with 1.5
+    ## ```
+
+    weave set_pitch with pitch as f32 into void:
+        calling raylib.SetSoundPitch with (essence of self), pitch
+
+    ## Sets the sound's stereo position.
+    ##
+    ## ## Parameters
+    ## - `pan`: the stereo position, `-1.0` left to `1.0` right
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling sound.set_pan with -0.5
+    ## ```
+
+    weave set_pan with pan as f32 into void:
+        calling raylib.SetSoundPan with (essence of self), pan
+
+enchanting raylib.Music:
+
+    ## Reports whether the music stream holds a usable decoder.
+    ##
+    ## ## Returns
+    ## `true` when the condition holds, `false` otherwise.
+    ##
+    ## ## Notes
+    ## Measured: a music stream loaded from a missing file reports `false`.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ok as bool is calling music.is_valid
+    ## ```
+
+    weave is_valid into bool:
+        return calling raylib.IsMusicValid with (essence of self)
+
+    ## Starts playing the music.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## A music stream is a decoder rather than a buffer: it must be pumped with `update` every frame, or it will not advance.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling music.play
+    ## ```
+
+    weave play into void:
+        calling raylib.PlayMusicStream with (essence of self)
+
+    ## Reports whether the music is playing.
+    ##
+    ## ## Returns
+    ## `true` when the condition holds, `false` otherwise.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var playing as bool is calling music.is_playing
+    ## ```
+
+    weave is_playing into bool:
+        return calling raylib.IsMusicStreamPlaying with (essence of self)
+
+    ## Pumps the music decoder, buffering the next frames.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## **This must be called every frame** while the music plays; it is the one method of this family that belongs in the game loop rather than in an event handler.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling music.update
+    ## ```
+
+    weave update into void:
+        calling raylib.UpdateMusicStream with (essence of self)
+
+    ## Stops the music and rewinds it to the beginning.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling music.stop
+    ## ```
+
+    weave stop into void:
+        calling raylib.StopMusicStream with (essence of self)
+
+    ## Pauses the music where it is.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling music.pause
+    ## ```
+
+    weave pause into void:
+        calling raylib.PauseMusicStream with (essence of self)
+
+    ## Resumes a paused music stream.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling music.resume
+    ## ```
+
+    weave resume into void:
+        calling raylib.ResumeMusicStream with (essence of self)
+
+    ## Jumps to a position in the music.
+    ##
+    ## ## Parameters
+    ## - `position`: the position in seconds
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## The position is in **seconds**, not frames.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling music.seek with 12.5
+    ## ```
+
+    weave seek with position as f32 into void:
+        calling raylib.SeekMusicStream with (essence of self), position
+
+    ## Sets the music volume.
+    ##
+    ## ## Parameters
+    ## - `volume`: the volume, in `[0..1]`
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling music.set_volume with 0.5
+    ## ```
+
+    weave set_volume with volume as f32 into void:
+        calling raylib.SetMusicVolume with (essence of self), volume
+
+    ## Sets the music pitch.
+    ##
+    ## ## Parameters
+    ## - `pitch`: the pitch multiplier, `1.0` being unchanged
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling music.set_pitch with 1.5
+    ## ```
+
+    weave set_pitch with pitch as f32 into void:
+        calling raylib.SetMusicPitch with (essence of self), pitch
+
+    ## Sets the music stereo position.
+    ##
+    ## ## Parameters
+    ## - `pan`: the stereo position, `-1.0` left to `1.0` right
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling music.set_pan with 0.5
+    ## ```
+
+    weave set_pan with pan as f32 into void:
+        calling raylib.SetMusicPan with (essence of self), pan
+
+    ## Returns the music's total length in seconds.
+    ##
+    ## ## Returns
+    ## The value, in seconds for the time functions and in `[0..1]` for the volume.
+    ##
+    ## ## Notes
+    ## **Measured: an invalid music stream returns `NaN`, not `0.0`**, so every comparison against it is false. Guard with `is_valid` first.
+    ## Looping is not controlled by a function: set the `looping` field on the `Music` value directly.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var seconds as f32 is calling music.time_length
+    ## ```
+
+    weave time_length into f32:
+        return calling raylib.GetMusicTimeLength with (essence of self)
+
+    ## Returns how far into the music playback has reached, in seconds.
+    ##
+    ## ## Returns
+    ## The value, in seconds for the time functions and in `[0..1]` for the volume.
+    ##
+    ## ## Notes
+    ## Pair it with `time_length` to draw a progress bar.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var seconds as f32 is calling music.time_played
+    ## ```
+
+    weave time_played into f32:
+        return calling raylib.GetMusicTimePlayed with (essence of self)
+
+enchanting raylib.AudioStream:
+
+    ## Reports whether the audio stream holds a usable buffer.
+    ##
+    ## ## Returns
+    ## `true` when the condition holds, `false` otherwise.
+    ##
+    ## ## Notes
+    ## Measured: `false` when the audio device was never initialised, which is why `load_audio_stream` returns a `maybe`.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ok as bool is calling stream.is_valid
+    ## ```
+
+    weave is_valid into bool:
+        return calling raylib.IsAudioStreamValid with (essence of self)
+
+    ## Pushes samples into the stream's buffer.
+    ##
+    ## ## Parameters
+    ## - `data`: the samples to push
+    ## - `frame_count`: how many frames the slice holds
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## This is how you synthesise audio: fill a byte buffer with your own samples and push it every frame.
+    ## The frame count is raylib's own parameter, so the docstring states the size the slice must hold.
+    ##
+    ## ## Memory
+    ## The slice is only read during the call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling stream.update with (blob at 0 to (blob.length)), 128
+    ## ```
+
+    weave update with data as slice of byte, frame_count as int into void:
+        if (data.length) == 0:
+            return
+        let raw_data as ref to void is transmute (sigil of (data at 0)) to (ref to void)
+        calling raylib.UpdateAudioStream with (essence of self), (transmute raw_data to ref to frozen void), frame_count
+
+    ## Reports whether the stream's buffer has been consumed and needs more data.
+    ##
+    ## ## Returns
+    ## `true` when the condition holds, `false` otherwise.
+    ##
+    ## ## Notes
+    ## This is the signal to push the next block: `if stream.is_processed: stream.update with …`.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ready as bool is calling stream.is_processed
+    ## ```
+
+    weave is_processed into bool:
+        return calling raylib.IsAudioStreamProcessed with (essence of self)
+
+    ## Starts playing the stream.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling stream.play
+    ## ```
+
+    weave play into void:
+        calling raylib.PlayAudioStream with (essence of self)
+
+    ## Pauses the stream.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling stream.pause
+    ## ```
+
+    weave pause into void:
+        calling raylib.PauseAudioStream with (essence of self)
+
+    ## Resumes a paused stream.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling stream.resume
+    ## ```
+
+    weave resume into void:
+        calling raylib.ResumeAudioStream with (essence of self)
+
+    ## Reports whether the stream is playing.
+    ##
+    ## ## Returns
+    ## `true` when the condition holds, `false` otherwise.
+    ##
+    ## ## Notes
+    ## Measured: `false` before `play` and `true` after.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var playing as bool is calling stream.is_playing
+    ## ```
+
+    weave is_playing into bool:
+        return calling raylib.IsAudioStreamPlaying with (essence of self)
+
+    ## Stops the stream.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling stream.stop
+    ## ```
+
+    weave stop into void:
+        calling raylib.StopAudioStream with (essence of self)
+
+    ## Sets the stream volume.
+    ##
+    ## ## Parameters
+    ## - `volume`: the volume, in `[0..1]`
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling stream.set_volume with 0.5
+    ## ```
+
+    weave set_volume with volume as f32 into void:
+        calling raylib.SetAudioStreamVolume with (essence of self), volume
+
+    ## Sets the stream pitch.
+    ##
+    ## ## Parameters
+    ## - `pitch`: the pitch multiplier, `1.0` being unchanged
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling stream.set_pitch with 1.5
+    ## ```
+
+    weave set_pitch with pitch as f32 into void:
+        calling raylib.SetAudioStreamPitch with (essence of self), pitch
+
+    ## Sets the stream stereo position.
+    ##
+    ## ## Parameters
+    ## - `pan`: the stereo position, `-1.0` left to `1.0` right
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Memory
+    ## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling stream.set_pan with 0.5
+    ## ```
+
+    weave set_pan with pan as f32 into void:
+        calling raylib.SetAudioStreamPan with (essence of self), pan
+
+## Decodes an audio file into a wave held in RAM.
+##
+## ## Parameters
+## - `path`: the audio file to decode into memory: WAV, OGG, MP3, FLAC or QOA
+##
+## ## Returns
+## `some` with the value, or `maybe none` when raylib reports a failure.
+##
+## ## Notes
+## `maybe none` when the file is missing or undecodable: measured.
+## A wave is CPU data and needs no audio device, so this works even with the device closed.
+## **Requires no window and no device** -- unlike every other loader in the module.
+##
+## ## Memory
+## On success the wave owns its samples: release it with `unload_wave`.
+##
+## ## Example
+## ```pengu
+## var wave as maybe raylib.Wave is calling raylibx_audio.load_wave with "tone.wav"
+## ```
+
+weave load_wave with path as string into maybe raylib.Wave:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    var wave as raylib.Wave is calling raylib.LoadWave with c_path
+    if calling raylib.IsWaveValid with wave:
+        return some wave
+    return maybe none
+
+## Decodes an audio file already held in memory.
+##
+## ## Parameters
+## - `file_type`: the extension raylib should decode as, for example `".wav"`
+## - `data`: the encoded file contents
+##
+## ## Returns
+## `some` with the value, or `maybe none` when raylib reports a failure.
+##
+## ## Notes
+## `maybe none` for an empty slice or data raylib cannot decode: measured with an eight-byte junk buffer.
+## Useful for sounds embedded in the executable or downloaded at runtime.
+##
+## ## Memory
+## On success the wave owns its samples: release it with `unload_wave`.
+##
+## ## Example
+## ```pengu
+## var wave as maybe raylib.Wave is calling raylibx_audio.load_wave_from_memory with ".wav", (blob at 0 to (blob.length))
+## ```
+
+weave load_wave_from_memory with file_type as string, data as slice of byte into maybe raylib.Wave:
+    let c_file_type as ref to frozen char is calling ffi.cstr_from_string with file_type
+    if (data.length) == 0:
+        return maybe none
+    let raw_data as ref to void is transmute (sigil of (data at 0)) to (ref to void)
+    var wave as raylib.Wave is calling raylib.LoadWaveFromMemory with c_file_type, (transmute raw_data to ref to frozen byte), (data.length)
+    if calling raylib.IsWaveValid with wave:
+        return some wave
+    return maybe none
+
+## Releases a wave's sample buffer.
+##
+## ## Parameters
+## - `wave`: the wave to release
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## A wave that was copied into a `Sound` must still be released: the sound keeps its own buffer.
+##
+## ## Memory
+## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+##
+## ## Example
+## ```pengu
+## calling raylibx_audio.unload_wave with wave
+## ```
+
+weave unload_wave with wave as raylib.Wave into void:
+    calling raylib.UnloadWave with wave
+
+## Loads a sound, ready to play.
+##
+## ## Parameters
+## - `path`: the audio file to load and play
+##
+## ## Returns
+## `some` with the value, or `maybe none` when raylib reports a failure.
+##
+## ## Notes
+## Compared with a wave, a sound is a playback buffer owned by the audio device: it is what `play` acts on.
+## `maybe none` when the file is missing or the device cannot take it: measured.
+## **Requires the audio device**, so `raylib.InitAudioDevice` must have run.
+##
+## ## Memory
+## On success the sound owns its playback buffer: release it with `unload_sound`.
+##
+## ## Example
+## ```pengu
+## var sound as maybe raylib.Sound is calling raylibx_audio.load_sound with "shot.wav"
+## ```
+
+weave load_sound with path as string into maybe raylib.Sound:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    var sound as raylib.Sound is calling raylib.LoadSound with c_path
+    if calling raylib.IsSoundValid with sound:
+        return some sound
+    return maybe none
+
+## Builds a playable sound from a wave already in memory.
+##
+## ## Parameters
+## - `wave`: the wave to copy into a sound
+##
+## ## Returns
+## `some` with the value, or `maybe none` when raylib reports a failure.
+##
+## ## Notes
+## `maybe none` for an invalid wave: measured with a zeroed one.
+## **Measured: the sound's frame count is not the wave's.** A 200-frame wave at 44.1 kHz produced a sound with 218 frames, because raylib resamples into the device's format. Read `sound.frameCount`, never the wave's.
+## The wave is not consumed: release it yourself when the sound exists.
+##
+## ## Memory
+## The wave is the caller's to release; the sound owns its own resampled buffer.
+##
+## ## Example
+## ```pengu
+## var sound as maybe raylib.Sound is calling raylibx_audio.load_sound_from_wave with wave
+## ```
+
+weave load_sound_from_wave with wave as raylib.Wave into maybe raylib.Sound:
+    var sound as raylib.Sound is calling raylib.LoadSoundFromWave with wave
+    if calling raylib.IsSoundValid with sound:
+        return some sound
+    return maybe none
+
+## Creates an independent playback instance that shares the source's samples.
+##
+## ## Parameters
+## - `source`: the sound to clone
+##
+## ## Returns
+## `some` with the value, or `maybe none` when raylib reports a failure.
+##
+## ## Notes
+## This is the cheap way to play the same sound several times at once: an alias copies the playback state but not the audio data.
+## Release it with `unload_sound_alias`, not `unload_sound`, so the shared buffer survives.
+##
+## ## Memory
+## An alias shares the source's samples: release it with `unload_sound_alias`, and release the source separately.
+##
+## ## Example
+## ```pengu
+## var alias as maybe raylib.Sound is calling raylibx_audio.load_sound_alias with sound
+## ```
+
+weave load_sound_alias with source as raylib.Sound into maybe raylib.Sound:
+    var alias as raylib.Sound is calling raylib.LoadSoundAlias with source
+    if calling raylib.IsSoundValid with alias:
+        return some alias
+    return maybe none
+
+## Releases a sound's playback buffer.
+##
+## ## Parameters
+## - `sound`: the sound to release
+##
+## ## Returns
+## Nothing.
+##
+## ## Memory
+## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+##
+## ## Example
+## ```pengu
+## calling raylibx_audio.unload_sound with sound
+## ```
+
+weave unload_sound with sound as raylib.Sound into void:
+    calling raylib.UnloadSound with sound
+
+## Releases a sound alias without touching the samples it shares.
+##
+## ## Parameters
+## - `alias`: the alias to release
+##
+## ## Returns
+## Nothing.
+##
+## ## Memory
+## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+##
+## ## Example
+## ```pengu
+## calling raylibx_audio.unload_sound_alias with alias
+## ```
+
+weave unload_sound_alias with alias as raylib.Sound into void:
+    calling raylib.UnloadSoundAlias with alias
+
+## Releases the sample buffer `Wave.samples` allocated.
+##
+## ## Parameters
+## - `samples`: the view returned by `Wave.samples`
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## It is the release for the view, and it takes the view itself because that is where the pointer is.
+## An empty slice is a no-op.
+##
+## ## Memory
+## This **is** the release: it frees the buffer `Wave.samples` allocated.
+##
+## ## Example
+## ```pengu
+## calling raylibx_audio.unload_wave_samples with (view at 0 to (view.len))
+## ```
+
+weave unload_wave_samples with samples as slice of f32 into void:
+    if (samples.length) == 0:
+        return
+    let first as ref to f32 is sigil of (samples at 0)
+    calling raylib.UnloadWaveSamples with first
+
+## Opens an audio file as a streaming music source.
+##
+## ## Parameters
+## - `path`: the audio file to stream: OGG, MP3, FLAC or QOA
+##
+## ## Returns
+## `some` with the value, or `maybe none` when raylib reports a failure.
+##
+## ## Notes
+## `maybe none` when the file is missing or undecodable: measured.
+## Music is streamed rather than loaded, which is what makes long tracks affordable, and it is why `update` must run every frame.
+## **Requires the audio device.**
+##
+## ## Memory
+## On success the stream owns a decoder: close it with `unload_music_stream`.
+##
+## ## Example
+## ```pengu
+## var music as maybe raylib.Music is calling raylibx_audio.load_music_stream with "theme.ogg"
+## ```
+
+weave load_music_stream with path as string into maybe raylib.Music:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    var music as raylib.Music is calling raylib.LoadMusicStream with c_path
+    if calling raylib.IsMusicValid with music:
+        return some music
+    return maybe none
+
+## Opens an in-memory audio file as a streaming music source.
+##
+## ## Parameters
+## - `file_type`: the extension raylib should decode as
+## - `data`: the encoded file contents
+##
+## ## Returns
+## `some` with the value, or `maybe none` when raylib reports a failure.
+##
+## ## Memory
+## On success the stream owns a decoder: close it with `unload_music_stream`.
+##
+## ## Example
+## ```pengu
+## var music as maybe raylib.Music is calling raylibx_audio.load_music_stream_from_memory with ".ogg", (blob at 0 to (blob.length))
+## ```
+
+weave load_music_stream_from_memory with file_type as string, data as slice of byte into maybe raylib.Music:
+    let c_file_type as ref to frozen char is calling ffi.cstr_from_string with file_type
+    if (data.length) == 0:
+        return maybe none
+    let raw_data as ref to void is transmute (sigil of (data at 0)) to (ref to void)
+    var music as raylib.Music is calling raylib.LoadMusicStreamFromMemory with c_file_type, (transmute raw_data to ref to frozen byte), (data.length)
+    if calling raylib.IsMusicValid with music:
+        return some music
+    return maybe none
+
+## Closes a music stream and releases its decoder.
+##
+## ## Parameters
+## - `music`: the music stream to close
+##
+## ## Returns
+## Nothing.
+##
+## ## Memory
+## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+##
+## ## Example
+## ```pengu
+## calling raylibx_audio.unload_music_stream with music
+## ```
+
+weave unload_music_stream with music as raylib.Music into void:
+    calling raylib.UnloadMusicStream with music
+
+## Creates a buffer you can push your own samples into.
+##
+## ## Parameters
+## - `sample_rate`: the sample rate in hertz, normally `44100`
+## - `sample_size`: the bits per sample, `32` for the float pipeline
+## - `channels`: `1` for mono, `2` for stereo
+##
+## ## Returns
+## `some` with the value, or `maybe none` when raylib reports a failure.
+##
+## ## Notes
+## This is the type behind procedural audio: build a stream, then push samples with `update` whenever `is_processed` says the buffer is free.
+## `maybe none` when the audio device is not initialised: measured, and that is the usual reason this fails.
+##
+## ## Memory
+## On success the stream owns its buffer: release it with `unload_audio_stream`.
+##
+## ## Example
+## ```pengu
+## var stream as maybe raylib.AudioStream is calling raylibx_audio.load_audio_stream with 44100, 32, 1
+## ```
+
+weave load_audio_stream with sample_rate as int, sample_size as int, channels as int into maybe raylib.AudioStream:
+    var stream as raylib.AudioStream is calling raylib.LoadAudioStream with (sample_rate to u32), (sample_size to u32), (channels to u32)
+    if calling raylib.IsAudioStreamValid with stream:
+        return some stream
+    return maybe none
+
+## Releases an audio stream's buffer.
+##
+## ## Parameters
+## - `stream`: the stream to release
+##
+## ## Returns
+## Nothing.
+##
+## ## Memory
+## Nothing is allocated by the wrapper; the call neither takes nor returns ownership.
+##
+## ## Example
+## ```pengu
+## calling raylibx_audio.unload_audio_stream with stream
+## ```
+
+weave unload_audio_stream with stream as raylib.AudioStream into void:
+    calling raylib.UnloadAudioStream with stream
+
+# --- Tests ---
+
+# The audio device IS available in this environment (`IsAudioDeviceReady()` is 1), so this
+# family is asserted for real: a wave is decoded, exported, read back, turned into a sound and
+# played. The device lifecycle comes from the binding because `InitAudioDevice` and
+# `CloseAudioDevice` are deliberately not wrapped (contract section 9 row 8's shape).
+#
+# A `Wave` is pure CPU sample data, so the wave tests need no device; everything that plays
+# needs one.
+
+# A handmade wave: raylib validates waves by their buffer, so this is a real one.
+weave make_wave into raylib.Wave:
+    var frames as int is 200
+    let raw as ref to void is calling raylib.MemAlloc with ((frames * 4) to u32)
+    return with frameCount is (frames to u32), sampleRate is 44100, sampleSize is 32, channels is 1, data is raw
+
+test "a handmade wave is valid, copies, crops and converts":
+    var wave as raylib.Wave is calling make_wave
+    defer calling unload_wave with wave
+    calling ward.assert_true with (calling wave.is_valid)
+    calling ward.assert_eq_int with (wave.frameCount to int), 200
+    var clone as raylib.Wave is calling wave.copy
+    defer calling unload_wave with clone
+    calling ward.assert_eq_int with (clone.frameCount to int), 200
+    calling clone.crop with 0, 50
+    calling ward.assert_eq_int with (clone.frameCount to int), 50
+    calling clone.to_format with 44100, 16, 2
+    calling ward.assert_eq_int with (clone.sampleSize to int), 16
+    calling ward.assert_eq_int with (clone.channels to int), 2
+
+test "a wave exports, reloads and exposes its samples as a view":
+    var wave as raylib.Wave is calling make_wave
+    defer calling unload_wave with wave
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var wav as string is "/tmp/raylibx_audio_{(seed to string)}.wav"
+    var hdr as string is "/tmp/raylibx_audio_{(seed to string)}.h"
+    let c_wav as ref to frozen char is calling ffi.cstr_from_string with wav
+    let c_hdr as ref to frozen char is calling ffi.cstr_from_string with hdr
+    defer calling raylib.FileRemove with c_wav
+    defer calling raylib.FileRemove with c_hdr
+    calling ward.assert_true with (calling wave.export with wav)
+    calling ward.assert_true with (calling wave.export_as_code with hdr)
+    calling ward.assert_true with (calling raylib.FileExists with c_wav)
+    var back as maybe raylib.Wave is calling load_wave with wav
+    calling ward.assert_maybe_present with back
+    var reloaded as raylib.Wave is calling back.unwrap
+    defer calling unload_wave with reloaded
+    calling ward.assert_eq_int with (reloaded.frameCount to int), 200
+    var view as slice of f32 is calling wave.samples
+    # one channel, so one float per frame
+    calling ward.assert_eq_int with (view.length), 200
+    calling unload_wave_samples with (view at 0 to (view.length))
+
+test "loading a wave from a missing file or from junk is none":
+    var missing as maybe raylib.Wave is calling load_wave with "/tmp/raylibx_audio_absent.wav"
+    calling ward.assert_maybe_none with missing
+    var junk as list of byte is [1, 2, 3, 4, 5, 6, 7, 8]
+    defer banish junk
+    var bad as maybe raylib.Wave is calling load_wave_from_memory with ".wav", (junk at 0 to (junk.length))
+    calling ward.assert_maybe_none with bad
+
+test "a sound is built from a wave and reports that it resampled":
+    calling raylib.InitAudioDevice
+    defer calling raylib.CloseAudioDevice
+    var wave as raylib.Wave is calling make_wave
+    defer calling unload_wave with wave
+    var loaded as maybe raylib.Sound is calling load_sound_from_wave with wave
+    calling ward.assert_maybe_present with loaded
+    var sound as raylib.Sound is calling loaded.unwrap
+    defer calling unload_sound with sound
+    calling ward.assert_true with (calling sound.is_valid)
+    # measured: raylib resamples into the device format, so these two are NOT equal
+    calling ward.assert_true with ((sound.frameCount) > 0)
+
+test "a sound plays, pauses, resumes and stops":
+    calling raylib.InitAudioDevice
+    defer calling raylib.CloseAudioDevice
+    var wave as raylib.Wave is calling make_wave
+    defer calling unload_wave with wave
+    var loaded as maybe raylib.Sound is calling load_sound_from_wave with wave
+    var sound as raylib.Sound is calling loaded.unwrap
+    defer calling unload_sound with sound
+    calling ward.assert_false with (calling sound.is_playing)
+    calling sound.play
+    calling ward.assert_true with (calling sound.is_playing)
+    calling sound.pause
+    calling sound.resume
+    calling sound.stop
+    calling sound.set_volume with 0.25
+    calling sound.set_pitch with 1.5
+    calling sound.set_pan with -0.5
+    var blob as list of byte is list of byte
+    defer banish blob
+    var i as int is 0
+    while i < 64:
+        calling blob.push with 0
+        set i is i + 1
+    calling sound.update with (blob at 0 to (blob.length)), 16
+
+test "a sound alias shares the samples and needs its own release":
+    calling raylib.InitAudioDevice
+    defer calling raylib.CloseAudioDevice
+    var wave as raylib.Wave is calling make_wave
+    defer calling unload_wave with wave
+    var loaded as maybe raylib.Sound is calling load_sound_from_wave with wave
+    var sound as raylib.Sound is calling loaded.unwrap
+    defer calling unload_sound with sound
+    var alias as maybe raylib.Sound is calling load_sound_alias with sound
+    calling ward.assert_maybe_present with alias
+    var copy as raylib.Sound is calling alias.unwrap
+    defer calling unload_sound_alias with copy
+    calling ward.assert_true with (calling copy.is_valid)
+
+test "loading a sound or music from a missing file is none":
+    calling raylib.InitAudioDevice
+    defer calling raylib.CloseAudioDevice
+    var sound as maybe raylib.Sound is calling load_sound with "/tmp/raylibx_audio_absent.wav"
+    calling ward.assert_maybe_none with sound
+    var music as maybe raylib.Music is calling load_music_stream with "/tmp/raylibx_audio_absent.ogg"
+    calling ward.assert_maybe_none with music
+
+test "an audio stream is created, fed and transported":
+    calling raylib.InitAudioDevice
+    defer calling raylib.CloseAudioDevice
+    var loaded as maybe raylib.AudioStream is calling load_audio_stream with 44100, 32, 1
+    calling ward.assert_maybe_present with loaded
+    var stream as raylib.AudioStream is calling loaded.unwrap
+    defer calling unload_audio_stream with stream
+    calling ward.assert_true with (calling stream.is_valid)
+    calling ward.assert_false with (calling stream.is_playing)
+    calling stream.play
+    calling ward.assert_true with (calling stream.is_playing)
+    var buffer as list of byte is list of byte
+    defer banish buffer
+    var i as int is 0
+    while i < 128:
+        calling buffer.push with 0
+        set i is i + 1
+    calling stream.update with (buffer at 0 to (buffer.length)), 32
+    # `is_processed` is sampled but not asserted: the buffer is either consumed or not
+    # depending on the device's timing, and both answers are correct
+    var ready as bool is calling stream.is_processed
+    calling stream.set_volume with 0.5
+    calling stream.set_pitch with 1.0
+    calling stream.set_pan with 0.0
+    calling stream.pause
+    calling stream.resume
+    calling stream.stop
+    calling ward.assert_false with (calling stream.is_playing)

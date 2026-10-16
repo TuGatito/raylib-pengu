@@ -1,0 +1,650 @@
+## rlglx.pengu
+## Layer-2 wrapper over the 18 rlgl functions worth wrapping, out of the 163 the binding declares.
+##
+## This is the smallest family in the module by design, and the plan that specifies it says so in
+## its first line: `rlgl` is the OpenGL escape hatch, and **145 of its 163 functions are used
+## through the binding directly**. `rlEnableDepthTest()`, `rlClearColor(…)` and the whole
+## `rlBegin`/`rlVertex2f`/`rlEnd` idiom already read perfectly; a Pengunic rename would add a hop
+## and nothing else (contract section 9 row 9 anticipates exactly this).
+##
+## What is here is the part of `rlgl` that crosses a boundary and therefore reads badly:
+##
+##     let c_vs as ref to frozen char is calling ffi.cstr_from_string with vs   # binding
+##     var program as u32 is calling rlgl.rlLoadShaderProgram with c_vs, c_fs
+##
+##     var program as u32 is calling rlglx.load_shader_program with vs, fs     # wrapper
+##
+## **Five string crossings and nine slice folds**, plus the `rlRenderBatch` type's two methods.
+## In all eighteen the wrapper's job is one of two things: copy a PenguScript string into a C
+## string (or back), or turn a slice into the pointer-and-size pair raylib wants — including the
+## byte count, which the caller would otherwise have to compute by hand.
+##
+## ## What is deliberately NOT here
+## The matrix stack, the immediate-mode vertex calls, the `rlEnable*`/`rlDisable*` state toggles,
+## the framebuffer and shader-buffer plumbing, and every function whose only difference from the
+## binding is an enum parameter. On that last point, measured: **a parameter typed as an `omen`
+## accepts any integer** (master plan D22), so typing an enum buys documentation and a shorter
+## call, never enforcement. `docs/plans/rlglx.md` lists every exclusion with its rule.
+##
+## ## Needs a window
+## Measured: `rlGetVersion` and `rlGetPixelFormatName` work with no context, but the matrix stack
+## **crashes** without one (`rlPushMatrix` was the probe that found it), because rlgl's state is
+## only initialised by `rlglInit` inside `InitWindow`. Everything else here needs a live context,
+## so the tests open a window; only the two string-free queries are asserted without one.
+##
+## ## Memory
+## Nothing is allocated by this module except the temporary C strings it frees itself. The GPU
+## handles it returns (`u32` buffer, texture and program ids) are released through the binding's
+## own `rlUnload*` calls, which are not wrapped because they take a bare id.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import rlgl
+## import rlglx
+##
+## weave main with vs as string, fs as string into int:
+##     calling raylib.InitWindow with 320, 240, "rlglx"
+##     defer calling raylib.CloseWindow
+##     var program as u32 is calling rlglx.load_shader_program with vs, fs
+##     var location as maybe int is calling rlglx.uniform_location with program, "u_time"
+##     return 0
+## ```
+import rlgl
+import std.ffi
+import std.ward
+
+enchanting rlgl.rlRenderBatch:
+
+    ## Draws the batch's accumulated draw calls.
+    ##
+    ## ## Returns
+    ## Nothing; the batch's queued geometry is submitted.
+    ##
+    ## ## Notes
+    ## The batch is raylib's own batching machinery: drawing it by hand bypasses the automatic
+    ## flush, which is what makes this useful when several batches share a frame.
+    ##
+    ## ## Memory
+    ## The batch's buffers belong to the batch; nothing is allocated here.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling batch.draw
+    ## ```
+    weave draw into void:
+        calling rlgl.rlDrawRenderBatch with self
+
+    ## Makes the batch the one raylib records into.
+    ##
+    ## ## Returns
+    ## Nothing; the current batch changes.
+    ##
+    ## ## Notes
+    ## Only one batch is active at a time, and switching does not draw the previous one: pair it
+    ## with `draw` when both have to be submitted.
+    ##
+    ## ## Memory
+    ## No allocation; the batch keeps its own buffers.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling batch.set_active
+    ## ```
+    weave set_active into void:
+        calling rlgl.rlSetRenderBatchActive with self
+
+## Names a pixel format.
+##
+## ## Parameters
+## - `format`: the format to name, as an `rlgl.rlPixelFormat`.
+##
+## ## Returns
+## The format's name, or the string `"UNKNOWN"` for a value rlgl does not recognise.
+##
+## ## Notes
+## **Measured never to return a null pointer**, which is why this is a plain `string` rather than
+## a `maybe`: `R8G8B8A8` for the common case and `"UNKNOWN"` for a bogus one.
+##
+## ## Memory
+## raylib owns the returned `const char*`; the wrapper copies it into an owned PenguScript string
+## and frees nothing.
+##
+## ## Example
+## ```pengu
+## var name as string is calling rlglx.pixel_format_name with rlgl.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+## ```
+weave pixel_format_name with format as rlgl.rlPixelFormat into string:
+    let c_name as ref to frozen char is calling rlgl.rlGetPixelFormatName with (format to u32)
+    return calling ffi.string_from_cstr with (transmute c_name to ref to char)
+
+## Compiles one shader stage from source.
+##
+## ## Parameters
+## - `code`: the GLSL source.
+## - `shader_type`: which stage to compile, as one of raylib's `RL_VERTEX_SHADER` /
+##   `RL_FRAGMENT_SHADER` / `RL_COMPUTE_SHADER` constants. The binding types it as a plain `int`
+##   because rlgl defines those as `#define`s rather than as an enum.
+##
+## ## Returns
+## The OpenGL program id, or `0` when the shader fails to compile.
+##
+## ## Notes
+## **`0` is the failure sentinel and the binding reports nothing else**, so check it. Unlike
+## `raylibx.shaders`, no fallback program is substituted: this is the raw layer.
+## Write the GLSL with **real newlines** (a raw triple-quoted string, or a normal literal with
+## escapes): `\n` inside a raw string is a literal backslash-n and the compile silently fails.
+##
+## ## Memory
+## The program id is a GPU handle: release it with `rlgl.rlUnloadShader`.
+##
+## ## Example
+## ```pengu
+## var stage as u32 is calling rlglx.load_shader with source, (rlgl.RL_FRAGMENT_SHADER to int)
+## ```
+weave load_shader with code as string, shader_type as int into u32:
+    let c_code as ref to frozen char is calling ffi.cstr_from_string with code
+    return calling rlgl.rlLoadShader with c_code, shader_type
+
+## Compiles and links a vertex and a fragment shader into one program.
+##
+## ## Parameters
+## - `vs_code`: the vertex stage source.
+## - `fs_code`: the fragment stage source.
+##
+## ## Returns
+## The OpenGL program id, or `0` when either stage fails to compile or the link fails.
+##
+## ## Notes
+## This is the two-string crossing that justifies the module: the binding takes two
+## `const char*`, which costs two `ffi.cstr_from_string` calls at every site.
+## The sources need **real newlines**; see `load_shader`.
+##
+## ## Memory
+## The program id is a GPU handle: release it with `rlgl.rlUnloadShaderProgram`.
+##
+## ## Example
+## ```pengu
+## var program as u32 is calling rlglx.load_shader_program with vs, fs
+## ```
+weave load_shader_program with vs_code as string, fs_code as string into u32:
+    let c_vs as ref to frozen char is calling ffi.cstr_from_string with vs_code
+    let c_fs as ref to frozen char is calling ffi.cstr_from_string with fs_code
+    return calling rlgl.rlLoadShaderProgram with c_vs, c_fs
+
+## Returns the location a linked program assigned to a uniform.
+##
+## ## Parameters
+## - `program`: the program id from `load_shader_program`.
+## - `name`: the uniform's name, exactly as it appears in the source.
+##
+## ## Returns
+## `some` with the location, or `maybe none` when the program has no such uniform.
+##
+## ## Notes
+## Measured: rlgl returns **`-1`** for a name the program does not declare, which is the
+## predicate. A location is a small integer, not a handle, and it stays valid for the program's
+## lifetime.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var location as maybe int is calling rlglx.uniform_location with program, "u_time"
+## ```
+weave uniform_location with program as u32, name as string into maybe int:
+    let c_name as ref to frozen char is calling ffi.cstr_from_string with name
+    var location as int is calling rlgl.rlGetLocationUniform with program, c_name
+    if location < 0:
+        return maybe none
+    return some location
+
+## Returns the location a linked program assigned to a vertex attribute.
+##
+## ## Parameters
+## - `program`: the program id from `load_shader_program`.
+## - `name`: the attribute's name, exactly as it appears in the source.
+##
+## ## Returns
+## `some` with the location, or `maybe none` when the program has no such attribute.
+##
+## ## Notes
+## It is the attribute counterpart of `uniform_location`, with the same measured `-1` sentinel.
+##
+## ## Memory
+## No allocation; a single direct C call.
+##
+## ## Example
+## ```pengu
+## var location as maybe int is calling rlglx.attrib_location with program, "vertexPosition"
+## ```
+weave attrib_location with program as u32, name as string into maybe int:
+    let c_name as ref to frozen char is calling ffi.cstr_from_string with name
+    var location as int is calling rlgl.rlGetLocationAttrib with program, c_name
+    if location < 0:
+        return maybe none
+    return some location
+
+## Uploads a slice of bytes as a vertex buffer.
+##
+## ## Parameters
+## - `data`: the vertex data, as raw bytes.
+## - `dynamic`: `true` when the buffer will be rewritten later with `update_vertex_buffer`.
+##
+## ## Returns
+## The OpenGL buffer id, or `0` when rlgl cannot create it.
+##
+## ## Notes
+## **The byte size is the slice's length**: the binding asks for it separately and would otherwise
+## make every caller compute it. An empty slice uploads nothing and rlgl still returns a valid
+## empty buffer.
+##
+## ## Memory
+## The buffer id is a GPU handle: release it with `rlgl.rlUnloadVertexBuffer`.
+##
+## ## Example
+## ```pengu
+## var vbo as u32 is calling rlglx.load_vertex_buffer with (data at 0 to (data.length)), true
+## ```
+weave load_vertex_buffer with data as slice of byte, dynamic as bool into u32:
+    var raw as ref to void is calling ffi.null_void
+    if (data.length) > 0:
+        set raw is transmute (sigil of (data at 0)) to (ref to void)
+    return calling rlgl.rlLoadVertexBuffer with (transmute raw to ref to frozen void), (data.length), dynamic
+
+## Uploads a slice of bytes as an index buffer.
+##
+## ## Parameters
+## - `data`: the index data, as raw bytes.
+## - `dynamic`: `true` when the buffer will be rewritten later.
+##
+## ## Returns
+## The OpenGL buffer id, or `0` when rlgl cannot create it.
+##
+## ## Notes
+## The element counterpart of `load_vertex_buffer`, with the same folded byte size. Indices are
+## bytes rather than a typed slice because rlgl accepts both 16- and 32-bit indices and the caller
+## is the one who knows which it built.
+##
+## ## Memory
+## The buffer id is a GPU handle: release it with `rlgl.rlUnloadVertexBuffer`.
+##
+## ## Example
+## ```pengu
+## var ebo as u32 is calling rlglx.load_vertex_buffer_element with (indices at 0 to (indices.length)), false
+## ```
+weave load_vertex_buffer_element with data as slice of byte, dynamic as bool into u32:
+    var raw as ref to void is calling ffi.null_void
+    if (data.length) > 0:
+        set raw is transmute (sigil of (data at 0)) to (ref to void)
+    return calling rlgl.rlLoadVertexBufferElement with (transmute raw to ref to frozen void), (data.length), dynamic
+
+## Rewrites part of a vertex buffer.
+##
+## ## Parameters
+## - `id`: the buffer id from `load_vertex_buffer`.
+## - `data`: the replacement bytes.
+## - `offset`: the byte offset to start writing at.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## The buffer must have been created with `dynamic`, and the offset must land on a whole-vertex
+## boundary or the geometry becomes garbage. The byte size is the slice's length.
+##
+## ## Memory
+## The buffer keeps belonging to the caller.
+##
+## ## Example
+## ```pengu
+## calling rlglx.update_vertex_buffer with vbo, (data at 0 to (data.length)), 0
+## ```
+weave update_vertex_buffer with id as u32, data as slice of byte, offset as int into void:
+    var raw as ref to void is calling ffi.null_void
+    if (data.length) > 0:
+        set raw is transmute (sigil of (data at 0)) to (ref to void)
+    calling rlgl.rlUpdateVertexBuffer with id, (transmute raw to ref to frozen void), (data.length), offset
+
+## Rewrites part of an index buffer.
+##
+## ## Parameters
+## - `id`: the buffer id from `load_vertex_buffer_element`.
+## - `data`: the replacement bytes.
+## - `offset`: the byte offset to start writing at.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## The element counterpart of `update_vertex_buffer`, with the same folded byte size.
+##
+## ## Memory
+## The buffer keeps belonging to the caller.
+##
+## ## Example
+## ```pengu
+## calling rlglx.update_vertex_buffer_elements with ebo, (indices at 0 to (indices.length)), 0
+## ```
+weave update_vertex_buffer_elements with id as u32, data as slice of byte, offset as int into void:
+    var raw as ref to void is calling ffi.null_void
+    if (data.length) > 0:
+        set raw is transmute (sigil of (data at 0)) to (ref to void)
+    calling rlgl.rlUpdateVertexBufferElements with id, (transmute raw to ref to frozen void), (data.length), offset
+
+## Uploads a slice of floats as a `float` uniform array.
+##
+## ## Parameters
+## - `location`: the location from `uniform_location`.
+## - `values`: the floats to upload; an empty slice uploads nothing.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## **Only the float case is exposed.** raylib's element count depends on the uniform type — for a
+## `vec2` array the same parameter counts vectors, so the call would read `count * 2` floats — and
+## exposing that ambiguity is worse than leaving other uniform types to the binding
+## (`raylibx.shaders` D7 takes the same position). Here `count` is simply the slice's length.
+##
+## ## Memory
+## No allocation beyond the temporary pointer; the GPU copies the values.
+##
+## ## Example
+## ```pengu
+## calling rlglx.set_uniform_floats with location, (values at 0 to (values.length))
+## ```
+weave set_uniform_floats with location as int, values as slice of f32 into void:
+    var raw as ref to void is calling ffi.null_void
+    if (values.length) > 0:
+        set raw is transmute (sigil of (values at 0)) to (ref to void)
+    calling rlgl.rlSetUniform with location, (transmute raw to ref to frozen void), (rlgl.RL_SHADER_UNIFORM_FLOAT to int), (values.length)
+
+## Uploads a slice of matrices as a `mat4` uniform array.
+##
+## ## Parameters
+## - `location`: the location from `uniform_location`.
+## - `matrices`: the matrices to upload; an empty slice is a no-op.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## The count is the slice's length, and a `Matrix` is sixteen contiguous floats, so the layout is
+## exactly what rlgl expects. This is how a shader receives a whole skeleton or a set of
+## transforms in one call.
+##
+## ## Memory
+## No allocation beyond the temporary pointer; the GPU copies the values.
+##
+## ## Example
+## ```pengu
+## calling rlglx.set_uniform_matrices with location, (bones at 0 to (bones.length))
+## ```
+weave set_uniform_matrices with location as int, matrices as slice of raylib.Matrix into void:
+    if (matrices.length) == 0:
+        return
+    let first as ref to raylib.Matrix is sigil of (matrices at 0)
+    calling rlgl.rlSetUniformMatrices with location, first, (matrices.length)
+
+## Uploads a slice of bytes as a texture.
+##
+## ## Parameters
+## - `pixels`: the pixel data in `format`, or an **empty slice** to allocate without uploading.
+## - `width`: the texture width in pixels.
+## - `height`: the texture height in pixels.
+## - `format`: the pixel format, as an `rlgl.rlPixelFormat`.
+## - `mipmap_count`: how many mipmap levels to allocate, `1` for none.
+##
+## ## Returns
+## The OpenGL texture id, or `0` when rlgl cannot create it.
+##
+## ## Notes
+## **An empty slice is a valid input, not a no-op**: rlgl accepts a null data pointer to create an
+## uninitialised texture, which is what a render target or a streamed texture starts as. This is
+## the opposite of the other families' empty-slice guards, and it is deliberate.
+##
+## ## Memory
+## The texture id is a GPU handle: release it with `rlgl.rlUnloadTexture`.
+##
+## ## Example
+## ```pengu
+## var texture as u32 is calling rlglx.load_texture with (pixels at 0 to (pixels.length)), 256, 256, rlgl.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 1
+## ```
+weave load_texture with pixels as slice of byte, width as int, height as int, format as rlgl.rlPixelFormat, mipmap_count as int into u32:
+    var raw as ref to void is calling ffi.null_void
+    if (pixels.length) > 0:
+        set raw is transmute (sigil of (pixels at 0)) to (ref to void)
+    return calling rlgl.rlLoadTexture with (transmute raw to ref to frozen void), width, height, (format to int), mipmap_count
+
+## Rewrites a rectangle of an existing texture.
+##
+## ## Parameters
+## - `id`: the texture id from `load_texture`.
+## - `x`: the left edge of the region to rewrite.
+## - `y`: the top edge of the region to rewrite.
+## - `width`: the region width in pixels.
+## - `height`: the region height in pixels.
+## - `format`: the pixel format of `pixels`, as an `rlgl.rlPixelFormat`.
+## - `pixels`: the bytes to upload, which must hold `width * height` pixels in `format`.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## The size comes from `width`/`height` rather than from the slice, because that is what rlgl reads:
+## a slice shorter than the region would read past its end, so the docstring states the contract.
+##
+## ## Memory
+## The texture keeps belonging to the caller.
+##
+## ## Example
+## ```pengu
+## calling rlglx.update_texture with texture, 0, 0, 16, 16, rlgl.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, (pixels at 0 to (pixels.length))
+## ```
+weave update_texture with id as u32, x as int, y as int, width as int, height as int, format as rlgl.rlPixelFormat, pixels as slice of byte into void:
+    var raw as ref to void is calling ffi.null_void
+    if (pixels.length) > 0:
+        set raw is transmute (sigil of (pixels at 0)) to (ref to void)
+    calling rlgl.rlUpdateTexture with id, x, y, width, height, (format to int), (transmute raw to ref to frozen void)
+
+## Draws indexed vertices from an index buffer.
+##
+## ## Parameters
+## - `offset`: how many indices to skip.
+## - `indices`: the index data as 32-bit values; an empty slice is a no-op.
+##
+## ## Returns
+## Nothing; the geometry is queued into the current batch.
+##
+## ## Notes
+## The count is the slice's length, and this is the one `rlDrawVertexArray*` call whose element type
+## is unambiguous in practice, which is why it is typed as `slice of u32` rather than bytes. It is
+## the indexed counterpart of the binding's own `rlDrawVertexArray`.
+##
+## ## Memory
+## No allocation; the indices are only read during the call.
+##
+## ## Example
+## ```pengu
+## calling rlglx.draw_vertex_array_elements with 0, (indices at 0 to (indices.length))
+## ```
+weave draw_vertex_array_elements with offset as int, indices as slice of u32 into void:
+    if (indices.length) == 0:
+        return
+    let first as ref to u32 is sigil of (indices at 0)
+    calling rlgl.rlDrawVertexArrayElements with offset, (indices.length), (transmute first to ref to frozen void)
+
+## Creates a render batch: a set of vertex buffers with their own draw-call queue.
+##
+## ## Parameters
+## - `num_buffers`: how many vertex buffers the batch owns; `1` is the usual value.
+## - `buffer_elements`: how many elements each buffer holds.
+##
+## ## Returns
+## The batch, ready to be made active with `set_active`.
+##
+## ## Notes
+## This is raylib's own batching machinery exposed. Custom batches are for renderers that need more
+## than the single default one, which is why the type gets methods and the other 145 functions do
+## not.
+##
+## ## Memory
+## The batch owns its buffers: release it with `unload_render_batch`.
+##
+## ## Example
+## ```pengu
+## var batch as rlgl.rlRenderBatch is calling rlglx.load_render_batch with 1, 8192
+## ```
+weave load_render_batch with num_buffers as int, buffer_elements as int into rlgl.rlRenderBatch:
+    return calling rlgl.rlLoadRenderBatch with num_buffers, buffer_elements
+
+## Releases a render batch and its buffers.
+##
+## ## Parameters
+## - `batch`: the batch to release.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## Do not release the batch raylib is currently recording into; make another one active first.
+##
+## ## Memory
+## This is the release for `load_render_batch`.
+##
+## ## Example
+## ```pengu
+## calling rlglx.unload_render_batch with batch
+## ```
+weave unload_render_batch with batch as rlgl.rlRenderBatch into void:
+    calling rlgl.rlUnloadRenderBatch with batch
+
+# --- Tests ---
+
+# Only one wrapper needs no window (`pixel_format_name`), and the plan argues from that contrast.
+# Everything else opens one, because the layer has no usable CPU-only surface: measured, even
+# `rlPushMatrix` crashes without a graphics context. The releases are the binding's own
+# `rlUnload*` calls, which are skipped as one-line id consumers.
+
+weave vertex_source into string:
+    return r"""#version 330
+in vec3 vertexPosition;
+in vec2 vertexTexCoord;
+in vec4 vertexColor;
+uniform mat4 mvp;
+out vec2 fragTexCoord;
+out vec4 fragColor;
+void main() {
+    fragTexCoord = vertexTexCoord;
+    fragColor = vertexColor;
+    gl_Position = mvp*vec4(vertexPosition, 1.0);
+}
+"""
+
+weave fragment_source into string:
+    return r"""#version 330
+in vec2 fragTexCoord;
+in vec4 fragColor;
+uniform sampler2D texture0;
+uniform float u_scalar;
+out vec4 finalColor;
+void main() {
+    finalColor = fragColor*texture(texture0, fragTexCoord) + vec4(u_scalar);
+}
+"""
+
+test "pixel_format_name works with no window and names known formats":
+    var good as string is calling pixel_format_name with rlgl.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+    calling ward.assert_eq_string with good, "R8G8B8A8"
+    # a bare int is accepted by an omen parameter (master plan D22), and a cast *to* a
+    # qualified type is the broken case of D20, so the bogus value goes in directly
+    var unknown as string is calling pixel_format_name with 999
+    calling ward.assert_eq_string with unknown, "UNKNOWN"
+
+test "a shader program links and its locations are maybe":
+    calling raylib.InitWindow with 120, 80, "rlglx shader"
+    defer calling raylib.CloseWindow
+    var program as u32 is calling load_shader_program with (calling vertex_source), (calling fragment_source)
+    calling ward.assert_true with (program > 0)
+    defer calling rlgl.rlUnloadShaderProgram with program
+    var found as maybe int is calling uniform_location with program, "u_scalar"
+    calling ward.assert_maybe_present with found
+    var missing as maybe int is calling uniform_location with program, "u_absent"
+    calling ward.assert_maybe_none with missing
+    var attrib as maybe int is calling attrib_location with program, "vertexPosition"
+    calling ward.assert_maybe_present with attrib
+    var attrib_missing as maybe int is calling attrib_location with program, "a_absent"
+    calling ward.assert_maybe_none with attrib_missing
+
+test "one shader stage compiles on its own":
+    calling raylib.InitWindow with 120, 80, "rlglx stage"
+    defer calling raylib.CloseWindow
+    var stage as u32 is calling load_shader with (calling fragment_source), (rlgl.RL_FRAGMENT_SHADER to int)
+    calling ward.assert_true with (stage > 0)
+    defer calling rlgl.rlUnloadShader with stage
+
+test "vertex and index buffers load and update from slices":
+    calling raylib.InitWindow with 120, 80, "rlglx buffers"
+    defer calling raylib.CloseWindow
+    var verts as list of byte is list of byte
+    defer banish verts
+    var i as int is 0
+    while i < 96:
+        calling verts.push with 0
+        set i is i + 1
+    var vbo as u32 is calling load_vertex_buffer with (verts at 0 to (verts.length)), true
+    calling ward.assert_true with (vbo > 0)
+    defer calling rlgl.rlUnloadVertexBuffer with vbo
+    var ebo as u32 is calling load_vertex_buffer_element with (verts at 0 to (verts.length)), true
+    calling ward.assert_true with (ebo > 0)
+    defer calling rlgl.rlUnloadVertexBuffer with ebo
+    calling update_vertex_buffer with vbo, (verts at 0 to (verts.length)), 0
+    calling update_vertex_buffer_elements with ebo, (verts at 0 to (verts.length)), 0
+    # an empty slice is not a crash: rlgl accepts a null buffer
+    var empty as list of byte is list of byte
+    defer banish empty
+    var blank as u32 is calling load_vertex_buffer with (empty at 0 to 0), false
+    calling ward.assert_true with (blank > 0)
+    calling rlgl.rlUnloadVertexBuffer with blank
+
+test "uniforms take slices":
+    calling raylib.InitWindow with 120, 80, "rlglx uniforms"
+    defer calling raylib.CloseWindow
+    var program as u32 is calling load_shader_program with (calling vertex_source), (calling fragment_source)
+    defer calling rlgl.rlUnloadShaderProgram with program
+    var location as maybe int is calling uniform_location with program, "u_scalar"
+    calling ward.assert_maybe_present with location
+    var where as int is calling location.unwrap
+    var values as list of f32 is [1.5, 2.5]
+    defer banish values
+    calling set_uniform_floats with where, (values at 0 to (values.length))
+    var matrices as list of raylib.Matrix is list of raylib.Matrix
+    defer banish matrices
+    var identity as raylib.Matrix is with m0 is 1.0, m4 is 0.0, m8 is 0.0, m12 is 0.0, m1 is 0.0, m5 is 1.0, m9 is 0.0, m13 is 0.0, m2 is 0.0, m6 is 0.0, m10 is 1.0, m14 is 0.0, m3 is 0.0, m7 is 0.0, m11 is 0.0, m15 is 1.0
+    calling matrices.push with identity
+    var mvp as maybe int is calling uniform_location with program, "mvp"
+    calling ward.assert_maybe_present with mvp
+    calling set_uniform_matrices with (calling mvp.unwrap), (matrices at 0 to (matrices.length))
+
+test "textures take slices":
+    calling raylib.InitWindow with 120, 80, "rlglx textures"
+    defer calling raylib.CloseWindow
+    var pixels as list of byte is list of byte
+    defer banish pixels
+    var i as int is 0
+    while i < 64:
+        calling pixels.push with 255
+        set i is i + 1
+    var texture as u32 is calling load_texture with (pixels at 0 to (pixels.length)), 4, 4, rlgl.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8, 1
+    calling ward.assert_true with (texture > 0)
+    defer calling rlgl.rlUnloadTexture with texture
+    calling update_texture with texture, 0, 0, 1, 1, rlgl.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8, (pixels at 0 to (pixels.length))
+    # an empty slice allocates a texture without uploading, which is a valid input (D10)
+    var no_pixels as list of byte is list of byte
+    defer banish no_pixels
+    var blank as u32 is calling load_texture with (no_pixels at 0 to 0), 8, 8, rlgl.RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 1
+    calling ward.assert_true with (blank > 0)
+    calling rlgl.rlUnloadTexture with blank
+

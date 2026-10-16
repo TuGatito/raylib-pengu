@@ -149,17 +149,14 @@ had every `import` resolved relative to the document's own directory.
 Two toolchain fixes make the natural layout work (both in the PenguScript
 checkout, see *Toolchain fixes* below): the LSP now recognises every manifest
 the CLI does, and module resolution honours the manifest's `src_dir`
-(`src_dir = "pengu"` here). While you are still on a `pengu` binary that
-predates them, the repository ships a one-entry compatibility shim:
+(`src_dir = "pengu"` here). A `pengu` binary that predates those fixes needs a
+one-entry compatibility shim (`src -> pengu`), which doubled as the `src/`
+project-root marker the old LSP looked for and as the directory the old
+resolver searched, so that `import raylib` worked from anywhere in the tree
+without a rebuild.
 
-```
-src -> pengu
-```
-
-It doubles as the `src/` project-root marker the old LSP looks for, and as the
-directory the old resolver searches, so `import raylib` works from anywhere in
-the tree without a rebuild. It is inert on a fixed toolchain — delete it once
-your `pengu` includes the two fixes.
+**That shim has been deleted from this repository**: it is inert on a fixed
+toolchain, and the `pengu` this project is built against has both fixes.
 
 ## Verifying the bindings
 
@@ -195,8 +192,27 @@ raylib-pengu/
 │   ├── rgestures.d.pengu       # rgestures.h
 │   ├── rlgl.d.pengu            # rlgl.h
 │   ├── raygui.d.pengu          # raygui.h
-│   └── raylib_pengu.d.pengu    # facade: imports all of the above
-├── src -> pengu                # compatibility shim (see Examples; delete after rebuilding pengu)
+│   ├── raylib_pengu.d.pengu    # facade: imports all of the above
+│   ├── raymathx.pengu          # layer 2: 138 raymath wrappers, 416 tests
+│   ├── rcamerax.pengu          # layer 2: 12 Camera3D methods
+│   ├── rlglx.pengu             # layer 2: 18 rlgl wrappers (the boundary crossings only)
+│   ├── rayguix.pengu           # layer 2: 38 raygui widgets (strings and text fields)
+│   ├── raylibx.pengu           # layer 2 facade: imports the fourteen families below
+│   └── raylibx/                # layer 2: one module per raylib family
+│       ├── colors.pengu        #   raylibx.colors
+│       ├── files.pengu         #   raylibx.files
+│       ├── shapes.pengu        #   raylibx.shapes      (20 Vector2 + 7 Rectangle methods)
+│       ├── shapes3d.pengu      #   raylibx.shapes3d    (4 Vector3 methods)
+│       ├── text.pengu          #   raylibx.text        (5 Font methods)
+│       ├── input.pengu         #   raylibx.input
+│       ├── images.pengu        #   raylibx.images      (52 Image methods)
+│       ├── textures.pengu      #   raylibx.textures
+│       ├── drawing.pengu       #   raylibx.drawing     (the Begin/End pairs)
+│       ├── window.pengu        #   raylibx.window
+│       ├── shaders.pengu       #   raylibx.shaders
+│       ├── models.pengu        #   raylibx.models
+│       ├── audio.pengu         #   raylibx.audio
+│       └── random.pengu        #   raylibx.random      (the azar appendix)
 ├── include/                    # the real C headers the bindings were made from
 ├── c/
 │   └── raygui_impl.c           # RAYGUI_IMPLEMENTATION, compiled into the consumer's bundle
@@ -214,11 +230,28 @@ The facade module is `raylib_pengu` (underscore): an import path cannot contain
 a hyphen, so `import raylib-pengu` would be a syntax error even though the
 repository is called `raylib-pengu`.
 
+The same holds for the wrapper layer: each family is a module under `pengu/raylibx/`
+(`raylibx.colors`, `raylibx.text`, ...), and `pengu/raylibx.pengu` is their facade.
+PenguScript has **no re-export**, so `import raylibx` does not expose the families --
+import the ones you need with an alias (`import raylibx.text as text`) and call through
+it. What the facade is for is compiling, linking and testing the whole layer at once:
+
+```sh
+pengu check --entry pengu/raylibx.pengu    # all fourteen families, one compilation
+pengu build --entry pengu/raylibx.pengu    # one bundle that links
+pengu test  --entry pengu/raylibx.pengu    # the layer's 261 tests in one run
+```
+
+That last one matters: the families share process-global state (a window initialises GLFW,
+which enumerates a gamepad; `InitWindow` loads the default font, which calls
+`SetShapesTexture`), so running them together is what catches tests that assumed a virgin
+process.
+
 ## Toolchain fixes
 
 Found while wiring the examples up; both live in the PenguScript checkout, not
-here. Until your `pengu` binary includes them, the `src -> pengu` shim above
-covers the same ground.
+here. A `pengu` binary without them needs the `src -> pengu` shim described
+above; that shim has been deleted from this repository.
 
 | File | Fix |
 | ---- | --- |

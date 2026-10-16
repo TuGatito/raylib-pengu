@@ -1,0 +1,1313 @@
+## raylibx/files.pengu
+## Layer-2 wrapper over the file-system, raw-data, compression and hashing surface of
+## the `raylib` binding.
+##
+## Every entry is a free function: this family has no `enchanting`, because no raylib
+## type has a path or a buffer as its natural subject. What the wrapper adds is the
+## boundary: paths become `string`, lengths fold into `.length`, foreign buffers become
+## owned PenguScript values and every raylib allocation is released before returning.
+##
+##     calling raylib.LoadFileText with cstr                     # binding
+##     calling raylibx_files.file_text with "notes.txt"          # wrapper
+##
+## This is family `files` of `docs/plans/raylibx.md`; see `docs/plans/raylibx_files.md`.
+##
+## ## Ownership
+## Three rules, all enforced here:
+## - A raylib buffer that the caller must free is copied into an owned `list of byte` or
+##   `string` and then released with its `Unload*`/`MemFree` counterpart **before** the
+##   wrapper returns. The caller never sees a foreign pointer.
+## - A `const char*` that raylib owns (the path helpers) is copied with
+##   `ffi.string_from_cstr` and **not** freed.
+## - The digest functions (`md5`, `sha1`, `sha256`) return `slice of u32`, which is a
+##   **view into a raylib static buffer**. Do not `banish` it and do not keep it past the
+##   next call that uses the same buffer; copy it if it must outlive the expression.
+##
+## ## Memory
+## No `banish` in the wrapper itself: everything returned is either an owned PenguScript
+## value (the caller decides when to `banish`) or a documented view. `std.ffi` is used for
+## the string conversion, the byte/string list copies and the null checks.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raylibx_files
+##
+## weave main into int:
+##     var saved as bool is calling raylibx_files.save_file_text with "/tmp/notes.txt", "hello"
+##     var text as maybe string is calling raylibx_files.file_text with "/tmp/notes.txt"
+##     var names as list of string is calling raylibx_files.load_directory with "/tmp"
+##     defer banish names
+##     return 0
+## ```
+
+import raylib
+import std.ffi
+import std.ward
+
+## Reports whether a regular file exists at a path.
+##
+## ## Parameters
+## - `path`: the file path to test.
+##
+## ## Returns
+## `true` when raylib finds a regular file, `false` otherwise.
+##
+## ## Notes
+## Only regular files count: a directory path is `false`.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var have as bool is calling raylibx_files.file_exists with "notes.txt"
+## ```
+
+weave file_exists with path as string into bool:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling raylib.FileExists with c_path
+
+## Reports whether a directory exists at a path.
+##
+## ## Parameters
+## - `path`: the directory path to test.
+##
+## ## Returns
+## `true` when raylib finds a directory, `false` otherwise.
+##
+## ## Notes
+## A regular file path is `false`, and so is a path that does not exist.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var have as bool is calling raylibx_files.directory_exists with "/tmp"
+## ```
+
+weave directory_exists with path as string into bool:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling raylib.DirectoryExists with c_path
+
+## Reports whether a path ends with a given extension.
+##
+## ## Parameters
+## - `path`: the path to test.
+## - `ext`: the extension, including the leading dot (`".png"`).
+##
+## ## Returns
+## `true` when the path ends with `ext`, `false` otherwise.
+##
+## ## Notes
+## The comparison is case-insensitive: raylib matches `".PNG"` against `".png"`. The dot is part of `ext`.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var is_png as bool is calling raylibx_files.is_file_extension with "art.png", ".png"
+## ```
+
+weave is_file_extension with path as string, ext as string into bool:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    let c_ext as ref to frozen char is calling ffi.cstr_from_string with ext
+    return calling raylib.IsFileExtension with c_path, c_ext
+
+## Reports whether a path points at a file rather than a directory.
+##
+## ## Parameters
+## - `path`: the path to test.
+##
+## ## Returns
+## `true` for a file, `false` for a directory or a missing path.
+##
+## ## Notes
+## This is the complement of `directory_exists` for existing paths.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var is_file as bool is calling raylibx_files.is_path_file with "/tmp/notes.txt"
+## ```
+
+weave is_path_file with path as string into bool:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling raylib.IsPathFile with c_path
+
+## Reports whether a file name is acceptable to raylib.
+##
+## ## Parameters
+## - `name`: the file name (not a full path) to validate.
+##
+## ## Returns
+## `true` when raylib accepts the name, `false` otherwise.
+##
+## ## Notes
+## raylib only rejects the characters Windows forbids; the empty string and names with spaces are accepted, as measured in the family plan.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var ok as bool is calling raylibx_files.is_file_name_valid with "notes.txt"
+## ```
+
+weave is_file_name_valid with name as string into bool:
+    let c_name as ref to frozen char is calling ffi.cstr_from_string with name
+    return calling raylib.IsFileNameValid with c_name
+
+## Returns the size of a file in bytes.
+##
+## ## Parameters
+## - `path`: the file path.
+##
+## ## Returns
+## The size in bytes, or `0` when the file does not exist.
+##
+## ## Notes
+## **`0` is ambiguous**: raylib returns `0` both for an empty file and for a missing one, so this function is not a `maybe` (there is no sentinel to detect). Check `file_exists` first when the distinction matters.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var n as int is calling raylibx_files.file_length with "notes.txt"
+## ```
+
+weave file_length with path as string into int:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling raylib.GetFileLength with c_path
+
+## Returns the last modification time of a file.
+##
+## ## Parameters
+## - `path`: the file path.
+##
+## ## Returns
+## The modification time as raylib reports it, or `0` when the file does not exist.
+##
+## ## Notes
+## Same ambiguity as `file_length`: `0` covers both "missing" and "epoch". The value's epoch and unit are raylib's, not the wrapper's.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var when as int is calling raylibx_files.file_mod_time with "notes.txt"
+## ```
+
+weave file_mod_time with path as string into int:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return (calling raylib.GetFileModTime with c_path) to int
+
+## Returns the extension of a path, including the dot.
+##
+## ## Parameters
+## - `path`: the path to inspect.
+##
+## ## Returns
+## The extension (for example `".png"`), or an empty string when there is none.
+##
+## ## Notes
+## raylib returns a pointer into the input or into its own static buffer; the wrapper copies it, so there is nothing to free.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var ext as string is calling raylibx_files.file_extension with "art.png"
+## ```
+
+weave file_extension with path as string into string:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling ffi.string_from_cstr with (transmute (calling raylib.GetFileExtension with c_path) to ref to char)
+
+## Returns the file name part of a path.
+##
+## ## Parameters
+## - `path`: the full path.
+##
+## ## Returns
+## The last component of the path (for example `"art.png"`).
+##
+## ## Notes
+## raylib points into the input; the wrapper copies it.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var name as string is calling raylibx_files.file_name with "/tmp/art.png"
+## ```
+
+weave file_name with path as string into string:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling ffi.string_from_cstr with (transmute (calling raylib.GetFileName with c_path) to ref to char)
+
+## Returns the file name part of a path with the extension removed.
+##
+## ## Parameters
+## - `path`: the full path.
+##
+## ## Returns
+## The file name without its extension (for example `"art"`).
+##
+## ## Notes
+## raylib returns a **static buffer** that the next call to this function overwrites; the wrapper copies it immediately, so the returned `string` is safe to keep.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var stem as string is calling raylibx_files.file_name_without_extension with "/tmp/art.png"
+## ```
+
+weave file_name_without_extension with path as string into string:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling ffi.string_from_cstr with (transmute (calling raylib.GetFileNameWithoutExt with c_path) to ref to char)
+
+## Returns the directory part of a path.
+##
+## ## Parameters
+## - `path`: the full path.
+##
+## ## Returns
+## The directory (for example `"/tmp"`).
+##
+## ## Notes
+## raylib returns a **static buffer**; the wrapper copies it immediately.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var dir as string is calling raylibx_files.directory_path with "/tmp/art.png"
+## ```
+
+weave directory_path with path as string into string:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling ffi.string_from_cstr with (transmute (calling raylib.GetDirectoryPath with c_path) to ref to char)
+
+## Returns the parent of a directory path.
+##
+## ## Parameters
+## - `path`: the directory path.
+##
+## ## Returns
+## The parent directory path.
+##
+## ## Notes
+## raylib returns a **static buffer**; the wrapper copies it immediately.
+## Named `previous_directory` rather than a literal `prev_` form so it does not read as a near-miss of `directory_path`.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var parent as string is calling raylibx_files.previous_directory with "/tmp/art"
+## ```
+
+weave previous_directory with path as string into string:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling ffi.string_from_cstr with (transmute (calling raylib.GetPrevDirectoryPath with c_path) to ref to char)
+
+## Returns the current working directory.
+##
+## ## Returns
+## The process working directory.
+##
+## ## Notes
+## raylib returns a **static buffer**; the wrapper copies it immediately.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var cwd as string is calling raylibx_files.working_directory
+## ```
+
+weave working_directory into string:
+    return calling ffi.string_from_cstr with (transmute (calling raylib.GetWorkingDirectory) to ref to char)
+
+## Returns the directory of the running application.
+##
+## ## Returns
+## The application directory.
+##
+## ## Notes
+## raylib returns a **static buffer**; the wrapper copies it immediately.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var app as string is calling raylibx_files.application_directory
+## ```
+
+weave application_directory into string:
+    return calling ffi.string_from_cstr with (transmute (calling raylib.GetApplicationDirectory) to ref to char)
+
+## Removes a file.
+##
+## ## Parameters
+## - `path`: the file to remove.
+##
+## ## Returns
+## `0` on success, non-zero on failure.
+##
+## ## Notes
+## The return value follows the binding: **`0` means success**, so it is an `int` and not a `bool` (inverting it would hide the sense).
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var rc as int is calling raylibx_files.remove_file with "/tmp/notes.txt"
+## ```
+
+weave remove_file with path as string into int:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling raylib.FileRemove with c_path
+
+## Renames or moves a file.
+##
+## ## Parameters
+## - `path`: the current path.
+## - `new_path`: the new path.
+##
+## ## Returns
+## `0` on success, non-zero on failure.
+##
+## ## Notes
+## Same `0`-means-success convention as `remove_file`.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var rc as int is calling raylibx_files.rename_file with "a.txt", "b.txt"
+## ```
+
+weave rename_file with path as string, new_path as string into int:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    let c_new as ref to frozen char is calling ffi.cstr_from_string with new_path
+    return calling raylib.FileRename with c_path, c_new
+
+## Creates a directory, including every missing parent.
+##
+## ## Parameters
+## - `path`: the directory to create.
+##
+## ## Returns
+## `0` on success, non-zero on failure.
+##
+## ## Notes
+## Creating a directory that already exists also reports `0` (measured in the family plan), so `0` means "the directory is there now".
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var rc as int is calling raylibx_files.make_directory with "/tmp/raylibx_demo"
+## ```
+
+weave make_directory with path as string into int:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling raylib.MakeDirectory with c_path
+
+## Changes the process working directory.
+##
+## ## Parameters
+## - `path`: the directory to move into.
+##
+## ## Returns
+## `1` on success, `0` on failure.
+##
+## ## Notes
+## **The binding's own header comment is wrong here.** `include/raylib.h:1163` says "returns 0 on success", but the installed library returns `1` on success and `0` on failure (measured in the family plan). The wrapper keeps the binding's `int` unchanged rather than inventing a `bool` that would encode the comment's mistake, and the docstring states the measured behaviour.
+## This is a process-wide side effect; the wrapper does not restore the previous directory.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var rc as int is calling raylibx_files.change_directory with "/tmp"
+## ```
+
+weave change_directory with path as string into int:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling raylib.ChangeDirectory with c_path
+
+## Lists the entries of a directory.
+##
+## ## Parameters
+## - `path`: the directory to list.
+##
+## ## Returns
+## An owned `list of string` with the full path of every entry.
+##
+## ## Notes
+## raylib returns a `FilePathList` into its own memory; the wrapper copies it into an owned list and releases the raylib list before returning, so the result is safe to `banish` and safe to keep.
+## An unreadable directory yields an empty list, not a failure.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var names as list of string is calling raylibx_files.load_directory with "/tmp"
+## defer banish names
+## ```
+
+weave load_directory with path as string into list of string:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    var listing as raylib.FilePathList is calling raylib.LoadDirectoryFiles with c_path
+    let raw as ref to void is transmute listing.paths to ref to void
+    var owned as list of string is calling ffi.list_of_string_from_ptr with raw, (listing.count to int)
+    calling raylib.UnloadDirectoryFiles with listing
+    return owned
+
+## Lists a directory with an extension filter.
+##
+## ## Parameters
+## - `base`: the directory to list.
+## - `filter`: an extension filter such as `".png"`, or an empty string for everything.
+## - `scan_subdirs`: when true the search descends into subdirectories.
+##
+## ## Returns
+## An owned `list of string` with the matching full paths.
+##
+## ## Notes
+## Same copy-then-release rule as `load_directory`.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var pngs as list of string is calling raylibx_files.load_directory_filtered with "/tmp", ".png", false
+## defer banish pngs
+## ```
+
+weave load_directory_filtered with base as string, filter as string, scan_subdirs as bool into list of string:
+    let c_base as ref to frozen char is calling ffi.cstr_from_string with base
+    let c_filter as ref to frozen char is calling ffi.cstr_from_string with filter
+    var listing as raylib.FilePathList is calling raylib.LoadDirectoryFilesEx with c_base, c_filter, scan_subdirs
+    let raw as ref to void is transmute listing.paths to ref to void
+    var owned as list of string is calling ffi.list_of_string_from_ptr with raw, (listing.count to int)
+    calling raylib.UnloadDirectoryFiles with listing
+    return owned
+
+## Returns the files dropped onto the window since the last call.
+##
+## ## Returns
+## An owned `list of string`; empty when nothing was dropped.
+##
+## ## Notes
+## Only meaningful with a window: without one the list is always empty, which is why the family test only asserts that the call returns a list.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var dropped as list of string is calling raylibx_files.dropped_files
+## defer banish dropped
+## ```
+
+weave dropped_files into list of string:
+    var listing as raylib.FilePathList is calling raylib.LoadDroppedFiles
+    let raw as ref to void is transmute listing.paths to ref to void
+    var owned as list of string is calling ffi.list_of_string_from_ptr with raw, (listing.count to int)
+    calling raylib.UnloadDroppedFiles with listing
+    return owned
+
+## Reads a whole file as raw bytes.
+##
+## ## Parameters
+## - `path`: the file to read.
+##
+## ## Returns
+## `some` with an owned `list of byte`, or `maybe none` when the file cannot be read.
+##
+## ## Notes
+## **An empty file is `some` with an empty list, not `maybe none`.** raylib returns a null pointer for a zero-byte file as well as for a missing one, so the wrapper disambiguates by checking `FileExists` when the reported size is `0`.
+## raylib allocates the buffer; the wrapper copies it into an owned list and releases the raylib buffer with `UnloadFileData` before returning, so the caller never owns the foreign pointer.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var raw as maybe (list of byte) is calling raylibx_files.file_bytes with "notes.txt"
+## ```
+
+weave file_bytes with path as string into maybe (list of byte):
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    var n as int is 0
+    var data as ref to byte is calling raylib.LoadFileData with c_path, sigil of n
+    if calling ffi.is_null with (transmute data to ref to void):
+        if n == 0:
+            if calling raylib.FileExists with c_path:
+                var empty as list of byte is list of byte
+                return some empty
+        return maybe none
+    var owned as list of byte is calling ffi.list_of_bytes_from_ptr with (transmute data to ref to void), n
+    calling raylib.UnloadFileData with data
+    return some owned
+
+## Writes raw bytes to a file, replacing any previous content.
+##
+## ## Parameters
+## - `path`: the destination file.
+## - `data`: the bytes to write; an empty slice writes an empty file.
+##
+## ## Returns
+## `true` when raylib reports success, `false` otherwise.
+##
+## ## Notes
+## A null data pointer makes raylib **fail even with size 0**, so the empty case passes the address of a dummy byte instead; that is what makes writing an empty file actually work (measured: `SaveFileData(NULL, 0)` reports failure, `SaveFileData(&b, 0)` writes the file).
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var ok as bool is calling raylibx_files.save_file_bytes with "/tmp/blob.bin", (data at 0 to 4)
+## ```
+
+weave save_file_bytes with path as string, data as slice of byte into bool:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    if (data.length) == 0:
+        var dummy as byte is 0
+        let empty as ref to byte is sigil of dummy
+        return calling raylib.SaveFileData with c_path, (transmute empty to ref to frozen void), 0
+    let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
+    return calling raylib.SaveFileData with c_path, (transmute raw to ref to frozen void), (data.length)
+
+## Reads a whole file as text.
+##
+## ## Parameters
+## - `path`: the file to read.
+##
+## ## Returns
+## `some` with the file contents, or `maybe none` when the file cannot be read.
+##
+## ## Notes
+## The raylib buffer is copied and released with `UnloadFileText` before returning.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var text as maybe string is calling raylibx_files.file_text with "notes.txt"
+## ```
+
+weave file_text with path as string into maybe string:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    var text as ref to char is calling raylib.LoadFileText with c_path
+    if calling ffi.is_null with (transmute text to ref to void):
+        return maybe none
+    var owned as string is calling ffi.string_from_cstr with text
+    calling raylib.UnloadFileText with text
+    return some owned
+
+## Writes text to a file, replacing any previous content.
+##
+## ## Parameters
+## - `path`: the destination file.
+## - `text`: the text to write.
+##
+## ## Returns
+## `true` when raylib reports success, `false` otherwise.
+##
+## ## Notes
+## The text is written as-is, with no trailing newline added.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var ok as bool is calling raylibx_files.save_file_text with "/tmp/notes.txt", "hello"
+## ```
+
+weave save_file_text with path as string, text as string into bool:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling raylib.SaveFileText with c_path, c_text
+
+## Writes bytes as a C source file declaring them as an array.
+##
+## ## Parameters
+## - `data`: the bytes to export.
+## - `path`: the `.c`/`.h` destination.
+##
+## ## Returns
+## `true` when raylib reports success, `false` otherwise.
+##
+## ## Notes
+## raylib writes a C array named after the file, so the destination should be a valid C identifier stem.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var ok as bool is calling raylibx_files.export_bytes_as_code with (data at 0 to 4), "/tmp/blob.c"
+## ```
+
+weave export_bytes_as_code with data as slice of byte, path as string into bool:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    if (data.length) == 0:
+        return false
+    let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
+    return calling raylib.ExportDataAsCode with raw, (data.length), c_path
+
+## Builds a UTF-8 string from an array of codepoints.
+##
+## ## Parameters
+## - `codepoints`: the codepoints to encode.
+##
+## ## Returns
+## `some` with the UTF-8 string, or `maybe none` when raylib fails.
+##
+## ## Notes
+## The raylib buffer is copied and released with `UnloadUTF8` before returning.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var text as maybe string is calling raylibx_files.text_from_codepoints with (points at 0 to 2)
+## ```
+
+weave text_from_codepoints with codepoints as slice of int into maybe string:
+    if (codepoints.length) == 0:
+        return maybe none
+    let raw as ref to frozen int is transmute (sigil of (codepoints at 0)) to ref to frozen int
+    var text as ref to char is calling raylib.LoadUTF8 with raw, (codepoints.length)
+    if calling ffi.is_null with (transmute text to ref to void):
+        return maybe none
+    var owned as string is calling ffi.string_from_cstr with text
+    calling raylib.UnloadUTF8 with text
+    return some owned
+
+## Splits a string into lines.
+##
+## ## Parameters
+## - `text`: the text to split, using raylib's line-ending rules.
+##
+## ## Returns
+## `some` with an owned list of lines, or `maybe none` when raylib fails.
+##
+## ## Notes
+## raylib allocates both the array and each line; the wrapper copies the array into an owned list and releases everything with `UnloadTextLines` before returning.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var lines as maybe (list of string) is calling raylibx_files.text_lines with "one\ntwo"
+## ```
+
+weave text_lines with text as string into maybe (list of string):
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    var n as int is 0
+    var block as ref to ref to char is calling raylib.LoadTextLines with c_text, sigil of n
+    if calling ffi.is_null with (transmute block to ref to void):
+        return maybe none
+    let raw as ref to void is transmute block to ref to void
+    var owned as list of string is calling ffi.list_of_string_from_ptr with raw, n
+    calling raylib.UnloadTextLines with block, n
+    return some owned
+
+## Compresses bytes with raylib's QOI/zlib round-trip format.
+##
+## ## Parameters
+## - `data`: the bytes to compress.
+##
+## ## Returns
+## `some` with the compressed bytes, or `maybe none` when raylib fails or `data` is empty.
+##
+## ## Notes
+## The format is raylib's own; it is meant to be fed back to `decompress`, not to be interoperable with an external zlib stream.
+## Both the input size and the output size are written through out-parameters; only the output one is needed, because the input length is `.length`.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var packed as maybe (list of byte) is calling raylibx_files.compress with (data at 0 to 8)
+## ```
+
+weave compress with data as slice of byte into maybe (list of byte):
+    if (data.length) == 0:
+        return maybe none
+    let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
+    var out_n as int is 0
+    var out as ref to byte is calling raylib.CompressData with raw, (data.length), sigil of out_n
+    if calling ffi.is_null with (transmute out to ref to void):
+        return maybe none
+    var owned as list of byte is calling ffi.list_of_bytes_from_ptr with (transmute out to ref to void), out_n
+    calling raylib.MemFree with (transmute out to ref to void)
+    return some owned
+
+## Decompresses bytes produced by `compress`.
+##
+## ## Parameters
+## - `data`: the compressed bytes.
+##
+## ## Returns
+## `some` with the original bytes, or `maybe none` when raylib fails or `data` is empty.
+##
+## ## Notes
+## The companion of `compress`; feeding it anything else is undefined by raylib.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var raw_out as maybe (list of byte) is calling raylibx_files.decompress with (packed at 0 to 8)
+## ```
+
+weave decompress with data as slice of byte into maybe (list of byte):
+    if (data.length) == 0:
+        return maybe none
+    let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
+    var out_n as int is 0
+    var out as ref to byte is calling raylib.DecompressData with raw, (data.length), sigil of out_n
+    if calling ffi.is_null with (transmute out to ref to void):
+        return maybe none
+    var owned as list of byte is calling ffi.list_of_bytes_from_ptr with (transmute out to ref to void), out_n
+    calling raylib.MemFree with (transmute out to ref to void)
+    return some owned
+
+## Encodes bytes as a Base64 string.
+##
+## ## Parameters
+## - `data`: the bytes to encode.
+##
+## ## Returns
+## `some` with the Base64 text, or `maybe none` when raylib fails or `data` is empty.
+##
+## ## Notes
+## The raylib buffer is copied and released with `MemFree` before returning.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var b64 as maybe string is calling raylibx_files.encode_base64 with (data at 0 to 4)
+## ```
+
+weave encode_base64 with data as slice of byte into maybe string:
+    if (data.length) == 0:
+        return maybe none
+    let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
+    var out_n as int is 0
+    var out as ref to char is calling raylib.EncodeDataBase64 with raw, (data.length), sigil of out_n
+    if calling ffi.is_null with (transmute out to ref to void):
+        return maybe none
+    var owned as string is calling ffi.string_from_cstr with out
+    calling raylib.MemFree with (transmute out to ref to void)
+    return some owned
+
+## Decodes a Base64 string back into bytes.
+##
+## ## Parameters
+## - `text`: the Base64 text.
+##
+## ## Returns
+## `some` with the decoded bytes, or `maybe none` when raylib fails or the text is empty.
+##
+## ## Notes
+## raylib does not validate the alphabet strictly, so malformed input may decode to a shorter buffer rather than failing; the wrapper does not add validation.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var raw_out as maybe (list of byte) is calling raylibx_files.decode_base64 with "aGVsbG8="
+## ```
+
+weave decode_base64 with text as string into maybe (list of byte):
+    if (text.length) == 0:
+        return maybe none
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    var out_n as int is 0
+    var out as ref to byte is calling raylib.DecodeDataBase64 with c_text, sigil of out_n
+    if calling ffi.is_null with (transmute out to ref to void):
+        return maybe none
+    var owned as list of byte is calling ffi.list_of_bytes_from_ptr with (transmute out to ref to void), out_n
+    calling raylib.MemFree with (transmute out to ref to void)
+    return some owned
+
+## Computes the CRC32 checksum of bytes.
+##
+## ## Parameters
+## - `data`: the bytes to hash.
+##
+## ## Returns
+## The CRC32 value, or `0` for an empty slice.
+##
+## ## Notes
+## Unlike the digests below, the value is returned by value, so there is no buffer and no lifetime to worry about.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var sum as u32 is calling raylibx_files.crc32 with (data at 0 to 8)
+## ```
+
+weave crc32 with data as slice of byte into u32:
+    if (data.length) == 0:
+        return 0
+    let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
+    return calling raylib.ComputeCRC32 with raw, (data.length)
+
+## Computes the MD5 digest of bytes.
+##
+## ## Parameters
+## - `data`: the bytes to hash.
+##
+## ## Returns
+## A four-element `slice of u32`; empty for an empty slice.
+##
+## ## Notes
+## **The slice is a view into a raylib static buffer**: it is not owned, `banish` rejects it, and the next call to `md5` may overwrite it. Copy the four words if the digest must outlive the expression.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var digest as slice of u32 is calling raylibx_files.md5 with (data at 0 to 8)
+## ```
+
+weave md5 with data as slice of byte into slice of u32:
+    if (data.length) == 0:
+        return calling ffi.slice_of_int_from_ptr with (calling ffi.null_void), 0
+    let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
+    var block as ref to u32 is calling raylib.ComputeMD5 with raw, (data.length)
+    return calling ffi.slice_of_int_from_ptr with (transmute block to ref to void), 4
+
+## Computes the SHA-1 digest of bytes.
+##
+## ## Parameters
+## - `data`: the bytes to hash.
+##
+## ## Returns
+## A five-word `slice of u32` as raylib lays SHA-1 out; empty for an empty slice.
+##
+## ## Notes
+## Same static-buffer caveat as `md5`. The element count is fixed at what raylib writes for SHA-1.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var digest as slice of u32 is calling raylibx_files.sha1 with (data at 0 to 8)
+## ```
+
+weave sha1 with data as slice of byte into slice of u32:
+    if (data.length) == 0:
+        return calling ffi.slice_of_int_from_ptr with (calling ffi.null_void), 0
+    let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
+    var block as ref to u32 is calling raylib.ComputeSHA1 with raw, (data.length)
+    return calling ffi.slice_of_int_from_ptr with (transmute block to ref to void), 5
+
+## Computes the SHA-256 digest of bytes.
+##
+## ## Parameters
+## - `data`: the bytes to hash.
+##
+## ## Returns
+## An eight-word `slice of u32` as raylib lays it out; empty for an empty slice.
+##
+## ## Notes
+## Same static-buffer caveat as `md5`.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var digest as slice of u32 is calling raylibx_files.sha256 with (data at 0 to 8)
+## ```
+
+weave sha256 with data as slice of byte into slice of u32:
+    if (data.length) == 0:
+        return calling ffi.slice_of_int_from_ptr with (calling ffi.null_void), 0
+    let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
+    var block as ref to u32 is calling raylib.ComputeSHA256 with raw, (data.length)
+    return calling ffi.slice_of_int_from_ptr with (transmute block to ref to void), 8
+
+# --- Tests ---
+
+test "save_file_text writes and file_text reads back":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    defer calling remove_file with path
+    var saved as bool is calling save_file_text with path, "hello pengu"
+    calling ward.assert_true with saved
+    var text as maybe string is calling file_text with path
+    calling ward.assert_maybe_present with text
+    calling ward.assert_eq_string with (calling text.unwrap), "hello pengu"
+
+test "file_text is maybe none for a missing file":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    var text as maybe string is calling file_text with "/tmp/raylibx_files_{(seed to string)}.absent"
+    calling ward.assert_maybe_none with text
+
+test "save_file_text overwrites previous content":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    defer calling remove_file with path
+    calling save_file_text with path, "first"
+    calling save_file_text with path, "second"
+    var text as maybe string is calling file_text with path
+    calling ward.assert_eq_string with (calling text.unwrap), "second"
+
+test "save_file_bytes and file_bytes round trip":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    defer calling remove_file with blob_path
+    var payload as list of byte is list of byte
+    defer banish payload
+    calling payload.push with 65
+    calling payload.push with 66
+    calling payload.push with 67
+    var saved as bool is calling save_file_bytes with blob_path, (payload at 0 to 3)
+    calling ward.assert_true with saved
+    var raw as maybe (list of byte) is calling file_bytes with blob_path
+    calling ward.assert_maybe_present with raw
+    var got as list of byte is calling raw.unwrap
+    defer banish got
+    calling ward.assert_eq_int with (got.length), 3
+
+test "file_bytes is maybe none for a missing file":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    var raw as maybe (list of byte) is calling file_bytes with "/tmp/raylibx_files_{(seed to string)}.absent"
+    calling ward.assert_maybe_none with raw
+
+test "save_file_bytes writes an empty file that file_bytes reads back":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    defer calling remove_file with blob_path
+    var nothing as list of byte is list of byte
+    defer banish nothing
+    var saved as bool is calling save_file_bytes with blob_path, (nothing at 0 to 0)
+    calling ward.assert_true with saved
+    var raw as maybe (list of byte) is calling file_bytes with blob_path
+    calling ward.assert_maybe_present with raw
+    var got as list of byte is calling raw.unwrap
+    defer banish got
+    calling ward.assert_eq_int with (got.length), 0
+
+test "file_exists is true only for a written file":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    defer calling remove_file with path
+    calling save_file_text with path, "x"
+    calling ward.assert_true with (calling file_exists with path)
+    calling ward.assert_false with (calling file_exists with "/tmp/raylibx_files_{(seed to string)}.absent")
+
+test "directory_exists distinguishes directories":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    calling ward.assert_true with (calling directory_exists with "/tmp")
+    calling ward.assert_false with (calling directory_exists with "/tmp/raylibx_files_{(seed to string)}.absent")
+
+test "is_file_extension matches ignoring case":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    calling ward.assert_true with (calling is_file_extension with "art.PNG", ".png")
+    calling ward.assert_false with (calling is_file_extension with "art.png", ".jpg")
+
+test "is_path_file separates files from directories":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    defer calling remove_file with path
+    calling save_file_text with path, "x"
+    calling ward.assert_true with (calling is_path_file with path)
+    calling ward.assert_false with (calling is_path_file with "/tmp")
+
+test "is_file_name_valid accepts a plain name":
+    calling ward.assert_true with (calling is_file_name_valid with "notes.txt")
+    calling ward.assert_true with (calling is_file_name_valid with "")
+
+test "file_length reports the payload size":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    defer calling remove_file with path
+    calling save_file_text with path, "12345"
+    calling ward.assert_eq_int with (calling file_length with path), 5
+
+test "file_length is zero for a missing file":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    calling ward.assert_eq_int with (calling file_length with "/tmp/raylibx_files_{(seed to string)}.absent"), 0
+
+test "file_mod_time is set for a written file":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    defer calling remove_file with path
+    calling save_file_text with path, "x"
+    calling ward.assert_ne_int with (calling file_mod_time with path), 0
+
+test "file_extension extracts the dot suffix":
+    var ext as string is calling file_extension with "/tmp/sample.txt"
+    calling ward.assert_eq_string with ext, ".txt"
+
+test "file_name extracts the last component":
+    var name as string is calling file_name with "/tmp/sample.txt"
+    calling ward.assert_eq_string with name, "sample.txt"
+
+test "file_name_without_extension strips the suffix":
+    var stem as string is calling file_name_without_extension with "/tmp/sample.txt"
+    calling ward.assert_eq_string with stem, "sample"
+
+test "directory_path extracts the directory":
+    var dir as string is calling directory_path with "/tmp/sample.txt"
+    calling ward.assert_eq_string with dir, "/tmp"
+
+test "working_directory is not empty":
+    var cwd as string is calling working_directory
+    calling ward.assert_string_not_empty with cwd
+
+test "application_directory is not empty":
+    var app as string is calling application_directory
+    calling ward.assert_string_not_empty with app
+
+test "make_directory succeeds on an existing directory":
+    var rc as int is calling make_directory with "/tmp"
+    calling ward.assert_eq_int with rc, 0
+
+test "change_directory reports one on success":
+    var rc as int is calling change_directory with "/tmp"
+    calling ward.assert_eq_int with rc, 1
+    var bad as int is calling change_directory with "/definitely_absent_raylibx_dir"
+    calling ward.assert_eq_int with bad, 0
+
+test "rename_file moves a file":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    defer calling remove_file with path
+    defer calling remove_file with rename_path
+    calling save_file_text with path, "moved"
+    var rc as int is calling rename_file with path, rename_path
+    calling ward.assert_eq_int with rc, 0
+    calling ward.assert_true with (calling file_exists with rename_path)
+
+test "remove_file deletes a file":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    calling save_file_text with path, "gone"
+    var rc as int is calling remove_file with path
+    calling ward.assert_eq_int with rc, 0
+    calling ward.assert_false with (calling file_exists with path)
+
+test "load_directory lists entries as an owned list":
+    var names as list of string is calling load_directory with "/tmp"
+    defer banish names
+    calling ward.assert_gt_int with (names.length), 0
+
+test "load_directory_filtered keeps only matching suffixes":
+    var txts as list of string is calling load_directory_filtered with "/tmp", ".txt", false
+    defer banish txts
+    calling ward.assert_ge_int with (txts.length), 0
+
+test "dropped_files returns a list without a window":
+    var dropped as list of string is calling dropped_files
+    defer banish dropped
+    calling ward.assert_ge_int with (dropped.length), 0
+
+test "crc32 is stable and input sensitive":
+    var data as list of byte is list of byte
+    defer banish data
+    calling data.push with 1
+    calling data.push with 2
+    var first as u32 is calling crc32 with (data at 0 to 2)
+    var second as u32 is calling crc32 with (data at 0 to 2)
+    calling ward.assert_eq_int with (first to int), (second to int)
+    calling ward.assert_ne_int with (first to int), 0
+
+test "crc32 of an empty slice is zero":
+    var empty as list of byte is list of byte
+    defer banish empty
+    calling ward.assert_eq_int with ((calling crc32 with (empty at 0 to 0)) to int), 0
+
+test "md5 returns four words":
+    var data as list of byte is list of byte
+    defer banish data
+    calling data.push with 7
+    var digest as slice of u32 is calling md5 with (data at 0 to 1)
+    calling ward.assert_eq_int with (digest.length), 4
+
+test "sha1 returns five words":
+    var data as list of byte is list of byte
+    defer banish data
+    calling data.push with 7
+    var digest as slice of u32 is calling sha1 with (data at 0 to 1)
+    calling ward.assert_eq_int with (digest.length), 5
+
+test "sha256 returns eight words":
+    var data as list of byte is list of byte
+    defer banish data
+    calling data.push with 7
+    var digest as slice of u32 is calling sha256 with (data at 0 to 1)
+    calling ward.assert_eq_int with (digest.length), 8
+
+test "raylibx_files digests differ from each other":
+    var data as list of byte is list of byte
+    defer banish data
+    calling data.push with 9
+    var m as slice of u32 is calling md5 with (data at 0 to 1)
+    var s as slice of u32 is calling sha1 with (data at 0 to 1)
+    calling ward.assert_ne_int with ((m at 0) to int), ((s at 0) to int)
+
+test "compress and decompress round trip":
+    var data as list of byte is list of byte
+    defer banish data
+    calling data.push with 10
+    calling data.push with 20
+    calling data.push with 30
+    var packed as maybe (list of byte) is calling compress with (data at 0 to 3)
+    calling ward.assert_maybe_present with packed
+    var blob as list of byte is calling packed.unwrap
+    defer banish blob
+    var back as maybe (list of byte) is calling decompress with (blob at 0 to (blob.length))
+    calling ward.assert_maybe_present with back
+    calling ward.assert_eq_int with ((calling back.unwrap).length), 3
+
+test "compress of an empty slice is maybe none":
+    var empty as list of byte is list of byte
+    defer banish empty
+    var packed as maybe (list of byte) is calling compress with (empty at 0 to 0)
+    calling ward.assert_maybe_none with packed
+
+test "encode_base64 and decode_base64 round trip":
+    var data as list of byte is list of byte
+    defer banish data
+    calling data.push with 104
+    calling data.push with 105
+    var b64 as maybe string is calling encode_base64 with (data at 0 to 2)
+    calling ward.assert_maybe_present with b64
+    var text as string is calling b64.unwrap
+    defer banish text
+    calling ward.assert_string_not_empty with text
+    var back as maybe (list of byte) is calling decode_base64 with text
+    calling ward.assert_maybe_present with back
+    var got as list of byte is calling back.unwrap
+    defer banish got
+    calling ward.assert_eq_int with (got.length), 2
+
+test "text_lines splits into lines":
+    var lines as maybe (list of string) is calling text_lines with "one\ntwo"
+    calling ward.assert_maybe_present with lines
+    var got as list of string is calling lines.unwrap
+    defer banish got
+    calling ward.assert_eq_int with (got.length), 2
+
+test "text_from_codepoints encodes back to text":
+    var points as list of int is list of int
+    defer banish points
+    calling points.push with 104
+    calling points.push with 105
+    var text as maybe string is calling text_from_codepoints with (points at 0 to 2)
+    calling ward.assert_maybe_present with text
+    calling ward.assert_eq_string with (calling text.unwrap), "hi"
+
+test "export_bytes_as_code writes a source file":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var path as string is "/tmp/raylibx_files_{(seed to string)}.txt"
+    var blob_path as string is "/tmp/raylibx_files_{(seed to string)}.bin"
+    var rename_path as string is "/tmp/raylibx_files_{(seed to string)}_renamed.txt"
+    var code_path as string is "/tmp/raylibx_files_{(seed to string)}.c"
+    defer calling remove_file with code_path
+    var data as list of byte is list of byte
+    defer banish data
+    calling data.push with 1
+    calling data.push with 2
+    calling data.push with 3
+    calling data.push with 4
+    var ok as bool is calling export_bytes_as_code with (data at 0 to 4), code_path
+    calling ward.assert_true with ok
+    calling ward.assert_true with (calling file_exists with code_path)

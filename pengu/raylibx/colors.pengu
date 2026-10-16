@@ -1,0 +1,670 @@
+## raylibx/colors.pengu
+## Layer-2 wrapper over the colour surface of the `raylib` binding.
+##
+## The binding exposes fourteen free functions over `Color`. This wrapper turns the value
+## transforms into methods on `raylib.Color` and the constructors into `ritual`s, so a
+## colour computation reads as the operation instead of as a call into the binding:
+##
+##     calling raylib.ColorAlpha with (sigil of c), 0.5      # binding
+##     calling c.with_alpha with 0.5                          # wrapper
+##
+## The family is `colors` of `docs/plans/raylibx.md`; see `docs/plans/raylibx_colors.md`.
+##
+## `SetPixelColor` and `GetPixelColor` are deliberately **not** wrapped: both operate on a
+## raw `void*` into foreign memory tagged with a `PixelFormat`, and a wrapper cannot make
+## that safer (see the family plan, D7).
+##
+## ## Memory
+## No allocation, no ownership, nothing to release. Every entry is arithmetic over four
+## bytes. There is no `banish`, no `std.ffi` and no `transmute` anywhere in this module:
+## `from_int` masks each byte and uses the checked `to byte` cast.
+##
+## ## Ranges
+## The C functions do **not** clamp their float parameters. `with_alpha` and `from_hsv`
+## expect `[0..1]` (hue `[0..360]`), `brighten_by` and `contrast_with` expect `[-1..1]`.
+## Out-of-range values are passed through to raylib unchanged, exactly as in C.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raylibx_colors
+##
+## weave main into int:
+##     var c as raylib.Color is calling Color.from_hex with 0xFF0000FF
+##     var soft as raylib.Color is calling c.with_alpha with 0.5
+##     var packed as int is calling c.to_int
+##     return 0
+## ```
+
+
+import raylib
+import std.ward
+
+enchanting raylib.Color:
+
+    ## Builds a colour from a packed hexadecimal value.
+    ##
+    ## ## Parameters
+    ## - `hex`: the packed value as `0xRRGGBBAA`. `0xFF0000FF` is opaque red and `0x00000000` is fully transparent black.
+    ##
+    ## ## Returns
+    ## A new `raylib.Color`.
+    ##
+    ## ## Notes
+    ## This is the reading counterpart of `to_int`, and it takes the same `0xRRGGBBAA` layout.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var red as raylib.Color is calling Color.from_hex with 0xFF0000FF
+    ## ```
+
+    weave ritual from_hex with hex as u32 into raylib.Color:
+        return calling raylib.GetColor with hex
+
+    ## Builds a colour from the packed integer that `to_int` produces.
+    ##
+    ## ## Parameters
+    ## - `packed`: the packed value as `0xRRGGBBAA`, laid out in the high-to-low byte order `r`, `g`, `b`, `a`. Values are masked to their low 32 bits, so negative input is accepted.
+    ##
+    ## ## Returns
+    ## A new `raylib.Color`.
+    ##
+    ## ## Notes
+    ## This constructor is wrapper-only: raylib has `ColorToInt` but no `ColorFromInt`. It exists so a packed colour can make the round trip, and it uses the same layout that `ColorToInt` documents (`include/raylib.h:1489`).
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var back as raylib.Color is calling Color.from_int with packed
+    ## ```
+
+    weave ritual from_int with packed as int into raylib.Color:
+        return with r is (((packed >> 24) & 0xFF) to byte), g is (((packed >> 16) & 0xFF) to byte), b is (((packed >> 8) & 0xFF) to byte), a is ((packed & 0xFF) to byte)
+
+    ## Builds a colour from hue, saturation and value.
+    ##
+    ## ## Parameters
+    ## - `hue`: `[0..360]`, where `0` is red.
+    ## - `saturation`: `[0..1]`, where `0` is a grey.
+    ## - `value`: `[0..1]`, where `0` is black.
+    ##
+    ## ## Returns
+    ## A new opaque `raylib.Color` (`a` is `255`).
+    ##
+    ## ## Notes
+    ## The result is always opaque; use `with_alpha` afterwards if a different alpha is wanted. No parameter is clamped.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var red as raylib.Color is calling Color.from_hsv with 0.0, 1.0, 1.0
+    ## ```
+
+    weave ritual from_hsv with hue as f32, saturation as f32, value as f32 into raylib.Color:
+        return calling raylib.ColorFromHSV with hue, saturation, value
+
+    ## Builds a colour from a vector of components in `[0, 1]`.
+    ##
+    ## ## Parameters
+    ## - `v`: the red, green, blue and alpha components, each in `[0..1]`. Components are scaled by `255` and truncated to a byte.
+    ##
+    ## ## Returns
+    ## A new `raylib.Color`.
+    ##
+    ## ## Notes
+    ## This is the reading counterpart of `to_normalized`. Because the scaling truncates, `0.5` becomes `127`, not `128`.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var half as raylib.Color is calling Color.from_normalized with (with x is 0.5, y is 0.5, z is 0.5, w is 1.0)
+    ## ```
+
+    weave ritual from_normalized with v as raylib.Vector4 into raylib.Color:
+        return calling raylib.ColorFromNormalized with v
+
+    ## Reports whether two colours are byte-for-byte equal.
+    ##
+    ## ## Parameters
+    ## - `other`: the colour to compare against.
+    ##
+    ## ## Returns
+    ## `true` when all four bytes match, `false` otherwise.
+    ##
+    ## ## Notes
+    ## The comparison is **exact**: unlike the `raymath` `Equals` family there is no epsilon, because a colour is four discrete bytes. Two colours that differ only in alpha are not equal.
+    ## The free function `is_equal` does the same thing for callers without a privileged receiver.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var same as bool is calling c.is_equal with other
+    ## ```
+
+    weave is_equal with other as raylib.Color into bool:
+        return calling raylib.ColorIsEqual with (essence of self), other
+
+    ## Packs the colour into a single integer.
+    ##
+    ## ## Returns
+    ## The packed value as `0xRRGGBBAA`.
+    ##
+    ## ## Notes
+    ## `Color.from_int` reads this layout back. The value is returned as an `int` exactly as the binding declares it.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var packed as int is calling c.to_int
+    ## ```
+
+    weave to_int into int:
+        return calling raylib.ColorToInt with (essence of self)
+
+    ## Expresses the colour as four components in `[0, 1]`.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector4` with `x` red, `y` green, `z` blue and `w` alpha, each divided by `255`.
+    ##
+    ## ## Notes
+    ## `Color.from_normalized` reads this back; the division is exact enough that the round trip returns the original bytes.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var unit as raylib.Vector4 is calling c.to_normalized
+    ## ```
+
+    weave to_normalized into raylib.Vector4:
+        return calling raylib.ColorNormalize with (essence of self)
+
+    ## Converts the colour to hue, saturation and value.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector3` where `x` is hue `[0..360]`, `y` is saturation `[0..1]` and `z` is value `[0..1]`.
+    ##
+    ## ## Notes
+    ## `Color.from_hsv` reads this back. The conversion is lossy for very dark or very light colours, so a round trip is only asserted within byte quantisation.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var hsv as raylib.Vector3 is calling c.to_hsv
+    ## ```
+
+    weave to_hsv into raylib.Vector3:
+        return calling raylib.ColorToHSV with (essence of self)
+
+    ## Returns the same colour with a different alpha.
+    ##
+    ## ## Parameters
+    ## - `alpha`: `[0..1]`, where `0` is transparent and `1` is opaque. Not clamped.
+    ##
+    ## ## Returns
+    ## A new `raylib.Color` with the same red, green and blue bytes.
+    ##
+    ## ## Notes
+    ## The transform scales the existing alpha rather than replacing it: `ColorAlpha` multiplies by the new value, so fading an already translucent colour fades it further.
+    ## The free function `fade` is raylib's own name for this operation.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var soft as raylib.Color is calling c.with_alpha with 0.5
+    ## ```
+
+    weave with_alpha with alpha as f32 into raylib.Color:
+        return calling raylib.ColorAlpha with (essence of self), alpha
+
+    ## Multiplies the colour by another colour, component by component.
+    ##
+    ## ## Parameters
+    ## - `other`: the tint; each of its channels is applied to the matching channel of the receiver.
+    ##
+    ## ## Returns
+    ## A new `raylib.Color`.
+    ##
+    ## ## Notes
+    ## Tinting with `raylib.WHITE` leaves the colour unchanged and tinting with `raylib.BLACK` produces black. Tinting a colour with itself darkens it: `(32, 64, 96)` becomes `(4, 16, 36)`.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var shaded as raylib.Color is calling c.tint_with with raylib.RAYWHITE
+    ## ```
+
+    weave tint_with with other as raylib.Color into raylib.Color:
+        return calling raylib.ColorTint with (essence of self), other
+
+    ## Lightens or darkens the colour by a relative factor.
+    ##
+    ## ## Parameters
+    ## - `factor`: `[-1..1]`. `0.0` leaves the colour unchanged, `1.0` drives it to white and `-1.0` to black. Not clamped.
+    ##
+    ## ## Returns
+    ## A new `raylib.Color`.
+    ##
+    ## ## Notes
+    ## Unlike `contrast_with`, a factor of `0.0` here is an exact identity.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var lighter as raylib.Color is calling c.brighten_by with 0.25
+    ## ```
+
+    weave brighten_by with factor as f32 into raylib.Color:
+        return calling raylib.ColorBrightness with (essence of self), factor
+
+    ## Pushes the colour away from mid-grey, or towards it.
+    ##
+    ## ## Parameters
+    ## - `factor`: `[-1..1]`. A positive value increases contrast, a negative value flattens the colour towards mid-grey. Not clamped.
+    ##
+    ## ## Returns
+    ## A new `raylib.Color`.
+    ##
+    ## ## Notes
+    ## **A factor of `0.0` is not an exact identity.** The C routine recomputes `(channel/255 - 0.5) * (1 + factor) + 0.5` and truncates to a byte, so `(32, 64, 96)` comes back as `(31, 64, 96)`. Measured in C; do not use `contrast_with with 0.0` as a no-op.
+    ## `factor == -1.0` collapses any colour to mid-grey `(127, 127, 127)`.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var punchy as raylib.Color is calling c.contrast_with with 0.5
+    ## ```
+
+    weave contrast_with with factor as f32 into raylib.Color:
+        return calling raylib.ColorContrast with (essence of self), factor
+
+    ## Alpha-blends this colour as the source over a destination colour.
+    ##
+    ## ## Parameters
+    ## - `other`: the **destination** colour that the receiver is drawn onto.
+    ## - `tint`: a colour multiplied into the source before blending; `raylib.WHITE` leaves it alone.
+    ##
+    ## ## Returns
+    ## The blended `raylib.Color`.
+    ##
+    ## ## Notes
+    ## The receiver is the **source**, so `front.blend_over with back, tint` reads as *draw `front` over `back`*. The C function takes the destination first, so the argument order is reversed on purpose.
+    ## A fully transparent source leaves the destination untouched; a fully opaque source replaces it.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var mixed as raylib.Color is calling front.blend_over with back, raylib.RAYWHITE
+    ## ```
+
+    weave blend_over with other as raylib.Color, tint as raylib.Color into raylib.Color:
+        return calling raylib.ColorAlphaBlend with other, (essence of self), tint
+
+    ## Interpolates between this colour and another.
+    ##
+    ## ## Parameters
+    ## - `other`: the colour to interpolate towards.
+    ## - `t`: `[0..1]`, where `0.0` is the receiver and `1.0` is `other`. Not clamped.
+    ##
+    ## ## Returns
+    ## The interpolated `raylib.Color`. The alpha channel is interpolated too.
+    ##
+    ## ## Notes
+    ## Naming follows `raymathx` (`Vector2.lerp_to`): the method name says which endpoint is the receiver.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var mid as raylib.Color is calling c.lerp_to with raylib.BLACK, 0.5
+    ## ```
+
+    weave lerp_to with other as raylib.Color, t as f32 into raylib.Color:
+        return calling raylib.ColorLerp with (essence of self), other, t
+
+## Reports whether two colours are byte-for-byte equal.
+##
+## ## Parameters
+## - `a`: the first colour.
+## - `b`: the second colour.
+##
+## ## Returns
+## `true` when all four bytes match, `false` otherwise.
+##
+## ## Notes
+## The method `Color.is_equal` is the same operation when one colour is the natural receiver. Equality is symmetric, so both forms are offered.
+##
+## ## Memory
+## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+##
+## ## Example
+## ```pengu
+## var same as bool is calling raylibx_colors.is_equal with a, b
+## ```
+
+weave is_equal with a as raylib.Color, b as raylib.Color into bool:
+    return calling raylib.ColorIsEqual with a, b
+
+## Returns a colour with alpha applied.
+##
+## ## Parameters
+## - `color`: the colour to fade.
+## - `alpha`: `[0..1]`. Not clamped.
+##
+## ## Returns
+## A new `raylib.Color`.
+##
+## ## Notes
+## This is raylib's own name for what `Color.with_alpha` does; the binding calls it `Fade` and the wrapper keeps that spelling available.
+##
+## ## Memory
+## No allocation; a single direct C call, or (for `from_int`) a masked, checked `to byte`.
+##
+## ## Example
+## ```pengu
+## var soft as raylib.Color is calling raylibx_colors.fade with c, 0.5
+## ```
+
+weave fade with color as raylib.Color, alpha as f32 into raylib.Color:
+    return calling raylib.Fade with color, alpha
+
+# --- Tests ---
+
+test "Color.from_hex reads 0xRRGGBBAA":
+    var c as raylib.Color is calling Color.from_hex with 0xFF0000FF
+    calling ward.assert_eq_int with (c.r to int), 255
+    calling ward.assert_eq_int with (c.g to int), 0
+    calling ward.assert_eq_int with (c.b to int), 0
+    calling ward.assert_eq_int with (c.a to int), 255
+
+test "Color.from_hex keeps every byte":
+    var c as raylib.Color is calling Color.from_hex with 0x11223344
+    calling ward.assert_eq_int with (c.r to int), 17
+    calling ward.assert_eq_int with (c.g to int), 34
+    calling ward.assert_eq_int with (c.b to int), 51
+    calling ward.assert_eq_int with (c.a to int), 68
+
+test "Color.from_hex zero is transparent black":
+    var c as raylib.Color is calling Color.from_hex with 0x00000000
+    calling ward.assert_eq_int with (c.r to int), 0
+    calling ward.assert_eq_int with (c.a to int), 0
+
+test "Color.from_int inverts to_int":
+    var c as raylib.Color is calling Color.from_hex with 0x11223344
+    var back as raylib.Color is calling Color.from_int with (calling c.to_int)
+    calling ward.assert_eq_int with (back.r to int), 17
+    calling ward.assert_eq_int with (back.g to int), 34
+    calling ward.assert_eq_int with (back.b to int), 51
+    calling ward.assert_eq_int with (back.a to int), 68
+
+test "Color.from_int reads the documented byte order":
+    var c as raylib.Color is calling Color.from_int with 0xFF0000FF
+    calling ward.assert_eq_int with (c.r to int), 255
+    calling ward.assert_eq_int with (c.g to int), 0
+    calling ward.assert_eq_int with (c.a to int), 255
+
+test "Color.from_int zero is transparent black":
+    var c as raylib.Color is calling Color.from_int with 0
+    calling ward.assert_eq_int with (c.r to int), 0
+    calling ward.assert_eq_int with (c.a to int), 0
+
+test "Color.from_hsv hue zero is red":
+    var c as raylib.Color is calling Color.from_hsv with 0.0, 1.0, 1.0
+    calling ward.assert_eq_int with (c.r to int), 255
+    calling ward.assert_eq_int with (c.g to int), 0
+    calling ward.assert_eq_int with (c.a to int), 255
+
+test "Color.from_hsv zero saturation is grey":
+    var c as raylib.Color is calling Color.from_hsv with 0.0, 0.0, 1.0
+    calling ward.assert_eq_int with (c.r to int), 255
+    calling ward.assert_eq_int with (c.g to int), 255
+    calling ward.assert_eq_int with (c.b to int), 255
+
+test "Color.from_hsv zero value is black":
+    var c as raylib.Color is calling Color.from_hsv with 0.0, 0.0, 0.0
+    calling ward.assert_eq_int with (c.r to int), 0
+    calling ward.assert_eq_int with (c.g to int), 0
+    calling ward.assert_eq_int with (c.b to int), 0
+    calling ward.assert_eq_int with (c.a to int), 255
+
+test "Color.from_normalized one is white":
+    var c as raylib.Color is calling Color.from_normalized with (with x is 1.0, y is 1.0, z is 1.0, w is 1.0)
+    calling ward.assert_eq_int with (c.r to int), 255
+    calling ward.assert_eq_int with (c.g to int), 255
+    calling ward.assert_eq_int with (c.b to int), 255
+    calling ward.assert_eq_int with (c.a to int), 255
+
+test "Color.from_normalized zero is transparent black":
+    var c as raylib.Color is calling Color.from_normalized with (with x is 0.0, y is 0.0, z is 0.0, w is 0.0)
+    calling ward.assert_eq_int with (c.r to int), 0
+    calling ward.assert_eq_int with (c.a to int), 0
+
+test "Color.from_normalized truncates half to 127":
+    var c as raylib.Color is calling Color.from_normalized with (with x is 0.5, y is 0.5, z is 0.5, w is 1.0)
+    calling ward.assert_eq_int with (c.r to int), 127
+    calling ward.assert_eq_int with (c.a to int), 255
+
+test "Color.is_equal is true for a colour and itself":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    calling ward.assert_true with (calling c.is_equal with c)
+
+test "Color.is_equal distinguishes alpha":
+    var a as raylib.Color is calling Color.from_hex with 0xFF0000FF
+    var b as raylib.Color is calling Color.from_hex with 0xFF000080
+    calling ward.assert_false with (calling a.is_equal with b)
+
+test "Color.is_equal detects a one byte difference":
+    var a as raylib.Color is calling Color.from_hex with 0x204060FF
+    var b as raylib.Color is calling Color.from_hex with 0x204061FF
+    calling ward.assert_false with (calling a.is_equal with b)
+
+test "Color.to_int packs red":
+    var c as raylib.Color is calling Color.from_hex with 0xFF0000FF
+    calling ward.assert_eq_int with (calling c.to_int), 0xFF0000FF
+
+test "Color.to_int packs opaque and transparent black":
+    var opaque as raylib.Color is calling Color.from_hex with 0x000000FF
+    var clear as raylib.Color is calling Color.from_hex with 0x00000000
+    calling ward.assert_eq_int with (calling opaque.to_int), 0x000000FF
+    calling ward.assert_eq_int with (calling clear.to_int), 0
+
+test "Color.to_int keeps every byte":
+    var c as raylib.Color is calling Color.from_hex with 0x11223344
+    calling ward.assert_eq_int with (calling c.to_int), 0x11223344
+
+test "Color.to_normalized of white is one":
+    var c as raylib.Color is calling Color.from_hex with 0xFFFFFFFF
+    var v as raylib.Vector4 is calling c.to_normalized
+    calling ward.assert_almost_eq with v.x, 1.0, 0.001
+    calling ward.assert_almost_eq with v.w, 1.0, 0.001
+
+test "Color.to_normalized of black keeps alpha one":
+    var c as raylib.Color is calling Color.from_hex with 0x000000FF
+    var v as raylib.Vector4 is calling c.to_normalized
+    calling ward.assert_almost_eq with v.x, 0.0, 0.001
+    calling ward.assert_almost_eq with v.w, 1.0, 0.001
+
+test "Color.to_normalized stays inside the unit range":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var v as raylib.Vector4 is calling c.to_normalized
+    calling ward.assert_in_range_float with v.x, 0.0, 1.0
+    calling ward.assert_in_range_float with v.w, 0.0, 1.0
+
+test "Color.to_hsv of red is hue zero value one":
+    var c as raylib.Color is calling Color.from_hex with 0xFF0000FF
+    var hsv as raylib.Vector3 is calling c.to_hsv
+    calling ward.assert_almost_eq with hsv.x, 0.0, 0.001
+    calling ward.assert_almost_eq with hsv.z, 1.0, 0.001
+
+test "Color.to_hsv of grey has zero saturation":
+    var c as raylib.Color is calling Color.from_hex with 0x808080FF
+    var hsv as raylib.Vector3 is calling c.to_hsv
+    calling ward.assert_almost_eq with hsv.y, 0.0, 0.001
+
+test "Color.to_hsv round trips through from_hsv":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var hsv as raylib.Vector3 is calling c.to_hsv
+    calling ward.assert_almost_eq with hsv.x, 210.0, 0.01
+    var back as raylib.Color is calling Color.from_hsv with hsv.x, hsv.y, hsv.z
+    calling ward.assert_true with (calling c.is_equal with back)
+
+test "Color.with_alpha zero clears alpha":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var soft as raylib.Color is calling c.with_alpha with 0.0
+    calling ward.assert_eq_int with (soft.r to int), 32
+    calling ward.assert_eq_int with (soft.a to int), 0
+
+test "Color.with_alpha one keeps alpha":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var solid as raylib.Color is calling c.with_alpha with 1.0
+    calling ward.assert_eq_int with (solid.a to int), 255
+
+test "Color.with_alpha leaves the colour bytes alone":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var soft as raylib.Color is calling c.with_alpha with 0.5
+    calling ward.assert_eq_int with (soft.r to int), 32
+    calling ward.assert_eq_int with (soft.g to int), 64
+    calling ward.assert_eq_int with (soft.b to int), 96
+
+test "Color.tint_with white is the identity":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var same as raylib.Color is calling c.tint_with with raylib.WHITE
+    calling ward.assert_true with (calling c.is_equal with same)
+
+test "Color.tint_with black goes black":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var dark as raylib.Color is calling c.tint_with with raylib.BLACK
+    calling ward.assert_eq_int with (dark.r to int), 0
+    calling ward.assert_eq_int with (dark.a to int), 255
+
+test "Color.tint_with itself darkens":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var twice as raylib.Color is calling c.tint_with with c
+    calling ward.assert_eq_int with (twice.r to int), 4
+    calling ward.assert_eq_int with (twice.g to int), 16
+    calling ward.assert_eq_int with (twice.b to int), 36
+
+test "Color.brighten_by zero is the identity":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var same as raylib.Color is calling c.brighten_by with 0.0
+    calling ward.assert_true with (calling c.is_equal with same)
+
+test "Color.brighten_by one reaches white":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var light as raylib.Color is calling c.brighten_by with 1.0
+    calling ward.assert_eq_int with (light.r to int), 255
+    calling ward.assert_eq_int with (light.g to int), 255
+
+test "Color.brighten_by minus one reaches black":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var dark as raylib.Color is calling c.brighten_by with -1.0
+    calling ward.assert_eq_int with (dark.r to int), 0
+    calling ward.assert_eq_int with (dark.b to int), 0
+
+test "Color.contrast_with zero is not an exact identity":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var rounded as raylib.Color is calling c.contrast_with with 0.0
+    calling ward.assert_eq_int with (rounded.r to int), 31
+    calling ward.assert_eq_int with (rounded.g to int), 64
+    calling ward.assert_eq_int with (rounded.b to int), 96
+
+test "Color.contrast_with minus one collapses to mid grey":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var flat as raylib.Color is calling c.contrast_with with -1.0
+    calling ward.assert_eq_int with (flat.r to int), 127
+    calling ward.assert_eq_int with (flat.g to int), 127
+    calling ward.assert_eq_int with (flat.b to int), 127
+
+test "Color.contrast_with keeps the alpha byte":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var punchy as raylib.Color is calling c.contrast_with with 0.5
+    calling ward.assert_eq_int with (punchy.a to int), 255
+
+test "Color.blend_over draws the receiver over the destination":
+    var back as raylib.Color is calling Color.from_hex with 0x0000FFFF
+    var front as raylib.Color is calling Color.from_hex with 0xFF0000FF
+    var over as raylib.Color is calling front.blend_over with back, raylib.WHITE
+    calling ward.assert_eq_int with (over.r to int), 255
+    calling ward.assert_eq_int with (over.b to int), 0
+
+test "Color.blend_over with a transparent source keeps the destination":
+    var back as raylib.Color is calling Color.from_hex with 0x0000FFFF
+    var clear as raylib.Color is calling Color.from_hex with 0x00000000
+    var over as raylib.Color is calling clear.blend_over with back, raylib.WHITE
+    calling ward.assert_true with (calling back.is_equal with over)
+
+test "Color.blend_over with an opaque source replaces the destination":
+    var back as raylib.Color is calling Color.from_hex with 0x0000FFFF
+    var black as raylib.Color is calling Color.from_hex with 0x000000FF
+    var over as raylib.Color is calling black.blend_over with back, raylib.WHITE
+    calling ward.assert_eq_int with (over.b to int), 0
+    calling ward.assert_eq_int with (over.a to int), 255
+
+test "Color.lerp_to zero is the receiver":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var same as raylib.Color is calling c.lerp_to with raylib.BLACK, 0.0
+    calling ward.assert_true with (calling c.is_equal with same)
+
+test "Color.lerp_to one is the target":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var dark as raylib.Color is raylib.BLACK
+    var end as raylib.Color is calling c.lerp_to with dark, 1.0
+    calling ward.assert_true with (calling dark.is_equal with end)
+
+test "Color.lerp_to half lands between the endpoints":
+    var dark as raylib.Color is calling Color.from_hex with 0x000000FF
+    var mid as raylib.Color is calling dark.lerp_to with raylib.WHITE, 0.5
+    calling ward.assert_eq_int with (mid.r to int), 127
+    calling ward.assert_eq_int with (mid.g to int), 127
+    calling ward.assert_eq_int with (mid.b to int), 127
+
+test "raylibx_colors.is_equal agrees with the method":
+    var a as raylib.Color is calling Color.from_hex with 0x204060FF
+    var b as raylib.Color is calling Color.from_int with (calling a.to_int)
+    calling ward.assert_eq_bool with (calling is_equal with a, b), true
+    calling ward.assert_eq_bool with (calling a.is_equal with b), true
+
+test "raylibx_colors.is_equal is symmetric":
+    var a as raylib.Color is calling Color.from_hex with 0xFF0000FF
+    var b as raylib.Color is calling Color.from_hex with 0x00FF00FF
+    calling ward.assert_eq_bool with (calling is_equal with a, b), false
+    calling ward.assert_eq_bool with (calling is_equal with b, a), false
+
+test "raylibx_colors.fade matches Color.with_alpha":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var via_fn as raylib.Color is calling fade with c, 0.5
+    var via_method as raylib.Color is calling c.with_alpha with 0.5
+    calling ward.assert_true with (calling via_fn.is_equal with via_method)
+
+test "raylibx_colors.fade zero clears alpha":
+    var c as raylib.Color is calling Color.from_hex with 0x204060FF
+    var clear as raylib.Color is calling fade with c, 0.0
+    calling ward.assert_eq_int with (clear.a to int), 0
+    calling ward.assert_eq_int with (clear.r to int), 32

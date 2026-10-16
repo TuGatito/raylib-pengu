@@ -1,0 +1,1586 @@
+## pengu
+## Layer-2 wrapper over the 56 font and text functions of the `raylib` binding.
+##
+## This is the busiest family for the string boundary, and the header does not make the
+## two ownership families obvious, so they were measured (see the family plan D2):
+##
+## - `text_upper`, `text_lower`, `text_pascal`, `text_snake`, `text_camel`, `text_subtext`,
+##   `text_without_spaces`, `text_between`, `text_replace`, `text_replace_between`,
+##   `text_insert`, `text_join`, `split_text` and `codepoint_to_text` return a **static
+##   buffer that the next call to the same function overwrites**. The wrapper copies it into
+##   an owned `string` and frees nothing.
+## - `text_replace_alloc`, `text_replace_between_alloc` and `text_insert_alloc` return a
+##   **fresh allocation**. The wrapper copies it and frees it with `MemFree`.
+##
+## Five methods live on `raylib.Font` (`draw`, `draw_pro`, `draw_codepoint`,
+## `draw_codepoints`, `measure`); everything else is a module-level function.
+##
+## This is family `text` of `raylibx`; see `docs/plans/md`.
+##
+## ## A headless process has no usable font
+## Outside `InitWindow`, `GetFontDefault()` returns a `Font` with `glyphCount == 0` and a
+## null glyph table, and measuring or querying a glyph on it **segfaults** (measured). Only
+## the pure text and codepoint groups are asserted in CI; the font lifecycle, the glyph
+## queries and the drawing entries are type-checked by `draw_api_probe` and not called.
+##
+## ## Memory
+## Nothing is leaked and nothing is freed twice: the three `*_alloc` results and the
+## `GenImageFontAtlas` rectangle array are `MemFree`d inside their wrappers, and
+## `UnloadFontData`/`UnloadCodepoints` are called inside the wrappers that own those
+## buffers. The caller always receives an owned PenguScript value.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raylibx_text
+##
+## weave main into int:
+##     var parts as list of string is calling split_text with "a,b,c", 44
+##     defer banish parts
+##     var joined as string is calling text_join with (parts at 0 to (parts.length)), "-"
+##     var shouty as string is calling text_upper with joined
+##     return parts.length
+## ```
+
+
+import raylib
+import std.ffi
+import std.ward
+
+enchanting raylib.Font:
+
+    ## Draws text at a position using this font.
+    ##
+    ## ## Parameters
+    ## - `text`: the text to draw.
+    ## - `position`: the anchor point.
+    ## - `font_size`: the font size in pixels.
+    ## - `spacing`: the extra spacing between characters.
+    ## - `tint`: the text colour.
+    ##
+    ## ## Returns
+    ## Nothing; the text is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ## The font's `baseSize` is the size the glyphs were rasterised at; drawing at a different `font_size` scales the texture and may look soft.
+    ##
+    ## ## Memory
+    ## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling font.draw with "hello", (with x is 10.0, y is 10.0), 20.0, 1.0, raylib.RAYWHITE
+    ## ```
+
+    weave draw with text as string, position as raylib.Vector2, font_size as f32, spacing as f32, tint as raylib.Color into void:
+        let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+        calling raylib.DrawTextEx with (essence of self), c_text, position, font_size, spacing, tint
+
+    ## Draws text with a rotation around an origin.
+    ##
+    ## ## Parameters
+    ## - `text`: the text to draw.
+    ## - `position`: the anchor point.
+    ## - `origin`: the rotation pivot, relative to `position`.
+    ## - `rotation`: the rotation in degrees.
+    ## - `font_size`: the font size in pixels.
+    ## - `spacing`: the extra spacing between characters.
+    ## - `tint`: the text colour.
+    ##
+    ## ## Returns
+    ## Nothing; the text is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling font.draw_pro with "hello", pos, (with x is 0.0, y is 0.0), 45.0, 20.0, 1.0, raylib.RAYWHITE
+    ## ```
+
+    weave draw_pro with text as string, position as raylib.Vector2, origin as raylib.Vector2, rotation as f32, font_size as f32, spacing as f32, tint as raylib.Color into void:
+        let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+        calling raylib.DrawTextPro with (essence of self), c_text, position, origin, rotation, font_size, spacing, tint
+
+    ## Draws a single character by its codepoint.
+    ##
+    ## ## Parameters
+    ## - `codepoint`: the unicode codepoint to draw.
+    ## - `position`: the anchor point.
+    ## - `font_size`: the font size in pixels.
+    ## - `tint`: the character colour.
+    ##
+    ## ## Returns
+    ## Nothing; the character is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ##
+    ## ## Memory
+    ## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling font.draw_codepoint with 65, pos, 20.0, raylib.RAYWHITE
+    ## ```
+
+    weave draw_codepoint with codepoint as int, position as raylib.Vector2, font_size as f32, tint as raylib.Color into void:
+        calling raylib.DrawTextCodepoint with (essence of self), codepoint, position, font_size, tint
+
+    ## Draws a run of characters given as codepoints.
+    ##
+    ## ## Parameters
+    ## - `codepoints`: the codepoints to draw, in order.
+    ## - `position`: the anchor point.
+    ## - `font_size`: the font size in pixels.
+    ## - `spacing`: the extra spacing between characters.
+    ## - `tint`: the text colour.
+    ##
+    ## ## Returns
+    ## Nothing; the run is drawn into the current frame.
+    ##
+    ## ## Notes
+    ## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+    ## An empty `codepoints` slice draws nothing and is not an error.
+    ##
+    ## ## Memory
+    ## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling font.draw_codepoints with (points at 0 to 3), pos, 20.0, 1.0, raylib.RAYWHITE
+    ## ```
+
+    weave draw_codepoints with codepoints as slice of int, position as raylib.Vector2, font_size as f32, spacing as f32, tint as raylib.Color into void:
+        if (codepoints.length) == 0:
+            return
+        let raw as ref to void is transmute (sigil of (codepoints at 0)) to (ref to void)
+        calling raylib.DrawTextCodepoints with (essence of self), raw, (codepoints.length), position, font_size, spacing, tint
+
+    ## Measures the size the text would occupy in this font.
+    ##
+    ## ## Parameters
+    ## - `text`: the text to measure.
+    ## - `font_size`: the font size in pixels.
+    ## - `spacing`: the extra spacing between characters.
+    ##
+    ## ## Returns
+    ## A `raylib.Vector2` with the width and height in pixels.
+    ##
+    ## ## Notes
+    ## **A headless process cannot call this**: it walks the font's glyph table, which is null before `InitWindow` (the family plan D16). With a real font loaded it is pure arithmetic and needs no drawing frame.
+    ##
+    ## ## Memory
+    ## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var size as raylib.Vector2 is calling font.measure with "hello", 20.0, 1.0
+    ## ```
+
+    weave measure with text as string, font_size as f32, spacing as f32 into raylib.Vector2:
+        let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+        return calling raylib.MeasureTextEx with (essence of self), c_text, font_size, spacing
+
+## Returns raylib's built-in default font.
+##
+## ## Returns
+## The default `raylib.Font`.
+##
+## ## Notes
+## **Outside `InitWindow` this font is unusable**: raylib has not loaded its glyph table yet, so `glyphCount` is `0` and measuring or querying a glyph on it crashes (measured). It is safe to *obtain*, not to *use*, without a window.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var font as raylib.Font is calling default_font
+## ```
+
+weave default_font into raylib.Font:
+    return calling raylib.GetFontDefault
+
+## Loads a font from a file.
+##
+## ## Parameters
+## - `path`: the font file (`.ttf`/`.otf`, or a raylib `.fnt`).
+##
+## ## Returns
+## `some` with a valid font, or `maybe none` when raylib could not load it.
+##
+## ## Notes
+## The font is an external resource: release it with `unload_font` when done.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var font as maybe raylib.Font is calling load_font with "arial.ttf"
+## ```
+
+weave load_font with path as string into maybe raylib.Font:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    var font as raylib.Font is calling raylib.LoadFont with c_path
+    if calling raylib.IsFontValid with font:
+        return some font
+    return maybe none
+
+## Loads a font at a given size with an explicit codepoint set.
+##
+## ## Parameters
+## - `path`: the font file.
+## - `font_size`: the rasterisation size in pixels.
+## - `codepoints`: the codepoints to bake, or an empty slice for raylib's default set.
+##
+## ## Returns
+## `some` with a valid font, or `maybe none`.
+##
+## ## Notes
+## An empty `codepoints` slice passes a null pointer, which is raylib's "use the default 95 ASCII characters" signal.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var font as maybe raylib.Font is calling load_font_ex with "arial.ttf", 32, (points at 0 to 0)
+## ```
+
+weave load_font_ex with path as string, font_size as int, codepoints as slice of int into maybe raylib.Font:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    var raw as ref to void is calling ffi.null_void
+    if (codepoints.length) > 0:
+        let raw as ref to void is transmute (sigil of (codepoints at 0)) to (ref to void)
+    var font as raylib.Font is calling raylib.LoadFontEx with c_path, font_size, transmute raw to ref to frozen int, (codepoints.length)
+    if calling raylib.IsFontValid with font:
+        return some font
+    return maybe none
+
+## Builds a font from an image whose glyphs are separated by a key colour.
+##
+## ## Parameters
+## - `image`: the source image, laid out as a grid of glyphs.
+## - `key`: the background colour to treat as transparent.
+## - `first_char`: the codepoint of the first glyph in the image.
+##
+## ## Returns
+## `some` with a valid font, or `maybe none`.
+##
+## ## Notes
+## The image is only read, not consumed: it stays the caller's to unload.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var font as maybe raylib.Font is calling load_font_from_image with img, raylib.MAGENTA, 32
+## ```
+
+weave load_font_from_image with image as raylib.Image, key as raylib.Color, first_char as int into maybe raylib.Font:
+    var font as raylib.Font is calling raylib.LoadFontFromImage with image, key, first_char
+    if calling raylib.IsFontValid with font:
+        return some font
+    return maybe none
+
+## Loads a font from a byte buffer already in memory.
+##
+## ## Parameters
+## - `file_type`: the file extension raylib should parse, for example `".ttf"`.
+## - `data`: the font file contents.
+## - `font_size`: the rasterisation size in pixels.
+## - `codepoints`: the codepoints to bake, or an empty slice for the default set.
+##
+## ## Returns
+## `some` with a valid font, or `maybe none` when `data` is empty or raylib fails.
+##
+## ## Notes
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var font as maybe raylib.Font is calling load_font_from_memory with ".ttf", blob, 32, (points at 0 to 0)
+## ```
+
+weave load_font_from_memory with file_type as string, data as slice of byte, font_size as int, codepoints as slice of int into maybe raylib.Font:
+    let c_type as ref to frozen char is calling ffi.cstr_from_string with file_type
+    if (data.length) == 0:
+        return maybe none
+    let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
+    var cps as ref to void is calling ffi.null_void
+    if (codepoints.length) > 0:
+        let cps as ref to void is transmute (sigil of (codepoints at 0)) to (ref to void)
+    var font as raylib.Font is calling raylib.LoadFontFromMemory with c_type, raw, (data.length), font_size, transmute cps to ref to frozen int, (codepoints.length)
+    if calling raylib.IsFontValid with font:
+        return some font
+    return maybe none
+
+## Reports whether a font holds a usable glyph table.
+##
+## ## Parameters
+## - `font`: the font to check.
+##
+## ## Returns
+## `true` when raylib considers the font loaded.
+##
+## ## Notes
+## This is the predicate behind every `load_font*` `maybe` in this family.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var ok as bool is calling is_font_valid with font
+## ```
+
+weave is_font_valid with font as raylib.Font into bool:
+    return calling raylib.IsFontValid with font
+
+## Releases a font loaded from a file or from memory.
+##
+## ## Parameters
+## - `font`: the font to release.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## Do **not** call this on `default_font`: that one belongs to raylib.
+## After unloading, the `Font` value must not be used again.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## calling unload_font with font
+## ```
+
+weave unload_font with font as raylib.Font into void:
+    calling raylib.UnloadFont with font
+
+## Writes a font as a C source file.
+##
+## ## Parameters
+## - `font`: the font to export.
+## - `path`: the `.c`/`.h` destination.
+##
+## ## Returns
+## `true` when raylib reports success, `false` otherwise.
+##
+## ## Notes
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var ok as bool is calling export_font_as_code with font, "font.c"
+## ```
+
+weave export_font_as_code with font as raylib.Font, path as string into bool:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling raylib.ExportFontAsCode with font, c_path
+
+## Returns the index of a codepoint inside a font's glyph table.
+##
+## ## Parameters
+## - `font`: the font to query.
+## - `codepoint`: the unicode codepoint.
+##
+## ## Returns
+## The glyph index, falling back to the index of `'?'` when the codepoint is missing.
+##
+## ## Notes
+## **Window-bound**: it walks the glyph table, which is null before `InitWindow` (measured: it segfaults).
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var idx as int is calling font_glyph_index with font, 65
+## ```
+
+weave font_glyph_index with font as raylib.Font, codepoint as int into int:
+    return calling raylib.GetGlyphIndex with font, codepoint
+
+## Returns the glyph record for a codepoint.
+##
+## ## Parameters
+## - `font`: the font to query.
+## - `codepoint`: the unicode codepoint.
+##
+## ## Returns
+## A `raylib.GlyphInfo`; missing codepoints fall back to `'?'`.
+##
+## ## Notes
+## **Window-bound**, same reason as `font_glyph_index`.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var info as raylib.GlyphInfo is calling font_glyph_info with font, 65
+## ```
+
+weave font_glyph_info with font as raylib.Font, codepoint as int into raylib.GlyphInfo:
+    return calling raylib.GetGlyphInfo with font, codepoint
+
+## Returns the atlas rectangle a glyph occupies.
+##
+## ## Parameters
+## - `font`: the font to query.
+## - `codepoint`: the unicode codepoint.
+##
+## ## Returns
+## The glyph's `raylib.Rectangle` inside the font atlas texture.
+##
+## ## Notes
+## **Window-bound**, same reason as `font_glyph_index`.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var rec as raylib.Rectangle is calling font_glyph_atlas_rec with font, 65
+## ```
+
+weave font_glyph_atlas_rec with font as raylib.Font, codepoint as int into raylib.Rectangle:
+    return calling raylib.GetGlyphAtlasRec with font, codepoint
+
+## Decodes the glyph data of a font file held in memory.
+##
+## ## Parameters
+## - `data`: the font file contents.
+## - `font_size`: the rasterisation size in pixels.
+## - `codepoints`: the codepoints to decode, or an empty slice for the default set.
+## - `kind`: the data type to request; `0` is the default 8-bit antialiased format.
+##
+## ## Returns
+## An owned list of `raylib.GlyphInfo`; empty when `data` is empty or raylib fails.
+##
+## ## Notes
+## This is the low-level step behind `load_font_ex`. The raylib buffer is released with `UnloadFontData` inside the wrapper, so the returned list is entirely PenguScript-owned.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var glyphs as list of raylib.GlyphInfo is calling load_font_data with blob, 32, (points at 0 to 0), 0
+## ```
+
+weave load_font_data with data as slice of byte, font_size as int, codepoints as slice of int, kind as int into list of raylib.GlyphInfo:
+    if (data.length) == 0:
+        return list of raylib.GlyphInfo
+    let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
+    var cps as ref to void is calling ffi.null_void
+    if (codepoints.length) > 0:
+        let cps as ref to void is transmute (sigil of (codepoints at 0)) to (ref to void)
+    var n as int is 0
+    var glyphs as ref to raylib.GlyphInfo is calling raylib.LoadFontData with raw, (data.length), font_size, transmute cps to ref to frozen int, (codepoints.length), kind, sigil of n
+    if calling ffi.is_null with (transmute glyphs to ref to void):
+        return list of raylib.GlyphInfo
+    let as_void as ref to void is transmute glyphs to ref to void
+    var owned as list of raylib.GlyphInfo is calling ffi.list_from_ptr of raylib.GlyphInfo with as_void, n
+    calling raylib.UnloadFontData with glyphs, n
+    return owned
+
+## Packs glyphs into a font atlas image.
+##
+## ## Parameters
+## - `glyphs`: the glyph records, typically from `load_font_data`.
+## - `font_size`: the font size in pixels.
+## - `padding`: the padding between glyphs in the atlas.
+## - `pack_method`: the packing algorithm; `0` is the default.
+##
+## ## Returns
+## A new `raylib.Image` holding the atlas.
+##
+## ## Notes
+## raylib allocates an array of atlas rectangles and hands it back through an out-parameter; the wrapper **frees it with `MemFree`** and returns only the image, so that array is not part of the public surface (family plan D11).
+## An empty `glyphs` slice returns a 1x1 blank image instead of calling into raylib, because the C function would read a null glyph pointer.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var atlas as raylib.Image is calling font_atlas_image with (glyphs at 0 to 3), 32, 1, 0
+## ```
+
+weave font_atlas_image with glyphs as slice of raylib.GlyphInfo, font_size as int, padding as int, pack_method as int into raylib.Image:
+    if (glyphs.length) == 0:
+        return calling raylib.GenImageColor with 1, 1, raylib.BLANK
+    let raw as ref to void is transmute (sigil of (glyphs at 0)) to (ref to void)
+    var recs as ref to void is calling ffi.null_void
+    var atlas as raylib.Image is calling raylib.GenImageFontAtlas with raw, transmute (sigil of recs) to (ref to void), (glyphs.length), font_size, padding, pack_method
+    if calling ffi.is_valid with recs:
+        calling raylib.MemFree with recs
+    return atlas
+
+## Draws the current frame rate using the default font.
+##
+## ## Parameters
+## - `x`, `y`: the top-left corner of the readout.
+##
+## ## Returns
+## Nothing; the readout is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+## raylib owns the string it formats internally; nothing is allocated here.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## calling draw_fps with 10, 10
+## ```
+
+weave draw_fps with x as int, y as int into void:
+    calling raylib.DrawFPS with x, y
+
+## Draws text using raylib's default font.
+##
+## ## Parameters
+## - `text`: the text to draw.
+## - `x`, `y`: the top-left corner.
+## - `font_size`: the font size in pixels.
+## - `color`: the text colour.
+##
+## ## Returns
+## Nothing; the text is drawn into the current frame.
+##
+## ## Notes
+## Requires an active drawing frame (`BeginDrawing`/`EndDrawing`). Calling it outside one is undefined by raylib.
+## This is the default-font variant of `Font.draw`: no font argument, no letter spacing.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## calling draw_text with "hello", 10, 10, 20, raylib.RAYWHITE
+## ```
+
+weave draw_text with text as string, x as int, y as int, font_size as int, color as raylib.Color into void:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    calling raylib.DrawText with c_text, x, y, font_size, color
+
+## Measures the width of text in the default font.
+##
+## ## Parameters
+## - `text`: the text to measure.
+## - `font_size`: the font size in pixels.
+##
+## ## Returns
+## The width in pixels, or `0` when the text is empty.
+##
+## ## Notes
+## This returns a width only; `Font.measure` returns width and height for an explicit font.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var w as int is calling measure_text with "hello", 20
+## ```
+
+weave measure_text with text as string, font_size as int into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling raylib.MeasureText with c_text, font_size
+
+## Converts text to upper case.
+##
+## ## Parameters
+## - `text`: the text to transform.
+##
+## ## Returns
+## The upper-case text.
+##
+## ## Notes
+## raylib returns a **static buffer** that the next call to this same function overwrites; the wrapper copies it immediately, so the returned `string` is safe to keep.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_upper with "hello"
+## ```
+
+weave text_upper with text as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling ffi.string_from_cstr with (transmute (calling raylib.TextToUpper with c_text) to ref to char)
+
+## Converts text to lower case.
+##
+## ## Parameters
+## - `text`: the text to transform.
+##
+## ## Returns
+## The lower-case text.
+##
+## ## Notes
+## raylib returns a **static buffer** that the next call to this same function overwrites; the wrapper copies it immediately, so the returned `string` is safe to keep.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_lower with "HELLO"
+## ```
+
+weave text_lower with text as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling ffi.string_from_cstr with (transmute (calling raylib.TextToLower with c_text) to ref to char)
+
+## Converts text to Pascal case notation.
+##
+## ## Parameters
+## - `text`: the text to transform.
+##
+## ## Returns
+## The Pascal-case text.
+##
+## ## Notes
+## raylib returns a **static buffer** that the next call to this same function overwrites; the wrapper copies it immediately, so the returned `string` is safe to keep.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_pascal with "hello world"
+## ```
+
+weave text_pascal with text as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling ffi.string_from_cstr with (transmute (calling raylib.TextToPascal with c_text) to ref to char)
+
+## Converts text to snake_case notation.
+##
+## ## Parameters
+## - `text`: the text to transform.
+##
+## ## Returns
+## The snake_case text.
+##
+## ## Notes
+## raylib returns a **static buffer** that the next call to this same function overwrites; the wrapper copies it immediately, so the returned `string` is safe to keep.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_snake with "helloWorld"
+## ```
+
+weave text_snake with text as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling ffi.string_from_cstr with (transmute (calling raylib.TextToSnake with c_text) to ref to char)
+
+## Converts text to camelCase notation.
+##
+## ## Parameters
+## - `text`: the text to transform.
+##
+## ## Returns
+## The camelCase text.
+##
+## ## Notes
+## raylib returns a **static buffer** that the next call to this same function overwrites; the wrapper copies it immediately, so the returned `string` is safe to keep.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_camel with "hello_world"
+## ```
+
+weave text_camel with text as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling ffi.string_from_cstr with (transmute (calling raylib.TextToCamel with c_text) to ref to char)
+
+## Removes every space from text.
+##
+## ## Parameters
+## - `text`: the text to transform.
+##
+## ## Returns
+## The text with spaces removed.
+##
+## ## Notes
+## raylib returns a **static buffer** that the next call to this same function overwrites; the wrapper copies it immediately, so the returned `string` is safe to keep.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_without_spaces with "a b c"
+## ```
+
+weave text_without_spaces with text as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling ffi.string_from_cstr with (transmute (calling raylib.TextRemoveSpaces with c_text) to ref to char)
+
+## Extracts a piece of text by position and length.
+##
+## ## Parameters
+## - `text`: the source text.
+## - `position`: the starting byte position.
+## - `length`: how many bytes to take.
+##
+## ## Returns
+## The extracted piece, or an empty string when the range is out of bounds.
+##
+## ## Notes
+## raylib returns a **static buffer**; the wrapper copies it.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_subtext with "hello world", 6, 5
+## ```
+
+weave text_subtext with text as string, position as int, length as int into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling ffi.string_from_cstr with (transmute (calling raylib.TextSubtext with c_text, position, length) to ref to char)
+
+## Extracts the text between two markers.
+##
+## ## Parameters
+## - `text`: the source text.
+## - `begin`: the opening marker.
+## - `end`: the closing marker.
+##
+## ## Returns
+## The text between the markers, or an empty string when either marker is missing.
+##
+## ## Notes
+## raylib returns a **static buffer**; the wrapper copies it.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_between with "a[b]c", "[", "]"
+## ```
+
+weave text_between with text as string, begin as string, end as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    let c_begin as ref to frozen char is calling ffi.cstr_from_string with begin
+    let c_end as ref to frozen char is calling ffi.cstr_from_string with end
+    return calling ffi.string_from_cstr with (calling raylib.GetTextBetween with c_text, c_begin, c_end)
+
+## Replaces every occurrence of `search` in text.
+##
+## ## Parameters
+## - `text`: the source text.
+## - `search`: the substring to find.
+## - `replacement`: what to put in its place.
+##
+## ## Returns
+## The transformed text.
+##
+## ## Notes
+## raylib returns a **static buffer** that is truncated to raylib's internal size; for long results prefer `text_replace_alloc`, which resizes to fit.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_replace with "hello world", "world", "there"
+## ```
+
+weave text_replace with text as string, search as string, replacement as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    let c_search as ref to frozen char is calling ffi.cstr_from_string with search
+    let c_repl as ref to frozen char is calling ffi.cstr_from_string with replacement
+    return calling ffi.string_from_cstr with (calling raylib.TextReplace with c_text, c_search, c_repl)
+
+## Replaces the text between two markers.
+##
+## ## Parameters
+## - `text`: the source text.
+## - `begin`: the opening marker.
+## - `end`: the closing marker.
+## - `replacement`: what to put between them.
+##
+## ## Returns
+## The transformed text.
+##
+## ## Notes
+## raylib returns a **static buffer** that is truncated to raylib's internal size; for long results prefer `text_replace_between_alloc`, which resizes to fit.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_replace_between with "a[b]c", "[", "]", "-"
+## ```
+
+weave text_replace_between with text as string, begin as string, end as string, replacement as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    let c_begin as ref to frozen char is calling ffi.cstr_from_string with begin
+    let c_end as ref to frozen char is calling ffi.cstr_from_string with end
+    let c_repl as ref to frozen char is calling ffi.cstr_from_string with replacement
+    return calling ffi.string_from_cstr with (calling raylib.TextReplaceBetween with c_text, c_begin, c_end, c_repl)
+
+## Inserts text at a byte position.
+##
+## ## Parameters
+## - `text`: the source text.
+## - `insert`: the text to insert.
+## - `position`: the byte position to insert at.
+##
+## ## Returns
+## The combined text.
+##
+## ## Notes
+## raylib returns a **static buffer**; for long results prefer `text_insert_alloc`.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_insert with "hello", "XY", 2
+## ```
+
+weave text_insert with text as string, insert as string, position as int into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    let c_ins as ref to frozen char is calling ffi.cstr_from_string with insert
+    return calling ffi.string_from_cstr with (calling raylib.TextInsert with c_text, c_ins, position)
+
+## Replaces every occurrence of `search`, allocating a buffer sized to the result.
+##
+## ## Parameters
+## - `text`: the source text.
+## - `search`: the substring to find.
+## - `replacement`: what to put in its place.
+##
+## ## Returns
+## The transformed text as an owned `string`.
+##
+## ## Notes
+## Unlike the static-buffer twin, this C function allocates exactly the size the result needs. The wrapper copies it and releases the raylib buffer with `MemFree` before returning.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_replace_alloc with "hello world", "world", "there"
+## ```
+
+weave text_replace_alloc with text as string, search as string, replacement as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    let c_search as ref to frozen char is calling ffi.cstr_from_string with search
+    let c_repl as ref to frozen char is calling ffi.cstr_from_string with replacement
+    var result as ref to char is calling raylib.TextReplaceAlloc with c_text, c_search, c_repl
+    if calling ffi.is_null with (transmute result to ref to void):
+        return ""
+    var owned as string is calling ffi.string_from_cstr with result
+    calling raylib.MemFree with (transmute result to ref to void)
+    return owned
+
+## Replaces the text between two markers, allocating a buffer sized to the result.
+##
+## ## Parameters
+## - `text`: the source text.
+## - `begin`: the opening marker.
+## - `end`: the closing marker.
+## - `replacement`: what to put between them.
+##
+## ## Returns
+## The transformed text as an owned `string`.
+##
+## ## Notes
+## Unlike the static-buffer twin, this C function allocates exactly the size the result needs. The wrapper copies it and releases the raylib buffer with `MemFree` before returning.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_replace_between_alloc with "a[b]c", "[", "]", "-"
+## ```
+
+weave text_replace_between_alloc with text as string, begin as string, end as string, replacement as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    let c_begin as ref to frozen char is calling ffi.cstr_from_string with begin
+    let c_end as ref to frozen char is calling ffi.cstr_from_string with end
+    let c_repl as ref to frozen char is calling ffi.cstr_from_string with replacement
+    var result as ref to char is calling raylib.TextReplaceBetweenAlloc with c_text, c_begin, c_end, c_repl
+    if calling ffi.is_null with (transmute result to ref to void):
+        return ""
+    var owned as string is calling ffi.string_from_cstr with result
+    calling raylib.MemFree with (transmute result to ref to void)
+    return owned
+
+## Inserts text at a byte position, allocating a buffer sized to the result.
+##
+## ## Parameters
+## - `text`: the source text.
+## - `insert`: the text to insert.
+## - `position`: the byte position to insert at.
+##
+## ## Returns
+## The transformed text as an owned `string`.
+##
+## ## Notes
+## Unlike the static-buffer twin, this C function allocates exactly the size the result needs. The wrapper copies it and releases the raylib buffer with `MemFree` before returning.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_insert_alloc with "hello", "XY", 2
+## ```
+
+weave text_insert_alloc with text as string, insert as string, position as int into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    let c_ins as ref to frozen char is calling ffi.cstr_from_string with insert
+    var result as ref to char is calling raylib.TextInsertAlloc with c_text, c_ins, position
+    if calling ffi.is_null with (transmute result to ref to void):
+        return ""
+    var owned as string is calling ffi.string_from_cstr with result
+    calling raylib.MemFree with (transmute result to ref to void)
+    return owned
+
+## Joins a list of strings with a delimiter.
+##
+## ## Parameters
+## - `parts`: the strings to join.
+## - `delimiter`: the separator placed between them.
+##
+## ## Returns
+## The joined text, or an empty string for an empty slice.
+##
+## ## Notes
+## Each element of `parts` must be a NUL-terminated C string, which is what a PenguScript `string` already is; the slice is passed as raylib's `char**`.
+## raylib returns a **static buffer**; the wrapper copies it.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling text_join with (parts at 0 to 3), "-"
+## ```
+
+weave text_join with parts as slice of string, delimiter as string into string:
+    if (parts.length) == 0:
+        return ""
+    let c_delim as ref to frozen char is calling ffi.cstr_from_string with delimiter
+    var ptrs as list of (ref to char) is list of (ref to char)
+    defer banish ptrs
+    var i as int is 0
+    while i < (parts.length):
+        calling ptrs.push with (calling ffi.cstr_from_string with (parts at i))
+        set i is i + 1
+    let raw as ref to void is transmute (sigil of (ptrs at 0)) to (ref to void)
+    return calling ffi.string_from_cstr with (calling raylib.TextJoin with (transmute raw to ref to ref to char), (parts.length), c_delim)
+
+## Splits text into parts around a delimiter.
+##
+## ## Parameters
+## - `text`: the text to split.
+## - `delimiter`: the separator, as a single `char` (for example `44` for a comma).
+##
+## ## Returns
+## An owned list of the parts; empty when raylib fails.
+##
+## ## Notes
+## raylib stores the parts in its own static storage (`MAX_TEXTSPLIT_COUNT` entries), so the wrapper copies every element into an owned list before returning.
+## The delimiter is a `char`, not a `string`: pass the ordinal value (`44` is `,`).
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var parts as list of string is calling split_text with "a,b,c", 44
+## ```
+
+weave split_text with text as string, delimiter as char into list of string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    var n as int is 0
+    var parts as ref to ref to char is calling raylib.TextSplit with c_text, delimiter, sigil of n
+    var out as list of string is list of string
+    if calling ffi.is_null with (transmute parts to ref to void):
+        return out
+    let as_void as ref to void is transmute parts to ref to void
+    var ptrs as slice of (ref to char) is calling ffi.slice_from_ptr of (ref to char) with as_void, n
+    var i as int is 0
+    while i < n:
+        var raw as ref to char is (ptrs at i)
+        calling out.push with (calling ffi.string_from_cstr with raw)
+        set i is i + 1
+    return out
+
+## Splits text into lines on `'\n'`.
+##
+## ## Parameters
+## - `text`: the text to split.
+##
+## ## Returns
+## An owned list with one entry per line; empty when raylib fails.
+##
+## ## Notes
+## raylib allocates both the array and each line, so the wrapper copies the array and releases everything with `UnloadTextLines` before returning.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var lines as list of string is calling split_lines with "one\ntwo"
+## ```
+
+weave split_lines with text as string into list of string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    var n as int is 0
+    var lines as ref to ref to char is calling raylib.LoadTextLines with c_text, sigil of n
+    var out as list of string is list of string
+    if calling ffi.is_null with (transmute lines to ref to void):
+        return out
+    let as_void as ref to void is transmute lines to ref to void
+    var ptrs as slice of (ref to char) is calling ffi.slice_from_ptr of (ref to char) with as_void, n
+    var i as int is 0
+    while i < n:
+        var raw as ref to char is (ptrs at i)
+        calling out.push with (calling ffi.string_from_cstr with raw)
+        set i is i + 1
+    calling raylib.UnloadTextLines with lines, n
+    return out
+
+## Reports whether two strings are equal.
+##
+## ## Parameters
+## - `a`, `b`: the strings to compare.
+##
+## ## Returns
+## `true` when both hold the same bytes.
+##
+## ## Notes
+## PenguScript's own `==` already compares strings; this wrapper exists for parity with the binding and for callers who want the C semantics explicitly.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var same as bool is calling text_is_equal with "a", "a"
+## ```
+
+weave text_is_equal with a as string, b as string into bool:
+    let c_a as ref to frozen char is calling ffi.cstr_from_string with a
+    let c_b as ref to frozen char is calling ffi.cstr_from_string with b
+    return calling raylib.TextIsEqual with c_a, c_b
+
+## Returns the byte length of a string.
+##
+## ## Parameters
+## - `text`: the string to measure.
+##
+## ## Returns
+## The length in bytes, as raylib reports it (a `u32`).
+##
+## ## Notes
+## This counts **bytes**, not characters: a multi-byte UTF-8 character counts as several. For a PenguScript `string`, prefer its own `.length`.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var n as u32 is calling text_length with "hello"
+## ```
+
+weave text_length with text as string into u32:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling raylib.TextLength with c_text
+
+## Finds the first occurrence of a substring.
+##
+## ## Parameters
+## - `text`: the text to search.
+## - `search`: the substring to look for.
+##
+## ## Returns
+## `some` with the 0-based byte index, or `maybe none` when the substring is absent.
+##
+## ## Notes
+## raylib signals absence with `-1`, which is why this returns `maybe int` rather than an index that would silently propagate.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var idx as maybe int is calling text_find with "hello", "l"
+## ```
+
+weave text_find with text as string, search as string into maybe int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    let c_search as ref to frozen char is calling ffi.cstr_from_string with search
+    var idx as int is calling raylib.TextFindIndex with c_text, c_search
+    if idx < 0:
+        return maybe none
+    return some idx
+
+## Parses text as an integer.
+##
+## ## Parameters
+## - `text`: the text to parse.
+##
+## ## Returns
+## The parsed integer; raylib returns `0` for text that is not a number.
+##
+## ## Notes
+## raylib does not report parse failures, so a malformed input is indistinguishable from `"0"`. Validate before calling when that matters.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var n as int is calling text_to_integer with "-42"
+## ```
+
+weave text_to_integer with text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling raylib.TextToInteger with c_text
+
+## Parses text as a floating-point number.
+##
+## ## Parameters
+## - `text`: the text to parse.
+##
+## ## Returns
+## The parsed value; raylib returns `0.0` for text that is not a number.
+##
+## ## Notes
+## Same caveat as `text_to_integer`: a failed parse is indistinguishable from zero.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var f as f32 is calling text_to_float with "2.5"
+## ```
+
+weave text_to_float with text as string into f32:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling raylib.TextToFloat with c_text
+
+## Counts the codepoints in a UTF-8 string.
+##
+## ## Parameters
+## - `text`: the text to count.
+##
+## ## Returns
+## The number of codepoints, which is what a human would call the character count.
+##
+## ## Notes
+## This differs from `text_length`, which counts bytes.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var n as int is calling codepoint_count with "hi"
+## ```
+
+weave codepoint_count with text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling raylib.GetCodepointCount with c_text
+
+## Returns the first codepoint of a string.
+##
+## ## Parameters
+## - `text`: the text to read.
+##
+## ## Returns
+## `some` with the codepoint, or `maybe none` for an empty string.
+##
+## ## Notes
+## Measured: on an empty string raylib returns `0` **and still writes a size of `1`**, so the wrapper guards on the input length rather than on the out-parameter.
+## raylib reports the byte width of the codepoint through an out-parameter; the wrapper **discards it**, because a PenguScript `string` already knows its own length and encoding.
+## `GetCodepointNext` and `GetCodepointPrevious` are **not wrapped** for the same reason: their whole value is that byte width, and without it they would duplicate this function (family plan D-codepoints).
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var cp as maybe int is calling codepoint_at with "hi"
+## ```
+
+weave codepoint_at with text as string into maybe int:
+    if (text.length) == 0:
+        return maybe none
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    var n as int is 0
+    var cp as int is calling raylib.GetCodepoint with c_text, sigil of n
+    return some cp
+
+## Encodes a codepoint as a UTF-8 string.
+##
+## ## Parameters
+## - `codepoint`: the codepoint to encode.
+##
+## ## Returns
+## The encoded character as an owned `string`.
+##
+## ## Notes
+## raylib returns the address of a **static one-character buffer**; the wrapper copies it immediately.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var s as string is calling codepoint_to_text with 65
+## ```
+
+weave codepoint_to_text with codepoint as int into string:
+    var n as int is 0
+    return calling ffi.string_from_cstr with (transmute (calling raylib.CodepointToUTF8 with codepoint, sigil of n) to ref to char)
+
+## Decodes a UTF-8 string into its codepoints.
+##
+## ## Parameters
+## - `text`: the text to decode.
+##
+## ## Returns
+## An owned list with one entry per codepoint; empty when raylib fails.
+##
+## ## Notes
+## raylib allocates the array, so the wrapper copies it and releases it with `UnloadCodepoints` before returning.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var cps as list of int is calling codepoints_from_text with "hi"
+## ```
+
+weave codepoints_from_text with text as string into list of int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    var n as int is 0
+    var cps as ref to int is calling raylib.LoadCodepoints with c_text, sigil of n
+    if calling ffi.is_null with (transmute cps to ref to void):
+        return list of int
+    let as_void as ref to void is transmute cps to ref to void
+    var owned as list of int is calling ffi.list_of_int_from_ptr with as_void, n
+    calling raylib.UnloadCodepoints with cps
+    return owned
+
+## Encodes a list of codepoints as a UTF-8 string.
+##
+## ## Parameters
+## - `codepoints`: the codepoints to encode.
+##
+## ## Returns
+## `some` with the encoded text, or `maybe none` for an empty slice or a raylib failure.
+##
+## ## Notes
+## **An empty slice and a failure are both `maybe none`**: raylib returns a null pointer for a zero length, so the wrapper cannot tell them apart (measured). Documented rather than hidden.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var text as maybe string is calling text_from_codepoints with (points at 0 to 2)
+## ```
+
+weave text_from_codepoints with codepoints as slice of int into maybe string:
+    if (codepoints.length) == 0:
+        return maybe none
+    let raw as ref to frozen int is transmute (sigil of (codepoints at 0)) to (ref to frozen int)
+    var text as ref to char is calling raylib.LoadUTF8 with raw, (codepoints.length)
+    if calling ffi.is_null with (transmute text to ref to void):
+        return maybe none
+    var owned as string is calling ffi.string_from_cstr with text
+    calling raylib.UnloadUTF8 with text
+    return some owned
+
+## Sets the vertical spacing between lines of text.
+##
+## ## Parameters
+## - `spacing`: the line spacing in pixels.
+##
+## ## Returns
+## Nothing. The setting is global and affects subsequent `DrawText*` calls.
+##
+## ## Notes
+## This is a global side effect with no failure channel, kept module-level because it has no subject.
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## calling set_text_line_spacing with 2
+## ```
+
+weave set_text_line_spacing with spacing as int into void:
+    calling raylib.SetTextLineSpacing with spacing
+
+## Measures a run of codepoints in a given font.
+##
+## ## Parameters
+## - `font`: the font to measure with.
+## - `codepoints`: the codepoints to measure.
+## - `font_size`: the font size in pixels.
+## - `spacing`: the extra spacing between characters.
+##
+## ## Returns
+## A `raylib.Vector2` with the width and height in pixels; a zero vector for an empty slice.
+##
+## ## Notes
+## An empty `codepoints` slice is answered with an empty measurement instead of calling into raylib, because the C function would read a null codepoint pointer.
+## **Window-bound**, like the rest of the glyph-table queries (family plan D16).
+##
+## ## Memory
+## No allocation by the wrapper; any raylib buffer is copied and released before returning.
+##
+## ## Example
+## ```pengu
+## var m as raylib.Vector2 is calling measure_text_codepoints with font, (points at 0 to 3), 20.0, 1.0
+## ```
+
+weave measure_text_codepoints with font as raylib.Font, codepoints as slice of int, font_size as f32, spacing as f32 into raylib.Vector2:
+    if (codepoints.length) == 0:
+        return calling raylib.MeasureTextEx with font, (calling ffi.cstr_from_string with ""), font_size, spacing
+    let raw as ref to frozen int is transmute (sigil of (codepoints at 0)) to (ref to frozen int)
+    return calling raylib.MeasureTextCodepoints with font, raw, (codepoints.length), font_size, spacing
+
+# --- Tests ---
+
+test "text_upper converts to upper case":
+    var s as string is calling text_upper with "hello pengu"
+    calling ward.assert_eq_string with s, "HELLO PENGU"
+
+test "text_lower converts to lower case":
+    var s as string is calling text_lower with "HELLO PENGU"
+    calling ward.assert_eq_string with s, "hello pengu"
+
+test "static buffer results survive a second call":
+    var first as string is calling text_upper with "abc"
+    var second as string is calling text_upper with "xyz"
+    calling ward.assert_eq_string with first, "ABC"
+    calling ward.assert_eq_string with second, "XYZ"
+
+test "text_pascal converts the first letter":
+    var s as string is calling text_pascal with "hello world"
+    calling ward.assert_eq_string with s, "Hello world"
+
+test "text_snake inserts underscores":
+    var s as string is calling text_snake with "helloWorld"
+    calling ward.assert_eq_string with s, "hello_world"
+
+test "text_camel removes underscores":
+    var s as string is calling text_camel with "hello_world"
+    calling ward.assert_eq_string with s, "helloWorld"
+
+test "text_without_spaces joins the words":
+    var s as string is calling text_without_spaces with "a b c"
+    calling ward.assert_eq_string with s, "abc"
+
+test "text_subtext extracts a range":
+    var s as string is calling text_subtext with "hello world", 6, 5
+    calling ward.assert_eq_string with s, "world"
+
+test "text_subtext with zero length is empty":
+    var s as string is calling text_subtext with "hello", 0, 0
+    calling ward.assert_string_empty with s
+
+test "text_between extracts the marked part":
+    var s as string is calling text_between with "a[b]c", "[", "]"
+    calling ward.assert_eq_string with s, "b"
+
+test "text_between without markers is empty":
+    var s as string is calling text_between with "abc", "[", "]"
+    calling ward.assert_string_empty with s
+
+test "text_replace swaps a substring":
+    var s as string is calling text_replace with "hello world", "world", "there"
+    calling ward.assert_eq_string with s, "hello there"
+
+test "text_replace_alloc agrees with text_replace":
+    var plain as string is calling text_replace with "hello world", "world", "there"
+    var owned as string is calling text_replace_alloc with "hello world", "world", "there"
+    calling ward.assert_eq_string with plain, owned
+
+test "text_replace_between_alloc replaces between markers":
+    var s as string is calling text_replace_between_alloc with "a[b]c", "[", "]", "-"
+    calling ward.assert_eq_string with s, "a[-]c"
+
+test "text_insert puts text in the middle":
+    var s as string is calling text_insert with "hello", "XY", 2
+    calling ward.assert_eq_string with s, "heXYo"
+
+test "text_insert_alloc agrees with text_insert":
+    var plain as string is calling text_insert with "hello", "XY", 2
+    var owned as string is calling text_insert_alloc with "hello", "XY", 2
+    calling ward.assert_eq_string with plain, owned
+
+test "split_text splits on a delimiter":
+    var parts as list of string is calling split_text with "a,b,c", 44
+    defer banish parts
+    calling ward.assert_eq_int with (parts.length), 3
+    calling ward.assert_eq_string with (parts at 0), "a"
+
+test "split_text without the delimiter gives one part":
+    var parts as list of string is calling split_text with "abc", 44
+    defer banish parts
+    calling ward.assert_eq_int with (parts.length), 1
+
+test "text_join reunites the parts":
+    var parts as list of string is calling split_text with "a,b,c", 44
+    defer banish parts
+    var joined as string is calling text_join with (parts at 0 to (parts.length)), "-"
+    calling ward.assert_eq_string with joined, "a-b-c"
+
+test "text_join of an empty slice is empty":
+    var parts as list of string is list of string
+    defer banish parts
+    var joined as string is calling text_join with (parts at 0 to 0), "-"
+    calling ward.assert_string_empty with joined
+
+test "split_lines splits on newlines":
+    var lines as list of string is calling split_lines with "one\ntwo"
+    defer banish lines
+    calling ward.assert_eq_int with (lines.length), 2
+    calling ward.assert_eq_string with (lines at 0), "one"
+
+test "text_is_equal compares content":
+    calling ward.assert_true with (calling text_is_equal with "a", "a")
+    calling ward.assert_false with (calling text_is_equal with "a", "b")
+    calling ward.assert_true with (calling text_is_equal with "", "")
+
+test "text_length counts bytes":
+    calling ward.assert_eq_int with ((calling text_length with "hello") to int), 5
+
+test "text_find returns an index or none":
+    var found as maybe int is calling text_find with "hello", "l"
+    calling ward.assert_maybe_present with found
+    calling ward.assert_eq_int with (calling found.unwrap), 2
+    var missing as maybe int is calling text_find with "hello", "z"
+    calling ward.assert_maybe_none with missing
+
+test "text_to_integer parses a negative integer":
+    calling ward.assert_eq_int with (calling text_to_integer with "-42"), -42
+
+test "text_to_float parses a fractional value":
+    calling ward.assert_almost_eq with (calling text_to_float with "2.5"), 2.5, 0.001
+
+test "codepoint_count counts codepoints":
+    calling ward.assert_eq_int with (calling codepoint_count with "hi"), 2
+    calling ward.assert_eq_int with (calling codepoint_count with ""), 0
+
+test "codepoint_at reads the first codepoint":
+    var cp as maybe int is calling codepoint_at with "hi"
+    calling ward.assert_maybe_present with cp
+    calling ward.assert_eq_int with (calling cp.unwrap), 104
+
+test "codepoint_at on an empty string is none":
+    var cp as maybe int is calling codepoint_at with ""
+    calling ward.assert_maybe_none with cp
+
+test "codepoint_to_text encodes a codepoint":
+    var s as string is calling codepoint_to_text with 65
+    calling ward.assert_eq_string with s, "A"
+
+test "codepoints_from_text decodes to codepoints":
+    var cps as list of int is calling codepoints_from_text with "hi"
+    defer banish cps
+    calling ward.assert_eq_int with (cps.length), 2
+    calling ward.assert_eq_int with (cps at 0), 104
+
+test "text_from_codepoints round trips":
+    var cps as list of int is calling codepoints_from_text with "hi"
+    defer banish cps
+    var text as maybe string is calling text_from_codepoints with (cps at 0 to (cps.length))
+    calling ward.assert_maybe_present with text
+    calling ward.assert_eq_string with (calling text.unwrap), "hi"
+
+test "text_from_codepoints on an empty slice is none":
+    var cps as list of int is list of int
+    defer banish cps
+    var text as maybe string is calling text_from_codepoints with (cps at 0 to 0)
+    calling ward.assert_maybe_none with text
+
+# The drawing and font-lifecycle surface is not called in CI: the drawing entries need an
+# active frame, and the font entries need InitWindow, because before it GetFontDefault()
+# has no glyph table and measuring or querying a glyph on it segfaults (family plan D16).
+# This probe exists so every public signature is type-checked at build time.
+weave text_api_probe into void:
+    var font as raylib.Font is calling default_font
+    var pos as raylib.Vector2 is with x is 10.0, y is 10.0
+    var origin as raylib.Vector2 is with x is 0.0, y is 0.0
+    var col as raylib.Color is raylib.RAYWHITE
+    var cps as list of int is list of int
+    defer banish cps
+    var blob as list of byte is list of byte
+    defer banish blob
+    var parts as list of string is list of string
+    defer banish parts
+    var img as raylib.Image is calling raylib.GenImageColor with 1, 1, raylib.BLANK
+    calling font.draw with "t", pos, 20.0, 1.0, col
+    calling font.draw_pro with "t", pos, origin, 0.0, 20.0, 1.0, col
+    calling font.draw_codepoint with 65, pos, 20.0, col
+    calling font.draw_codepoints with (cps at 0 to 0), pos, 20.0, 1.0, col
+    var measured as raylib.Vector2 is calling font.measure with "t", 20.0, 1.0
+    var ok as bool is calling is_font_valid with font
+    var glyph_index as int is calling font_glyph_index with font, 65
+    var glyph_info as raylib.GlyphInfo is calling font_glyph_info with font, 65
+    var glyph_rec as raylib.Rectangle is calling font_glyph_atlas_rec with font, 65
+    var exported as bool is calling export_font_as_code with font, "font.c"
+    var from_image as maybe raylib.Font is calling load_font_from_image with img, raylib.MAGENTA, 32
+    var from_memory as maybe raylib.Font is calling load_font_from_memory with ".ttf", (blob at 0 to 0), 32, (cps at 0 to 0)
+    var loaded as maybe raylib.Font is calling load_font with "a.ttf"
+    var loaded_ex as maybe raylib.Font is calling load_font_ex with "a.ttf", 32, (cps at 0 to 0)
+    var glyphs as list of raylib.GlyphInfo is calling load_font_data with (blob at 0 to 0), 32, (cps at 0 to 0), 0
+    defer banish glyphs
+    var atlas as raylib.Image is calling font_atlas_image with (glyphs at 0 to 0), 32, 1, 0
+    calling draw_fps with 10, 10
+    calling draw_text with "t", 10, 10, 20, col
+    calling set_text_line_spacing with 2
+    var width as int is calling measure_text with "t", 20
+    var m2 as raylib.Vector2 is calling measure_text_codepoints with font, (cps at 0 to 0), 20.0, 1.0
+    var joined2 as string is calling text_join with (parts at 0 to 0), "-"
+    calling unload_font with font

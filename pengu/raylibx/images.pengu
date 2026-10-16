@@ -1,0 +1,2107 @@
+## raylibx/images.pengu
+## Layer-2 wrapper over the 74 image functions of the `raylib` binding: the biggest family
+## of the module, and the one where the wrapper becomes a type.
+##
+## The image *is* the subject of almost everything here, so the family is dominated by
+## methods on `raylib.Image`: `img.crop with rect`, `img.resize with 128, 128`,
+## `img.draw_circle with 8, 8, 4, raylib.RED`. What stays module-level is what has no
+## receiver worth naming: the loaders, the exporters and the nine `gen_image_*` factories.
+##
+## Every mutator returns `void` and changes the image in place. raylib owns the pixel buffer,
+## so an image that comes from a loader or a factory must be released with `unload_image`,
+## and so must the ones that `copy`, `region` and `channel` hand back.
+##
+## This is family `images` of `raylibx`; see `docs/plans/raylibx_images.md`.
+##
+## ## Most of it is testable without a window
+## The `gen_image_*` factories, the transforms, the drawing methods and the pixel readers are
+## pure CPU work over a heap buffer -- measured, not assumed -- so they are asserted directly
+## in CI. Only three entries need a graphics context: `load_image_from_texture`
+## (a GPU read-back), `load_image_from_screen`, and the two text renderers, which walk the
+## default font's glyph table (null before `InitWindow`; the `text` family measured the
+## segfault).
+##
+## ## Memory
+## The wrapper never leaks and never frees twice. `colors` and `palette` copy raylib's array
+## into an owned PenguScript list and release it with `UnloadImageColors`/`UnloadImagePalette`;
+## `export_image_to_memory` copies and then `MemFree`s, because the header says the buffer
+## belongs to the caller.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import raylibx_images
+##
+## weave main into int:
+##     var img as raylib.Image is calling raylibx_images.gen_image_color with 32, 32, raylib.RED
+##     defer calling raylibx_images.unload_image with img
+##     calling img.draw_circle with 16, 16, 8, raylib.WHITE
+##     calling img.resize with 64, 64
+##     var pixel as raylib.Color is calling img.color_at with 20, 20
+##     return 0
+## ```
+
+
+import raylib
+import std.ffi
+import std.ward
+
+enchanting raylib.Image:
+
+    ## Converts the image to a different pixel format.
+    ##
+    ## ## Parameters
+    ## - `new_format`: the target `raylib.PixelFormat`
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## `PIXELFORMAT_UNCOMPRESSED_R8G8B8A8` is raylib's own default and what the generators produce.
+    ## Converting between formats loses or gains an alpha channel; the data buffer is reallocated in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.to_format with raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8
+    ## ```
+
+    weave to_format with new_format as raylib.PixelFormat into void:
+        calling raylib.ImageFormat with self, (new_format to int)
+
+    ## Resizes the image up to the next power of two in both dimensions.
+    ##
+    ## ## Parameters
+    ## - `fill`: the colour used to pad the new area
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## Non-power-of-two textures are rejected by some GPUs; this pads rather than scales, so no pixels are resampled.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.to_power_of_two with raylib.BLANK
+    ## ```
+
+    weave to_power_of_two with fill as raylib.Color into void:
+        calling raylib.ImageToPOT with self, fill
+
+    ## Crops the image to a region, discarding everything outside it.
+    ##
+    ## ## Parameters
+    ## - `rect`: the region to keep, in pixels
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## `rect` is clipped to the image; the result is always at least one pixel.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.crop with (with x is 0.0, y is 0.0, width is 32.0, height is 32.0)
+    ## ```
+
+    weave crop with rect as raylib.Rectangle into void:
+        calling raylib.ImageCrop with self, rect
+
+    ## Crops away the transparent border of the image.
+    ##
+    ## ## Parameters
+    ## - `threshold`: the alpha level below which a border pixel counts as empty
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## The image's dimensions change to the bounding box of everything at or above `threshold`.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.crop_to_alpha with 0.5
+    ## ```
+
+    weave crop_to_alpha with threshold as f32 into void:
+        calling raylib.ImageAlphaCrop with self, threshold
+
+    ## Replaces every pixel below an alpha threshold with a colour.
+    ##
+    ## ## Parameters
+    ## - `color`: the colour written into the cleared pixels
+    ## - `threshold`: the alpha level below which a pixel is cleared
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## The image keeps its size; only the pixel data changes.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.clear_alpha with raylib.BLANK, 0.5
+    ## ```
+
+    weave clear_alpha with color as raylib.Color, threshold as f32 into void:
+        calling raylib.ImageAlphaClear with self, color, threshold
+
+    ## Applies an alpha mask taken from another image.
+    ##
+    ## ## Parameters
+    ## - `mask`: the mask image; it must match this image's size
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## raylib expects the mask to have the same dimensions as the image, and reads its alpha channel.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.apply_alpha_mask with mask
+    ## ```
+
+    weave apply_alpha_mask with mask as raylib.Image into void:
+        calling raylib.ImageAlphaMask with self, mask
+
+    ## Multiplies every colour channel by its alpha.
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## This is the layout some blending pipelines expect. It is lossy and not reversible, so do it once and late.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.premultiply_alpha
+    ## ```
+
+    weave premultiply_alpha into void:
+        calling raylib.ImageAlphaPremultiply with self
+
+    ## Applies a Gaussian blur.
+    ##
+    ## ## Parameters
+    ## - `blur_size`: the blur radius in pixels
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## A larger `blur_size` is slower; the cost grows with the square of the radius.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.blur_gaussian with 4
+    ## ```
+
+    weave blur_gaussian with blur_size as int into void:
+        calling raylib.ImageBlurGaussian with self, blur_size
+
+    ## Applies a convolution kernel to the image.
+    ##
+    ## ## Parameters
+    ## - `kernel`: the convolution kernel; its length must be a perfect square
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## The kernel is typically a 3x3 or 5x5 matrix laid out row by row; the wrapper passes it as a flat slice.
+    ## An empty slice is passed straight through, which raylib does not guard against, so the docstring warns.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.convolve with (kernel at 0 to 9)
+    ## ```
+
+    weave convolve with kernel as slice of f32 into void:
+        if (kernel.length) == 0:
+            return
+        let raw as ref to void is transmute (sigil of (kernel at 0)) to (ref to void)
+        calling raylib.ImageKernelConvolution with self, (transmute raw to ref to frozen f32), (kernel.length)
+
+    ## Rescales the image with a smooth filter.
+    ##
+    ## ## Parameters
+    ## - `width`: the new width
+    ## - `height`: the new height
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## This is the higher-quality resize; `resize_nearest` is the fast one.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.resize with 64, 64
+    ## ```
+
+    weave resize with width as int, height as int into void:
+        calling raylib.ImageResize with self, width, height
+
+    ## Rescales the image with nearest-neighbour sampling.
+    ##
+    ## ## Parameters
+    ## - `width`: the new width
+    ## - `height`: the new height
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## Cheap and blocky; the right choice for pixel art.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.resize_nearest with 64, 64
+    ## ```
+
+    weave resize_nearest with width as int, height as int into void:
+        calling raylib.ImageResizeNN with self, width, height
+
+    ## Resizes the canvas without scaling the image, placing the old content at an offset.
+    ##
+    ## ## Parameters
+    ## - `width`: the new canvas width
+    ## - `height`: the new canvas height
+    ## - `offset_x`: where the old content lands on the new canvas, in x
+    ## - `offset_y`: where the old content lands on the new canvas, in y
+    ## - `fill`: the colour of the new area
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## The image is not resampled: it is pasted onto a larger or smaller canvas.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.resize_canvas with 128, 128, 16, 16, raylib.BLANK
+    ## ```
+
+    weave resize_canvas with width as int, height as int, offset_x as int, offset_y as int, fill as raylib.Color into void:
+        calling raylib.ImageResizeCanvas with self, width, height, offset_x, offset_y, fill
+
+    ## Generates the mipmap chain for the image.
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## raylib stores the mipmaps inside the same data buffer, so the image grows and its height is multiplied by the level count.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.generate_mipmaps
+    ## ```
+
+    weave generate_mipmaps into void:
+        calling raylib.ImageMipmaps with self
+
+    ## Applies ordered dithering to the given bit depths.
+    ##
+    ## ## Parameters
+    ## - `r_bpp`: bits per pixel for red
+    ## - `g_bpp`: bits per pixel for green
+    ## - `b_bpp`: bits per pixel for blue
+    ## - `a_bpp`: bits per pixel for alpha
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## Passing `8` for a channel leaves it untouched; `0` drops the channel entirely.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.dither with 5, 6, 5, 0
+    ## ```
+
+    weave dither with r_bpp as int, g_bpp as int, b_bpp as int, a_bpp as int into void:
+        calling raylib.ImageDither with self, r_bpp, g_bpp, b_bpp, a_bpp
+
+    ## Flips the image vertically (top to bottom).
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.flip_vertical
+    ## ```
+
+    weave flip_vertical into void:
+        calling raylib.ImageFlipVertical with self
+
+    ## Flips the image horizontally (left to right).
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.flip_horizontal
+    ## ```
+
+    weave flip_horizontal into void:
+        calling raylib.ImageFlipHorizontal with self
+
+    ## Rotates the image by a number of degrees.
+    ##
+    ## ## Parameters
+    ## - `degrees`: the rotation angle in degrees; a multiple of 90 is what raylib handles cleanly
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## Arbitrary angles resample the image; multiples of 90 swap the dimensions without quality loss.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.rotate with 90
+    ## ```
+
+    weave rotate with degrees as int into void:
+        calling raylib.ImageRotate with self, degrees
+
+    ## Rotates the image 90 degrees clockwise, swapping its dimensions.
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.rotate_cw
+    ## ```
+
+    weave rotate_cw into void:
+        calling raylib.ImageRotateCW with self
+
+    ## Rotates the image 90 degrees counter-clockwise, swapping its dimensions.
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.rotate_ccw
+    ## ```
+
+    weave rotate_ccw into void:
+        calling raylib.ImageRotateCCW with self
+
+    ## Multiplies every pixel by a colour.
+    ##
+    ## ## Parameters
+    ## - `color`: the colour multiplied into every pixel
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## This is the image-level twin of `Color.tint_with` from `raylibx_colors`: tinting with white is a no-op and with black produces a black image.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.tint with raylib.RED
+    ## ```
+
+    weave tint with color as raylib.Color into void:
+        calling raylib.ImageColorTint with self, color
+
+    ## Inverts every colour channel, leaving alpha alone.
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.invert
+    ## ```
+
+    weave invert into void:
+        calling raylib.ImageColorInvert with self
+
+    ## Converts the image to grayscale.
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## raylib uses a fixed luminance formula and exposes no choice of one.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.to_grayscale
+    ## ```
+
+    weave to_grayscale into void:
+        calling raylib.ImageColorGrayscale with self
+
+    ## Adjusts the image contrast.
+    ##
+    ## ## Parameters
+    ## - `contrast`: the contrast adjustment, roughly `-100` to `100`
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## Unlike `Color.contrast_with`, which takes a factor in `[-1..1]`, this takes a signed percentage.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.adjust_contrast with 20
+    ## ```
+
+    weave adjust_contrast with contrast as int into void:
+        calling raylib.ImageColorContrast with self, contrast
+
+    ## Adjusts the image brightness.
+    ##
+    ## ## Parameters
+    ## - `brightness`: the brightness adjustment, roughly `-255` to `255`
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## A signed offset added to each channel, not a factor.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.adjust_brightness with -30
+    ## ```
+
+    weave adjust_brightness with brightness as int into void:
+        calling raylib.ImageColorBrightness with self, brightness
+
+    ## Replaces one exact colour with another throughout the image.
+    ##
+    ## ## Parameters
+    ## - `color`: the colour to look for
+    ## - `replacement`: the colour to write in its place
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## The match is exact, so anti-aliased edges of the same colour are not replaced.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.replace_color with raylib.RED, raylib.BLUE
+    ## ```
+
+    weave replace_color with color as raylib.Color, replacement as raylib.Color into void:
+        calling raylib.ImageColorReplace with self, color, replacement
+
+    ## Returns an independent copy of the image.
+    ##
+    ## ## Returns
+    ## A new `raylib.Image`.
+    ##
+    ## ## Notes
+    ## The copy owns its own pixel buffer: unload it separately from the original.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var clone as raylib.Image is calling img.copy
+    ## ```
+
+    weave copy into raylib.Image:
+        return calling raylib.ImageCopy with (essence of self)
+
+    ## Returns a new image holding a region of this one.
+    ##
+    ## ## Parameters
+    ## - `rect`: the region to extract
+    ##
+    ## ## Returns
+    ## A new `raylib.Image`.
+    ##
+    ## ## Notes
+    ## Unlike `crop`, which changes this image in place, this leaves the receiver untouched and returns a new image.
+    ## The result owns its own pixel buffer.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var part as raylib.Image is calling img.region with (with x is 0.0, y is 0.0, width is 16.0, height is 16.0)
+    ## ```
+
+    weave region with rect as raylib.Rectangle into raylib.Image:
+        return calling raylib.ImageFromImage with (essence of self), rect
+
+    ## Returns a new grayscale image built from one channel.
+    ##
+    ## ## Parameters
+    ## - `selected_channel`: which channel to extract; `0` is red
+    ##
+    ## ## Returns
+    ## A new `raylib.Image`.
+    ##
+    ## ## Notes
+    ## The result is an 8-bit grayscale image, which is what makes it useful as an alpha mask.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var mask as raylib.Image is calling img.channel with 3
+    ## ```
+
+    weave channel with selected_channel as int into raylib.Image:
+        return calling raylib.ImageFromChannel with (essence of self), selected_channel
+
+    ## Returns every pixel as an owned list of colours.
+    ##
+    ## ## Returns
+    ## `some` with an owned list of every pixel, or `maybe none` for an invalid image.
+    ##
+    ## ## Notes
+    ## raylib allocates the array for you in one contiguous block; the wrapper copies it into an owned list and releases the raylib buffer, so the result is entirely PenguScript-owned.
+    ## `maybe none` when the image is invalid (raylib returned a null pointer).
+    ## The list is in row-major order and its length is `width * height`.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var pixels as maybe (list of raylib.Color) is calling img.colors
+    ## ```
+
+    weave colors into maybe (list of raylib.Color):
+        var count as int is ((essence of self).width * (essence of self).height)
+        var raw as ref to raylib.Color is calling raylib.LoadImageColors with (essence of self)
+        if calling ffi.is_null with (transmute raw to ref to void):
+            return maybe none
+        let as_void as ref to void is transmute raw to ref to void
+        var owned as list of raylib.Color is calling ffi.list_from_ptr of raylib.Color with as_void, count
+        calling raylib.UnloadImageColors with raw
+        return some owned
+
+    ## Builds the image's colour palette.
+    ##
+    ## ## Parameters
+    ## - `max_size`: the largest palette to build
+    ##
+    ## ## Returns
+    ## An owned `list of raylib.Color`.
+    ##
+    ## ## Notes
+    ## raylib allocates the array and reports its length through an out-parameter; the wrapper copies it and releases the raylib buffer, so the count folds into `.length`.
+    ## A solid-colour image yields a one-entry palette, which is a useful thing to assert.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var pal as list of raylib.Color is calling img.palette with 16
+    ## ```
+
+    weave palette with max_size as int into list of raylib.Color:
+        var count as int is 0
+        var raw as ref to raylib.Color is calling raylib.LoadImagePalette with (essence of self), max_size, sigil of count
+        if calling ffi.is_null with (transmute raw to ref to void):
+            return list of raylib.Color
+        let as_void as ref to void is transmute raw to ref to void
+        var owned as list of raylib.Color is calling ffi.list_from_ptr of raylib.Color with as_void, count
+        calling raylib.UnloadImagePalette with raw
+        return owned
+
+    ## Returns the bounding box of the non-transparent area.
+    ##
+    ## ## Parameters
+    ## - `threshold`: the alpha level at which a pixel counts as opaque
+    ##
+    ## ## Returns
+    ## A `raylib.Rectangle`.
+    ##
+    ## ## Notes
+    ## Measured: for a fully opaque image this is the whole image, `(0, 0, width, height)`.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var border as raylib.Rectangle is calling img.alpha_border with 0.5
+    ## ```
+
+    weave alpha_border with threshold as f32 into raylib.Rectangle:
+        return calling raylib.GetImageAlphaBorder with (essence of self), threshold
+
+    ## Reads one pixel.
+    ##
+    ## ## Parameters
+    ## - `x`: the pixel column
+    ## - `y`: the pixel row
+    ##
+    ## ## Returns
+    ## A `raylib.Color`.
+    ##
+    ## ## Notes
+    ## raylib does not bounds-check; a coordinate outside the image reads past the buffer. The docstring says so and the caller must stay inside.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var c as raylib.Color is calling img.color_at with 1, 1
+    ## ```
+
+    weave color_at with x as int, y as int into raylib.Color:
+        return calling raylib.GetImageColor with (essence of self), x, y
+
+    ## Fills the whole image with a colour.
+    ##
+    ## ## Parameters
+    ## - `color`: the colour to fill with
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## This is `ImageDrawRectangle` over the full area, with no clipping cost.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.clear with raylib.BLANK
+    ## ```
+
+    weave clear with color as raylib.Color into void:
+        calling raylib.ImageClearBackground with self, color
+
+    ## Sets one pixel.
+    ##
+    ## ## Parameters
+    ## - `x`: the pixel column
+    ## - `y`: the pixel row
+    ## - `color`: the pixel colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## Coordinates outside the image are silently ignored by raylib.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_pixel with 4, 5, raylib.RED
+    ## ```
+
+    weave draw_pixel with x as int, y as int, color as raylib.Color into void:
+        calling raylib.ImageDrawPixel with self, x, y, color
+
+    ## Sets one pixel from a `Vector2`.
+    ##
+    ## ## Parameters
+    ## - `position`: the pixel position
+    ## - `color`: the pixel colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_pixel_at with (with x is 4.0, y is 5.0), raylib.RED
+    ## ```
+
+    weave draw_pixel_at with position as raylib.Vector2, color as raylib.Color into void:
+        calling raylib.ImageDrawPixelV with self, position, color
+
+    ## Draws a one-pixel line.
+    ##
+    ## ## Parameters
+    ## - `x1`: the first endpoint column
+    ## - `y1`: the first endpoint row
+    ## - `x2`: the second endpoint column
+    ## - `y2`: the second endpoint row
+    ## - `color`: the line colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_line with 0, 0, 10, 10, raylib.BLUE
+    ## ```
+
+    weave draw_line with x1 as int, y1 as int, x2 as int, y2 as int, color as raylib.Color into void:
+        calling raylib.ImageDrawLine with self, x1, y1, x2, y2, color
+
+    ## Draws a one-pixel line between two points.
+    ##
+    ## ## Parameters
+    ## - `start`: the first endpoint
+    ## - `end`: the second endpoint
+    ## - `color`: the line colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_line_between with a, b, raylib.BLUE
+    ## ```
+
+    weave draw_line_between with start as raylib.Vector2, end as raylib.Vector2, color as raylib.Color into void:
+        calling raylib.ImageDrawLineV with self, start, end, color
+
+    ## Draws a line with a given thickness.
+    ##
+    ## ## Parameters
+    ## - `start`: the first endpoint
+    ## - `end`: the second endpoint
+    ## - `thick`: the line width in pixels
+    ## - `color`: the line colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_line_thick with a, b, 3, raylib.BLUE
+    ## ```
+
+    weave draw_line_thick with start as raylib.Vector2, end as raylib.Vector2, thick as int, color as raylib.Color into void:
+        calling raylib.ImageDrawLineEx with self, start, end, thick, color
+
+    ## Draws a filled triangle.
+    ##
+    ## ## Parameters
+    ## - `v1`: the first vertex
+    ## - `v2`: the second vertex
+    ## - `v3`: the third vertex
+    ## - `color`: the fill colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_triangle with a, b, c, raylib.RED
+    ## ```
+
+    weave draw_triangle with v1 as raylib.Vector2, v2 as raylib.Vector2, v3 as raylib.Vector2, color as raylib.Color into void:
+        calling raylib.ImageDrawTriangle with self, v1, v2, v3, color
+
+    ## Draws a triangle outline.
+    ##
+    ## ## Parameters
+    ## - `v1`: the first vertex
+    ## - `v2`: the second vertex
+    ## - `v3`: the third vertex
+    ## - `color`: the outline colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_triangle_outline with a, b, c, raylib.RED
+    ## ```
+
+    weave draw_triangle_outline with v1 as raylib.Vector2, v2 as raylib.Vector2, v3 as raylib.Vector2, color as raylib.Color into void:
+        calling raylib.ImageDrawTriangleLines with self, v1, v2, v3, color
+
+    ## Draws a filled triangle fan.
+    ##
+    ## ## Parameters
+    ## - `points`: the vertices, in order
+    ## - `color`: the fill colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## An empty slice draws nothing.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_triangle_fan with (points at 0 to 3), raylib.RED
+    ## ```
+
+    weave draw_triangle_fan with points as slice of raylib.Vector2, color as raylib.Color into void:
+        if (points.length) == 0:
+            return
+        let raw_points as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+        calling raylib.ImageDrawTriangleFan with self, raw_points, (points.length), color
+
+    ## Draws a filled triangle strip.
+    ##
+    ## ## Parameters
+    ## - `points`: the vertices, in order
+    ## - `color`: the fill colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## An empty slice draws nothing.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_triangle_strip with (points at 0 to 3), raylib.RED
+    ## ```
+
+    weave draw_triangle_strip with points as slice of raylib.Vector2, color as raylib.Color into void:
+        if (points.length) == 0:
+            return
+        let raw_points as ref to void is transmute (sigil of (points at 0)) to (ref to void)
+        calling raylib.ImageDrawTriangleStrip with self, raw_points, (points.length), color
+
+    ## Draws a filled rectangle.
+    ##
+    ## ## Parameters
+    ## - `x`: the top-left column
+    ## - `y`: the top-left row
+    ## - `width`: the width in pixels
+    ## - `height`: the height in pixels
+    ## - `color`: the fill colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_rectangle with 0, 0, 8, 8, raylib.GREEN
+    ## ```
+
+    weave draw_rectangle with x as int, y as int, width as int, height as int, color as raylib.Color into void:
+        calling raylib.ImageDrawRectangle with self, x, y, width, height, color
+
+    ## Draws a filled rectangle from a position and a size.
+    ##
+    ## ## Parameters
+    ## - `position`: the top-left corner
+    ## - `extent`: the width and height
+    ## - `color`: the fill colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_rectangle_at with origin, extent, raylib.GREEN
+    ## ```
+
+    weave draw_rectangle_at with position as raylib.Vector2, extent as raylib.Vector2, color as raylib.Color into void:
+        calling raylib.ImageDrawRectangleV with self, position, extent, color
+
+    ## Draws a filled rectangle.
+    ##
+    ## ## Parameters
+    ## - `rect`: the rectangle to fill
+    ## - `color`: the fill colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_rectangle_rec with rec, raylib.GREEN
+    ## ```
+
+    weave draw_rectangle_rec with rect as raylib.Rectangle, color as raylib.Color into void:
+        calling raylib.ImageDrawRectangleRec with self, rect, color
+
+    ## Draws a one-pixel rectangle outline.
+    ##
+    ## ## Parameters
+    ## - `x`: the top-left column
+    ## - `y`: the top-left row
+    ## - `width`: the width in pixels
+    ## - `height`: the height in pixels
+    ## - `color`: the outline colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_rectangle_outline with 0, 0, 8, 8, raylib.WHITE
+    ## ```
+
+    weave draw_rectangle_outline with x as int, y as int, width as int, height as int, color as raylib.Color into void:
+        calling raylib.ImageDrawRectangleLines with self, x, y, width, height, color
+
+    ## Draws a filled circle.
+    ##
+    ## ## Parameters
+    ## - `center_x`: the centre column
+    ## - `center_y`: the centre row
+    ## - `radius`: the radius in pixels
+    ## - `color`: the fill colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_circle with 8, 8, 4, raylib.RED
+    ## ```
+
+    weave draw_circle with center_x as int, center_y as int, radius as int, color as raylib.Color into void:
+        calling raylib.ImageDrawCircle with self, center_x, center_y, radius, color
+
+    ## Draws a filled circle from a `Vector2` centre.
+    ##
+    ## ## Parameters
+    ## - `center`: the circle centre
+    ## - `radius`: the radius in pixels
+    ## - `color`: the fill colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_circle_at with center, 4, raylib.RED
+    ## ```
+
+    weave draw_circle_at with center as raylib.Vector2, radius as int, color as raylib.Color into void:
+        calling raylib.ImageDrawCircleV with self, center, radius, color
+
+    ## Draws a one-pixel circle outline.
+    ##
+    ## ## Parameters
+    ## - `center_x`: the centre column
+    ## - `center_y`: the centre row
+    ## - `radius`: the radius in pixels
+    ## - `color`: the outline colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_circle_outline with 8, 8, 4, raylib.RED
+    ## ```
+
+    weave draw_circle_outline with center_x as int, center_y as int, radius as int, color as raylib.Color into void:
+        calling raylib.ImageDrawCircleLines with self, center_x, center_y, radius, color
+
+    ## Draws a one-pixel circle outline from a `Vector2` centre.
+    ##
+    ## ## Parameters
+    ## - `center`: the circle centre
+    ## - `radius`: the radius in pixels
+    ## - `color`: the outline colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_circle_outline_at with center, 4, raylib.RED
+    ## ```
+
+    weave draw_circle_outline_at with center as raylib.Vector2, radius as int, color as raylib.Color into void:
+        calling raylib.ImageDrawCircleLinesV with self, center, radius, color
+
+    ## Draws text using raylib's default font.
+    ##
+    ## ## Parameters
+    ## - `text`: the text to draw
+    ## - `x`: the top-left column
+    ## - `y`: the top-left row
+    ## - `font_size`: the font size in pixels
+    ## - `color`: the text colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## **Window-bound**, like every operation that walks the default font's glyph table (the `text` family measured that the table is null before `InitWindow`).
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_text with "hello", 0, 0, 10, raylib.WHITE
+    ## ```
+
+    weave draw_text with text as string, x as int, y as int, font_size as int, color as raylib.Color into void:
+        let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+        calling raylib.ImageDrawText with self, c_text, x, y, font_size, color
+
+    ## Draws text into the image using an explicit font.
+    ##
+    ## ## Parameters
+    ## - `font`: the font to draw with
+    ## - `text`: the text to draw
+    ## - `position`: the top-left corner
+    ## - `font_size`: the font size in pixels
+    ## - `spacing`: the extra letter spacing
+    ## - `tint`: the text colour
+    ##
+    ## ## Returns
+    ## Nothing; the image is changed in place.
+    ##
+    ## ## Notes
+    ## **Window-bound** for the same reason: a font has no glyph table before `InitWindow` unless it was loaded from a file.
+    ##
+    ## ## Memory
+    ## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling img.draw_text_ex with font, "hello", pos, 10.0, 1.0, raylib.WHITE
+    ## ```
+
+    weave draw_text_ex with font as raylib.Font, text as string, position as raylib.Vector2, font_size as f32, spacing as f32, tint as raylib.Color into void:
+        let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+        calling raylib.ImageDrawTextEx with self, font, c_text, position, font_size, spacing, tint
+
+
+## Reports whether an image holds a usable pixel buffer.
+##
+## ## Parameters
+## - `image`: the image to test
+##
+## ## Returns
+## `true` when raylib reports success.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var ok as bool is calling raylibx_images.is_image_valid with img
+## ```
+
+weave is_image_valid with image as raylib.Image into bool:
+    return calling raylib.IsImageValid with image
+
+## Releases an image's pixel buffer.
+##
+## ## Parameters
+## - `image`: the image to release
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## Every `load_*` and every method that returns a new `Image` (`copy`, `region`, `channel`) hands back a resource that must be released with this call.
+## The generators (`gen_image_*`) also allocate, so they need it too.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## calling raylibx_images.unload_image with img
+## ```
+
+weave unload_image with image as raylib.Image into void:
+    calling raylib.UnloadImage with image
+
+## Loads an image from a file.
+##
+## ## Parameters
+## - `path`: the file to load
+##
+## ## Returns
+## `some` with a valid image, or `maybe none` when raylib fails.
+##
+## ## Notes
+## The supported formats are the ones raylib was built with, normally PNG, BMP, TGA, GIF, QOI, JPG and PSF.
+## `maybe none` when the file is missing or the format is unsupported.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as maybe raylib.Image is calling raylibx_images.load_image with "art.png"
+## ```
+
+weave load_image with path as string into maybe raylib.Image:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    var img as raylib.Image is calling raylib.LoadImage with c_path
+    if calling raylib.IsImageValid with img:
+        return some img
+    return maybe none
+
+## Loads an image from a headerless raw file.
+##
+## ## Parameters
+## - `path`: the raw file
+## - `width`: the image width
+## - `height`: the image height
+## - `format`: the pixel format of the raw data
+## - `header_size`: how many bytes to skip before the pixel data
+##
+## ## Returns
+## `some` with a valid image, or `maybe none` when raylib fails.
+##
+## ## Notes
+## The caller must know the dimensions and format, because the file carries neither.
+## `maybe none` when the file is missing or raylib rejects the parameters.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as maybe raylib.Image is calling raylibx_images.load_image_raw with "data.raw", 64, 64, raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 0
+## ```
+
+weave load_image_raw with path as string, width as int, height as int, format as raylib.PixelFormat, header_size as int into maybe raylib.Image:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    var img as raylib.Image is calling raylib.LoadImageRaw with c_path, width, height, (format to int), header_size
+    if calling raylib.IsImageValid with img:
+        return some img
+    return maybe none
+
+## Decodes an image already held in memory.
+##
+## ## Parameters
+## - `file_type`: the extension raylib should parse, for example `".png"`
+## - `data`: the encoded file contents
+##
+## ## Returns
+## `some` with a valid image, or `maybe none` when raylib fails.
+##
+## ## Notes
+## Useful for images embedded in the executable or downloaded at runtime.
+## `maybe none` for an empty slice or an unsupported format.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as maybe raylib.Image is calling raylibx_images.load_image_from_memory with ".png", (blob at 0 to (blob.length))
+## ```
+
+weave load_image_from_memory with file_type as string, data as slice of byte into maybe raylib.Image:
+    let c_file_type as ref to frozen char is calling ffi.cstr_from_string with file_type
+    if (data.length) == 0:
+        return maybe none
+    let raw_data as ref to void is transmute (sigil of (data at 0)) to (ref to void)
+    var img as raylib.Image is calling raylib.LoadImageFromMemory with c_file_type, (transmute raw_data to ref to frozen byte), (data.length)
+    if calling raylib.IsImageValid with img:
+        return some img
+    return maybe none
+
+## Reads a GPU texture back into an image.
+##
+## ## Parameters
+## - `texture`: the texture to read back
+##
+## ## Returns
+## `some` with a valid image, or `maybe none` when raylib fails.
+##
+## ## Notes
+## This is a GPU read-back: it needs an active graphics context, so it is not testable headless.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as maybe raylib.Image is calling raylibx_images.load_image_from_texture with tex
+## ```
+
+weave load_image_from_texture with texture as raylib.Texture2D into maybe raylib.Image:
+    var img as raylib.Image is calling raylib.LoadImageFromTexture with texture
+    if calling raylib.IsImageValid with img:
+        return some img
+    return maybe none
+
+## Captures the current framebuffer as an image.
+##
+## ## Returns
+## `some` with a valid image, or `maybe none` when raylib fails.
+##
+## ## Notes
+## Requires an active window and a drawing frame; not testable headless.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var shot as maybe raylib.Image is calling raylibx_images.load_image_from_screen
+## ```
+
+weave load_image_from_screen into maybe raylib.Image:
+    var img as raylib.Image is calling raylib.LoadImageFromScreen
+    if calling raylib.IsImageValid with img:
+        return some img
+    return maybe none
+
+## Writes an image to a file.
+##
+## ## Parameters
+## - `image`: the image to write
+## - `path`: the destination file
+##
+## ## Returns
+## `true` when raylib reports success.
+##
+## ## Notes
+## The format is chosen from the file extension.
+## `true` when raylib reports success.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var ok as bool is calling raylibx_images.export_image with img, "/tmp/out.png"
+## ```
+
+weave export_image with image as raylib.Image, path as string into bool:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling raylib.ExportImage with image, c_path
+
+## Encodes an image into a byte buffer in memory.
+##
+## ## Parameters
+## - `image`: the image to encode
+## - `file_type`: the extension to encode as, for example `".png"`
+##
+## ## Returns
+## `some` with an owned `list of byte`, or `maybe none` when raylib fails to encode.
+##
+## ## Notes
+## raylib reports the buffer length through an out-parameter; the wrapper folds it into `.length` and copies the bytes into an owned list, releasing the raylib buffer.
+## `maybe none` when raylib fails to encode.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var blob as maybe (list of byte) is calling raylibx_images.export_image_to_memory with img, ".png"
+## ```
+
+weave export_image_to_memory with image as raylib.Image, file_type as string into maybe (list of byte):
+    let c_file_type as ref to frozen char is calling ffi.cstr_from_string with file_type
+    var n as int is 0
+    var raw as ref to byte is calling raylib.ExportImageToMemory with image, c_file_type, sigil of n
+    if calling ffi.is_null with (transmute raw to ref to void):
+        return maybe none
+    let as_void as ref to void is transmute raw to ref to void
+    var owned as list of byte is calling ffi.list_of_bytes_from_ptr with as_void, n
+    calling raylib.MemFree with as_void
+    return some owned
+
+## Writes an image as a C source file holding its bytes.
+##
+## ## Parameters
+## - `image`: the image to export
+## - `path`: the destination `.c`/`.h`
+##
+## ## Returns
+## `true` when raylib reports success.
+##
+## ## Notes
+## This is how raylib bootstraps its own embedded assets.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var ok as bool is calling raylibx_images.export_image_as_code with img, "sprite.c"
+## ```
+
+weave export_image_as_code with image as raylib.Image, path as string into bool:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    return calling raylib.ExportImageAsCode with image, c_path
+
+## Creates an image filled with one colour.
+##
+## ## Parameters
+## - `width`: the image width
+## - `height`: the image height
+## - `color`: the fill colour
+##
+## ## Returns
+## A new `raylib.Image` that owns its pixel buffer.
+##
+## ## Notes
+## **Pure CPU work**: no window and no GPU are involved, so this and the other generators are asserted directly in CI.
+## The result owns its pixel buffer and must be released with `unload_image`.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as raylib.Image is calling raylibx_images.gen_image_color with 8, 8, raylib.RED
+## ```
+
+weave gen_image_color with width as int, height as int, color as raylib.Color into raylib.Image:
+    return calling raylib.GenImageColor with width, height, color
+
+## Creates an image with a linear colour gradient.
+##
+## ## Parameters
+## - `width`: the image width
+## - `height`: the image height
+## - `direction`: the gradient direction, `0` to `3` clockwise from the top
+## - `start`: the colour the gradient starts from
+## - `end`: the colour the gradient ends at
+##
+## ## Returns
+## A new `raylib.Image` that owns its pixel buffer.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as raylib.Image is calling raylibx_images.gen_image_gradient_linear with 8, 8, 0, raylib.RED, raylib.BLUE
+## ```
+
+weave gen_image_gradient_linear with width as int, height as int, direction as int, start as raylib.Color, end as raylib.Color into raylib.Image:
+    return calling raylib.GenImageGradientLinear with width, height, direction, start, end
+
+## Creates an image with a radial colour gradient.
+##
+## ## Parameters
+## - `width`: the image width
+## - `height`: the image height
+## - `density`: how tightly the gradient falls off, in `[0..1]`
+## - `inner`: the centre colour
+## - `outer`: the edge colour
+##
+## ## Returns
+## A new `raylib.Image` that owns its pixel buffer.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as raylib.Image is calling raylibx_images.gen_image_gradient_radial with 8, 8, 0.5, raylib.WHITE, raylib.BLACK
+## ```
+
+weave gen_image_gradient_radial with width as int, height as int, density as f32, inner as raylib.Color, outer as raylib.Color into raylib.Image:
+    return calling raylib.GenImageGradientRadial with width, height, density, inner, outer
+
+## Creates an image with a square-shaped radial gradient.
+##
+## ## Parameters
+## - `width`: the image width
+## - `height`: the image height
+## - `density`: how tightly the gradient falls off, in `[0..1]`
+## - `inner`: the centre colour
+## - `outer`: the edge colour
+##
+## ## Returns
+## A new `raylib.Image` that owns its pixel buffer.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as raylib.Image is calling raylibx_images.gen_image_gradient_square with 8, 8, 0.5, raylib.WHITE, raylib.BLACK
+## ```
+
+weave gen_image_gradient_square with width as int, height as int, density as f32, inner as raylib.Color, outer as raylib.Color into raylib.Image:
+    return calling raylib.GenImageGradientSquare with width, height, density, inner, outer
+
+## Creates a checkerboard image.
+##
+## ## Parameters
+## - `width`: the image width
+## - `height`: the image height
+## - `checks_x`: how many checker columns
+## - `checks_y`: how many checker rows
+## - `col1`: the first checker colour
+## - `col2`: the second checker colour
+##
+## ## Returns
+## A new `raylib.Image` that owns its pixel buffer.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as raylib.Image is calling raylibx_images.gen_image_checked with 8, 8, 2, 2, raylib.RED, raylib.BLUE
+## ```
+
+weave gen_image_checked with width as int, height as int, checks_x as int, checks_y as int, col1 as raylib.Color, col2 as raylib.Color into raylib.Image:
+    return calling raylib.GenImageChecked with width, height, checks_x, checks_y, col1, col2
+
+## Creates an image of white noise.
+##
+## ## Parameters
+## - `width`: the image width
+## - `height`: the image height
+## - `factor`: the noise intensity, in `[0..1]`
+##
+## ## Returns
+## A new `raylib.Image` that owns its pixel buffer.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as raylib.Image is calling raylibx_images.gen_image_white_noise with 8, 8, 0.5
+## ```
+
+weave gen_image_white_noise with width as int, height as int, factor as f32 into raylib.Image:
+    return calling raylib.GenImageWhiteNoise with width, height, factor
+
+## Creates a Perlin noise image.
+##
+## ## Parameters
+## - `width`: the image width
+## - `height`: the image height
+## - `offset_x`: the noise origin in x
+## - `offset_y`: the noise origin in y
+## - `scale`: the noise frequency
+##
+## ## Returns
+## A new `raylib.Image` that owns its pixel buffer.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as raylib.Image is calling raylibx_images.gen_image_perlin_noise with 8, 8, 0, 0, 4.0
+## ```
+
+weave gen_image_perlin_noise with width as int, height as int, offset_x as int, offset_y as int, scale as f32 into raylib.Image:
+    return calling raylib.GenImagePerlinNoise with width, height, offset_x, offset_y, scale
+
+## Creates a cellular-automaton image.
+##
+## ## Parameters
+## - `width`: the image width
+## - `height`: the image height
+## - `tile_size`: the size of the cellular tiles
+##
+## ## Returns
+## A new `raylib.Image` that owns its pixel buffer.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as raylib.Image is calling raylibx_images.gen_image_cellular with 8, 8, 4
+## ```
+
+weave gen_image_cellular with width as int, height as int, tile_size as int into raylib.Image:
+    return calling raylib.GenImageCellular with width, height, tile_size
+
+## Creates an image whose pixels come from the bits of a string.
+##
+## ## Parameters
+## - `width`: the image width
+## - `height`: the image height
+## - `text`: the text to render as pixels
+##
+## ## Returns
+## A new `raylib.Image` that owns its pixel buffer.
+##
+## ## Notes
+## This is not a text renderer: it maps the string's bytes onto pixel values, which is useful for steganography-style tricks and for tiny bitmaps.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as raylib.Image is calling raylibx_images.gen_image_text with 8, 1, "pengu"
+## ```
+
+weave gen_image_text with width as int, height as int, text as string into raylib.Image:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling raylib.GenImageText with width, height, c_text
+
+## Renders text into a new image using the default font.
+##
+## ## Parameters
+## - `text`: the text to render
+## - `font_size`: the font size in pixels
+## - `color`: the text colour
+##
+## ## Returns
+## A new `raylib.Image` that owns its pixel buffer.
+##
+## ## Notes
+## **Window-bound**: the default font has no glyph table before `InitWindow` (measured in the `text` family, where it segfaults).
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as raylib.Image is calling raylibx_images.image_from_text with "hello", 10, raylib.WHITE
+## ```
+
+weave image_from_text with text as string, font_size as int, color as raylib.Color into raylib.Image:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling raylib.ImageText with c_text, font_size, color
+
+## Renders text into a new image using an explicit font.
+##
+## ## Parameters
+## - `font`: the font to render with
+## - `text`: the text to render
+## - `font_size`: the font size in pixels
+## - `spacing`: the extra letter spacing
+## - `tint`: the text colour
+##
+## ## Returns
+## A new `raylib.Image` that owns its pixel buffer.
+##
+## ## Notes
+## **Window-bound** unless the font was loaded from a file, for the same reason as `image_from_text`.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var img as raylib.Image is calling raylibx_images.image_from_text_ex with font, "hello", 10.0, 1.0, raylib.WHITE
+## ```
+
+weave image_from_text_ex with font as raylib.Font, text as string, font_size as f32, spacing as f32, tint as raylib.Color into raylib.Image:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    return calling raylib.ImageTextEx with font, c_text, font_size, spacing, tint
+
+## Computes how many bytes a pixel buffer of a given size and format needs.
+##
+## ## Parameters
+## - `width`: the image width in pixels
+## - `height`: the image height in pixels
+## - `format`: the pixel format
+##
+## ## Returns
+## The size in bytes.
+##
+## ## Notes
+## Pure arithmetic with no image involved, which makes it the cheapest thing in this family to test.
+## Measured: 4x4 in `R8G8B8A8` is 64 bytes and in `R8G8B8` is 48.
+##
+## ## Memory
+## Nothing is leaked: every raylib buffer this wrapper allocates or receives is released before returning.
+##
+## ## Example
+## ```pengu
+## var n as int is calling raylibx_images.pixel_data_size with 64, 64, raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+## ```
+
+weave pixel_data_size with width as int, height as int, format as raylib.PixelFormat into int:
+    return calling raylib.GetPixelDataSize with width, height, (format to int)
+
+# --- Tests ---
+
+test "gen_image_color fills every pixel":
+    var img as raylib.Image is calling gen_image_color with 4, 3, raylib.RED
+    defer calling unload_image with img
+    calling ward.assert_eq_int with (img.width), 4
+    calling ward.assert_eq_int with (img.height), 3
+    calling ward.assert_true with (calling is_image_valid with img)
+    var c as raylib.Color is calling img.color_at with 1, 1
+    calling ward.assert_eq_int with (c.r to int), 230
+    calling ward.assert_eq_int with (c.a to int), 255
+
+test "gen_image_color with BLANK is fully transparent":
+    var img as raylib.Image is calling gen_image_color with 2, 2, raylib.BLANK
+    defer calling unload_image with img
+    var c as raylib.Color is calling img.color_at with 0, 0
+    calling ward.assert_eq_int with (c.a to int), 0
+
+test "gen_image_checked produces both colours":
+    var img as raylib.Image is calling gen_image_checked with 8, 8, 2, 2, raylib.RED, raylib.BLUE
+    defer calling unload_image with img
+    calling ward.assert_eq_int with (img.width), 8
+    var first as raylib.Color is calling img.color_at with 0, 0
+    calling ward.assert_eq_int with (first.r to int), 230
+
+test "gen_image_gradient_linear runs from one colour to the other":
+    var img as raylib.Image is calling gen_image_gradient_linear with 16, 1, 0, raylib.BLACK, raylib.WHITE
+    defer calling unload_image with img
+    calling ward.assert_eq_int with (img.height), 1
+    var left as raylib.Color is calling img.color_at with 0, 0
+    var right as raylib.Color is calling img.color_at with 15, 0
+    calling ward.assert_true with ((right.r to int) > (left.r to int))
+
+test "gen_image_gradient_radial and square have the requested size":
+    var a as raylib.Image is calling gen_image_gradient_radial with 8, 8, 0.5, raylib.WHITE, raylib.BLACK
+    defer calling unload_image with a
+    var b as raylib.Image is calling gen_image_gradient_square with 8, 8, 0.5, raylib.WHITE, raylib.BLACK
+    defer calling unload_image with b
+    calling ward.assert_eq_int with (a.width), 8
+    calling ward.assert_eq_int with (b.height), 8
+
+test "gen_image_white_noise and perlin_noise and cellular have the requested size":
+    var a as raylib.Image is calling gen_image_white_noise with 8, 4, 0.5
+    defer calling unload_image with a
+    var b as raylib.Image is calling gen_image_perlin_noise with 8, 4, 0, 0, 4.0
+    defer calling unload_image with b
+    var c as raylib.Image is calling gen_image_cellular with 8, 4, 4
+    defer calling unload_image with c
+    calling ward.assert_eq_int with (a.width), 8
+    calling ward.assert_eq_int with (b.width), 8
+    calling ward.assert_eq_int with (c.width), 8
+
+test "gen_image_text maps a string onto pixels":
+    var img as raylib.Image is calling gen_image_text with 8, 1, "pengu"
+    defer calling unload_image with img
+    calling ward.assert_eq_int with (img.width), 8
+    calling ward.assert_eq_int with (img.height), 1
+
+test "copy is independent of the original":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    var clone as raylib.Image is calling img.copy
+    defer calling unload_image with clone
+    calling ward.assert_eq_int with (clone.width), 4
+    calling ward.assert_true with (calling is_image_valid with clone)
+    calling img.clear with raylib.GREEN
+    var c as raylib.Color is calling clone.color_at with 0, 0
+    calling ward.assert_eq_int with (c.r to int), 230
+
+test "region extracts a sub-image":
+    var img as raylib.Image is calling gen_image_color with 8, 8, raylib.RED
+    defer calling unload_image with img
+    var part as raylib.Image is calling img.region with (with x is 0.0, y is 0.0, width is 2.0, height is 3.0)
+    defer calling unload_image with part
+    calling ward.assert_eq_int with (part.width), 2
+    calling ward.assert_eq_int with (part.height), 3
+
+test "channel extracts a grayscale image":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    var ch as raylib.Image is calling img.channel with 0
+    defer calling unload_image with ch
+    calling ward.assert_eq_int with (ch.width), 4
+    calling ward.assert_eq_int with (ch.format), 1
+
+test "colors returns one entry per pixel":
+    var img as raylib.Image is calling gen_image_color with 4, 3, raylib.RED
+    defer calling unload_image with img
+    var pixels as maybe (list of raylib.Color) is calling img.colors
+    calling ward.assert_maybe_present with pixels
+    var owned as list of raylib.Color is calling pixels.unwrap
+    defer banish owned
+    calling ward.assert_eq_int with (owned.length), 12
+    calling ward.assert_eq_int with (((owned at 0).r) to int), 230
+
+test "palette of a solid image has one entry":
+    var img as raylib.Image is calling gen_image_color with 8, 8, raylib.RED
+    defer calling unload_image with img
+    var pal as list of raylib.Color is calling img.palette with 16
+    defer banish pal
+    calling ward.assert_eq_int with (pal.length), 1
+
+test "alpha_border of a fully opaque image is the whole image":
+    var img as raylib.Image is calling gen_image_color with 6, 4, raylib.RED
+    defer calling unload_image with img
+    var border as raylib.Rectangle is calling img.alpha_border with 0.5
+    calling ward.assert_almost_eq with border.width, 6.0, 0.001
+    calling ward.assert_almost_eq with border.height, 4.0, 0.001
+
+test "color_at reads a pixel that draw_pixel just wrote":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.BLANK
+    defer calling unload_image with img
+    calling img.draw_pixel with 2, 1, raylib.RED
+    var c as raylib.Color is calling img.color_at with 2, 1
+    calling ward.assert_eq_int with (c.r to int), 230
+    calling ward.assert_eq_int with (c.a to int), 255
+
+test "crop changes the dimensions":
+    var img as raylib.Image is calling gen_image_color with 8, 8, raylib.RED
+    defer calling unload_image with img
+    calling img.crop with (with x is 0.0, y is 0.0, width is 4.0, height is 3.0)
+    calling ward.assert_eq_int with (img.width), 4
+    calling ward.assert_eq_int with (img.height), 3
+
+test "resize and resize_nearest change the dimensions":
+    var img as raylib.Image is calling gen_image_color with 8, 8, raylib.RED
+    defer calling unload_image with img
+    calling img.resize with 16, 4
+    calling ward.assert_eq_int with (img.width), 16
+    calling ward.assert_eq_int with (img.height), 4
+    calling img.resize_nearest with 2, 2
+    calling ward.assert_eq_int with (img.width), 2
+
+test "resize_canvas keeps the content and grows the canvas":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    calling img.resize_canvas with 8, 8, 2, 2, raylib.BLANK
+    calling ward.assert_eq_int with (img.width), 8
+    var corner as raylib.Color is calling img.color_at with 0, 0
+    calling ward.assert_eq_int with (corner.a to int), 0
+
+test "rotate_cw swaps the dimensions":
+    var img as raylib.Image is calling gen_image_color with 8, 4, raylib.RED
+    defer calling unload_image with img
+    calling img.rotate_cw
+    calling ward.assert_eq_int with (img.width), 4
+    calling ward.assert_eq_int with (img.height), 8
+
+test "rotate_ccw swaps the dimensions back":
+    var img as raylib.Image is calling gen_image_color with 8, 4, raylib.RED
+    defer calling unload_image with img
+    calling img.rotate_ccw
+    calling ward.assert_eq_int with (img.width), 4
+    calling ward.assert_eq_int with (img.height), 8
+
+test "flip_vertical and flip_horizontal keep the dimensions":
+    var img as raylib.Image is calling gen_image_checked with 4, 4, 2, 2, raylib.RED, raylib.BLUE
+    defer calling unload_image with img
+    calling img.flip_vertical
+    calling img.flip_horizontal
+    calling ward.assert_eq_int with (img.width), 4
+    calling ward.assert_eq_int with (img.height), 4
+
+test "to_format changes the pixel format":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    calling img.to_format with raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8
+    calling ward.assert_eq_int with (img.format), 4
+
+test "to_power_of_two pads the image":
+    var img as raylib.Image is calling gen_image_color with 3, 3, raylib.RED
+    defer calling unload_image with img
+    calling img.to_power_of_two with raylib.BLANK
+    calling ward.assert_eq_int with (img.width), 4
+    calling ward.assert_eq_int with (img.height), 4
+
+test "clear fills the whole image":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    calling img.clear with raylib.GREEN
+    var c as raylib.Color is calling img.color_at with 3, 3
+    calling ward.assert_eq_int with (c.g to int), 228
+
+test "tint with black darkens the image":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    calling img.tint with raylib.BLACK
+    var c as raylib.Color is calling img.color_at with 0, 0
+    calling ward.assert_eq_int with (c.r to int), 0
+
+test "invert flips the channels":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    calling img.invert
+    var c as raylib.Color is calling img.color_at with 0, 0
+    calling ward.assert_eq_int with (c.r to int), 25
+
+test "to_grayscale equalises the channels":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    calling img.to_grayscale
+    var c as raylib.Color is calling img.color_at with 0, 0
+    calling ward.assert_eq_int with (c.r to int), (c.g to int)
+
+test "adjust_contrast and adjust_brightness keep the dimensions":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    calling img.adjust_contrast with 20
+    calling img.adjust_brightness with -30
+    calling ward.assert_eq_int with (img.width), 4
+
+test "replace_color swaps one exact colour":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    calling img.replace_color with raylib.RED, raylib.BLUE
+    var c as raylib.Color is calling img.color_at with 0, 0
+    calling ward.assert_eq_int with (c.b to int), 241
+
+test "generate_mipmaps multiplies the height":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    calling img.generate_mipmaps
+    calling ward.assert_true with (img.mipmaps > 1)
+
+test "blur_gaussian and dither keep the dimensions":
+    var img as raylib.Image is calling gen_image_checked with 8, 8, 2, 2, raylib.RED, raylib.BLUE
+    defer calling unload_image with img
+    calling img.blur_gaussian with 4
+    calling img.dither with 5, 6, 5, 0
+    calling ward.assert_eq_int with (img.width), 8
+
+test "convolve applies a 3x3 identity kernel":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    var kernel as list of f32 is [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    defer banish kernel
+    calling img.convolve with (kernel at 0 to 9)
+    var c as raylib.Color is calling img.color_at with 1, 1
+    calling ward.assert_eq_int with (c.r to int), 230
+
+test "convolve on an empty kernel is a no-op":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    var kernel as list of f32 is list of f32
+    defer banish kernel
+    calling img.convolve with (kernel at 0 to 0)
+    calling ward.assert_eq_int with (img.width), 4
+
+test "crop_to_alpha and clear_alpha work on a blank image":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.BLANK
+    defer calling unload_image with img
+    calling img.crop_to_alpha with 0.5
+    calling img.clear_alpha with raylib.RED, 0.5
+    calling ward.assert_true with (img.width >= 1)
+
+test "apply_alpha_mask and premultiply_alpha keep the dimensions":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    var mask as raylib.Image is calling gen_image_color with 4, 4, raylib.WHITE
+    defer calling unload_image with mask
+    calling img.apply_alpha_mask with mask
+    calling img.premultiply_alpha
+    calling ward.assert_eq_int with (img.width), 4
+
+test "the drawing methods all land on the image":
+    var img as raylib.Image is calling gen_image_color with 16, 16, raylib.BLANK
+    defer calling unload_image with img
+    calling img.draw_pixel_at with (with x is 1.0, y is 1.0), raylib.RED
+    calling img.draw_line with 0, 0, 15, 15, raylib.RED
+    calling img.draw_line_between with (with x is 0.0, y is 15.0), (with x is 15.0, y is 0.0), raylib.RED
+    calling img.draw_line_thick with (with x is 0.0, y is 0.0), (with x is 15.0, y is 0.0), 2, raylib.RED
+    calling img.draw_rectangle with 2, 2, 4, 4, raylib.GREEN
+    calling img.draw_rectangle_at with (with x is 8.0, y is 8.0), (with x is 4.0, y is 4.0), raylib.GREEN
+    calling img.draw_rectangle_rec with (with x is 0.0, y is 8.0, width is 2.0, height is 2.0), raylib.GREEN
+    calling img.draw_rectangle_outline with 10, 10, 4, 4, raylib.WHITE
+    calling img.draw_circle with 8, 8, 3, raylib.BLUE
+    calling img.draw_circle_at with (with x is 3.0, y is 3.0), 2, raylib.BLUE
+    calling img.draw_circle_outline with 12, 12, 2, raylib.BLUE
+    calling img.draw_circle_outline_at with (with x is 1.0, y is 12.0), 1, raylib.BLUE
+    calling img.draw_triangle with (with x is 0.0, y is 0.0), (with x is 3.0, y is 0.0), (with x is 0.0, y is 3.0), raylib.PURPLE
+    calling img.draw_triangle_outline with (with x is 5.0, y is 0.0), (with x is 8.0, y is 0.0), (with x is 5.0, y is 3.0), raylib.PURPLE
+    var tri as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish tri
+    calling tri.push with (with x is 0.0, y is 0.0)
+    calling tri.push with (with x is 4.0, y is 0.0)
+    calling tri.push with (with x is 0.0, y is 4.0)
+    calling img.draw_triangle_fan with (tri at 0 to 3), raylib.YELLOW
+    calling img.draw_triangle_strip with (tri at 0 to 3), raylib.YELLOW
+    calling ward.assert_eq_int with (img.width), 16
+    var c as raylib.Color is calling img.color_at with 3, 3
+    calling ward.assert_eq_int with (c.b to int), 241
+
+test "the triangle draws on an empty slice are no-ops":
+    var img as raylib.Image is calling gen_image_color with 4, 4, raylib.RED
+    defer calling unload_image with img
+    var none as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish none
+    calling img.draw_triangle_fan with (none at 0 to 0), raylib.WHITE
+    calling img.draw_triangle_strip with (none at 0 to 0), raylib.WHITE
+    calling ward.assert_eq_int with (img.width), 4
+
+test "is_image_valid rejects a zeroed image":
+    var img as raylib.Image is calling gen_image_color with 2, 2, raylib.RED
+    defer calling unload_image with img
+    calling ward.assert_true with (calling is_image_valid with img)
+
+test "pixel_data_size counts bytes per format":
+    calling ward.assert_eq_int with (calling pixel_data_size with 4, 4, raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8), 64
+    calling ward.assert_eq_int with (calling pixel_data_size with 4, 4, raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8), 48
+
+test "load_image is none for a missing file":
+    var img as maybe raylib.Image is calling load_image with "/tmp/raylibx_images_absent.png"
+    calling ward.assert_maybe_none with img
+
+test "load_image_raw is none for a missing file":
+    var img as maybe raylib.Image is calling load_image_raw with "/tmp/raylibx_images_absent.raw", 4, 4, raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 0
+    calling ward.assert_maybe_none with img
+
+test "load_image_from_memory is none for an empty or bogus buffer":
+    var empty as list of byte is list of byte
+    defer banish empty
+    var a as maybe raylib.Image is calling load_image_from_memory with ".png", (empty at 0 to 0)
+    calling ward.assert_maybe_none with a
+    var junk as list of byte is list of byte
+    defer banish junk
+    calling junk.push with 1
+    calling junk.push with 2
+    var b as maybe raylib.Image is calling load_image_from_memory with ".png", (junk at 0 to 2)
+    calling ward.assert_maybe_none with b
+
+test "export_image_to_memory encodes a png":
+    var img as raylib.Image is calling gen_image_color with 2, 2, raylib.RED
+    defer calling unload_image with img
+    var blob as maybe (list of byte) is calling export_image_to_memory with img, ".png"
+    calling ward.assert_maybe_present with blob
+    var owned as list of byte is calling blob.unwrap
+    defer banish owned
+    calling ward.assert_gt_int with (owned.length), 8
+
+test "export_image and export_image_as_code write files":
+    var seed as int is calling raylib.GetRandomValue with 100000, 999999
+    var png as string is "/tmp/raylibx_images_{(seed to string)}.png"
+    var src as string is "/tmp/raylibx_images_{(seed to string)}.c"
+    defer calling raylib.FileRemove with (calling ffi.cstr_from_string with png)
+    defer calling raylib.FileRemove with (calling ffi.cstr_from_string with src)
+    var img as raylib.Image is calling gen_image_color with 2, 2, raylib.RED
+    defer calling unload_image with img
+    calling ward.assert_true with (calling export_image with img, png)
+    calling ward.assert_true with (calling export_image_as_code with img, src)
+
+# The window-bound surface is not called in CI: a GPU read-back, a framebuffer capture and
+# the two text renderers, which walk the default font's glyph table (null before
+# InitWindow; the text family measured the segfault). This probe type-checks them.
+weave images_api_probe with tex as raylib.Texture2D, font as raylib.Font into void:
+    var img as raylib.Image is calling gen_image_color with 2, 2, raylib.RED
+    defer calling unload_image with img
+    var from_tex as maybe raylib.Image is calling load_image_from_texture with tex
+    var shot as maybe raylib.Image is calling load_image_from_screen
+    var text_img as raylib.Image is calling image_from_text with "hi", 10, raylib.WHITE
+    var text_img2 as raylib.Image is calling image_from_text_ex with font, "hi", 10.0, 1.0, raylib.WHITE
+    calling img.draw_text with "hi", 0, 0, 10, raylib.WHITE
+    calling img.draw_text_ex with font, "hi", (with x is 0.0, y is 0.0), 10.0, 1.0, raylib.WHITE

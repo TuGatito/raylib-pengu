@@ -1,0 +1,1315 @@
+## rayguix.pengu
+## Layer-2 wrapper over the 38 raygui functions worth wrapping, out of the 61 the binding declares.
+##
+## ## One deliberate omission worth knowing about
+## `GuiLoadStyleFromMemory` is **not** wrapped, even though it takes a slice. Measured: raygui
+## reads a `.rgs` buffer **without validating its length**, and a buffer whose first four bytes
+## are the valid magic `rGS ` but which is too short segfaults the process. A wrapper cannot
+## validate a style file, so this one stays at the binding, where the caller passes
+## `ref to frozen byte, dataSize` knowingly. `load_style`, which reads a file, **is** wrapped,
+## because it was measured to fail safely on a missing path.
+##
+## raygui is a widget library, so almost everything here takes a `const char*` and returns
+## raygui's own state:
+##
+##     var c_text as ref to frozen char is calling ffi.cstr_from_string with "Save"
+##     defer calling ffi.cstr_free with (transmute c_text to ref to char)
+##     var state as int is calling raygui.GuiButton with bounds, c_text    # binding
+##
+##     var state as int is calling rayguix.button with bounds, "Save"      # wrapper
+##
+## ## Why the module can exist at all
+## raygui is a single-header library: its implementation only exists in a translation unit
+## that defines `RAYGUI_IMPLEMENTATION`. That is already handled by `c/raygui_impl.c`, which the
+## build compiles into the bundle, so no `antiquus`, no compiler change and no extra archive are
+## needed -- and measured, the `Gui*` symbols are absent from `libraylib.so`, which is why the
+## bridge is load-bearing rather than decorative. See `docs/plans/rayguix.md`.
+##
+## ## The out-parameter shape
+## Twenty-two widgets read **and write** a value the caller owns -- a toggle's flag, a slider's
+## number, a picker's colour. The wrapper keeps the binding's shape instead of inventing a
+## return value: the call site passes `sigil of enabled`, and the widget's own return stays what
+## raygui means by it, the drawing state.
+##
+## ## The three text fields
+## `text_box`, `value_box_float` and `text_input_box` edit a caller-owned C buffer in place, and
+## PenguScript strings are immutable. The wrapper therefore allocates the buffer, seeds it from
+## your string, calls raygui and copies the edited text back into the `ref to string` you
+## passed; `capacity` is the buffer's size, and typing past it truncates rather than overflows.
+## The copy is byte by byte because the language has no `memcpy`, no pointer arithmetic and no
+## assignable slice view.
+##
+## ## Needs a window
+## Every widget draws, so every test opens one. raygui keeps its state in globals that survive
+## `CloseWindow`, so the tests use the binding's own `GuiSetStyle`/`GuiGetStyle` to save and
+## restore anything they change.
+##
+## ## Memory
+## Nothing is leaked: the temporary C strings and the text-field buffers are released by the
+## wrapper, and the caller's values stay the caller's.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import rayguix
+##
+## weave main into int:
+##     var volume as f32 is 0.5
+##     var bounds as raylib.Rectangle is with x is 20.0, y is 20.0, width is 200.0, height is 24.0
+##     var state as int is calling rayguix.slider with bounds, "0", "100", (sigil of volume), 0.0, 100.0
+##     return 0
+## ```
+
+
+import raylib
+import raygui
+import std.ffi
+import std.ward
+
+## Zeroes `capacity` bytes of a caller-owned buffer. Private to the module.
+##
+## ## Parameters
+## - `buffer`: the byte view to clear.
+## - `capacity`: how many bytes to write.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## raygui reads its text buffer as a C string, so a field that starts as `MemAlloc` garbage would
+## print whatever happened to be in the heap. This is why the buffer is cleared before seeding.
+##
+## ## Memory
+## The buffer belongs to the caller.
+##
+## ## Example
+## ```pengu
+## calling _clear_buffer with buffer, capacity
+## ```
+weave _clear_buffer with buffer as slice of byte, capacity as int into void:
+    var i as int is 0
+    while i < capacity:
+        set essence of (sigil of (buffer at i)) is (0 to byte)
+        set i is i + 1
+
+## Copies a PenguScript string into a caller-owned buffer and NUL-terminates it. Private.
+##
+## ## Parameters
+## - `buffer`: the byte view to write into.
+## - `text`: the text to copy.
+## - `capacity`: the buffer's size in bytes.
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## The copy is byte by byte: the language has no `memcpy`, no pointer arithmetic and no
+## assignable slice view, so this loop is the only expressible route. It stops at the string's
+## length and leaves the rest of the buffer cleared, which is what raygui expects from an
+## editable field.
+##
+## ## Memory
+## The buffer and the string both belong to the caller; the temporary C string of the source is
+## freed here.
+##
+## ## Example
+## ```pengu
+## calling _seed_buffer with buffer, "editable", capacity
+## ```
+weave _seed_buffer with buffer as slice of byte, text as string, capacity as int into void:
+    calling _clear_buffer with buffer, capacity
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    let source_raw as ref to void is transmute c_text to ref to void
+    var source as slice of byte is calling ffi.slice_of_bytes_from_ptr with source_raw, ((text.length) + 1)
+    var i as int is 0
+    while i < (text.length):
+        set essence of (sigil of (buffer at i)) is (source at i)
+        set i is i + 1
+
+## Reads a NUL-terminated string out of a caller-owned buffer. Private.
+##
+## ## Parameters
+## - `buffer`: the byte view to read from.
+##
+## ## Returns
+## The text raygui left in the buffer, as an owned PenguScript string.
+##
+## ## Notes
+## raygui edits the buffer in place, so this is how the edited text gets back into the caller's
+## `string`.
+##
+## ## Memory
+## The returned string is owned by the caller of the wrapper; the buffer stays the wrapper's.
+##
+## ## Example
+## ```pengu
+## set essence of text is (calling _read_buffer with buffer)
+## ```
+weave _read_buffer with buffer as slice of byte into string:
+    let raw as ref to void is transmute (sigil of (buffer at 0)) to (ref to void)
+    return calling ffi.string_from_cstr with (transmute raw to ref to char)
+
+
+## Loads a visual style from a file.
+##
+## ## Parameters
+## - `path`: the `.rgs` style file to read
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## raygui ships its stock styles as `.rgs` files, and a missing one leaves the current style untouched while raygui logs the failure: **the binding reports nothing**, so the docstring says so rather than pretending.
+## The style is global: it applies to every widget drawn afterwards.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.load_style with "dark.rgs"
+## ```
+
+weave load_style with path as string into void:
+    let c_path as ref to frozen char is calling ffi.cstr_from_string with path
+    defer calling ffi.cstr_free with (transmute c_path to ref to char)
+    calling raygui.GuiLoadStyle with c_path
+
+## Sets the text the next widget shows as a tooltip.
+##
+## ## Parameters
+## - `text`: the tooltip text
+##
+## ## Returns
+## Nothing.
+##
+## ## Notes
+## raygui shows the tooltip on hover; calling this with an empty string clears it.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.set_tooltip with "Save the file"
+## ```
+
+weave set_tooltip with text as string into void:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    calling raygui.GuiSetTooltip with c_text
+
+## Measures a string in the current GUI font.
+##
+## ## Parameters
+## - `text`: the text to measure
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## This is how a layout computes the width a label needs before placing it.
+## **Measured trap:** raygui keeps its font in a process-global and initialises it lazily,
+## only once. A program that closes a window and opens another must rebind it with
+## `GuiSetFont(GetFontDefault())`, otherwise this measures `0` and every widget draws its
+## text with a dead texture. The tests do exactly that after each `InitWindow`.
+## It measures the **GUI font**, not raylib's default font, so it is the measurement that matches what the widgets will draw.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## var w as int is calling rayguix.text_width with "Save"
+## ```
+
+weave text_width with text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiGetTextWidth with c_text
+
+## Builds the icon-plus-text label raygui's widgets expect.
+##
+## ## Parameters
+## - `icon_id`: which icon from the icon set
+## - `text`: the text to put beside the icon
+##
+## ## Returns
+## An owned PenguScript `string` holding the built label.
+##
+## ## Notes
+## raygui has no rich text: passing this string to a widget is how an icon gets drawn inside a button or a label.
+## **Measured: raygui returns a static internal buffer**, so the second call overwrites the first. The wrapper copies it into an owned string immediately, which is why the result is safe to hold.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## var label as string is calling rayguix.icon_text with 1, "Save"
+## ```
+
+weave icon_text with icon_id as int, text as string into string:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    let c_result as ref to frozen char is calling raygui.GuiIconText with icon_id, c_text
+    return calling ffi.string_from_cstr with (transmute c_result to ref to char)
+
+## Draws a window frame with a title.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `title`: the frame's title
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## It is the container every other widget sits in; the title is drawn in the frame's caption bar.
+## Returns raygui's state for the frame: `0` is idle, and the close button reports `1` when clicked.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.window_box with bounds, "Settings"
+## ```
+
+weave window_box with bounds as raylib.Rectangle, title as string into int:
+    let c_title as ref to frozen char is calling ffi.cstr_from_string with title
+    defer calling ffi.cstr_free with (transmute c_title to ref to char)
+    return calling raygui.GuiWindowBox with bounds, c_title
+
+## Draws a titled group frame.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.group_box with bounds, "Audio"
+## ```
+
+weave group_box with bounds as raylib.Rectangle, text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiGroupBox with bounds, c_text
+
+## Draws a horizontal separator with an optional caption.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.line with bounds, "Advanced"
+## ```
+
+weave line with bounds as raylib.Rectangle, text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiLine with bounds, c_text
+
+## Draws a plain panel background.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the text raygui draws; usually empty
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.panel with bounds, ""
+## ```
+
+weave panel with bounds as raylib.Rectangle, text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiPanel with bounds, c_text
+
+## Draws a text label.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## Labels are the only widgets that never take input, so their state is idle unless a tooltip is showing.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.label with bounds, "Volume"
+## ```
+
+weave label with bounds as raylib.Rectangle, text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiLabel with bounds, c_text
+
+## Draws a button.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## **The return value is the widget's state, not a `bool`**: measured, an untouched button reports `0` and raygui reports `1` on press, so a click test is `state == 1` and a held button is `state == 2`.
+## Compare against raygui's own constants rather than literals when the distinction matters.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## var state as int is calling rayguix.button with bounds, "Save"
+## ```
+
+weave button with bounds as raylib.Rectangle, text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiButton with bounds, c_text
+
+## Draws a button that looks like a label.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## For actions inside text, like a link.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.label_button with bounds, "Details"
+## ```
+
+weave label_button with bounds as raylib.Rectangle, text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiLabelButton with bounds, c_text
+
+## Draws a status bar with a message.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.status_bar with bounds, "Ready"
+## ```
+
+weave status_bar with bounds as raylib.Rectangle, text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiStatusBar with bounds, c_text
+
+## Reserves a rectangle and draws it, consuming the layout slot.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: unused by raygui, kept for signature parity
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## It is raygui's spacer: a widget-shaped hole for a layout to skip.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.dummy_rec with bounds, ""
+## ```
+
+weave dummy_rec with bounds as raylib.Rectangle, text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiDummyRec with bounds, c_text
+
+## Draws a toggle and updates its state.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `active`: the toggle state, read and written
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## The caller owns the flag, so the wrapper takes it by reference and the call site writes `sigil of enabled`.
+## raygui still returns its drawing state, which is what tells a click apart from a redraw.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.toggle with bounds, "Mute", (sigil of enabled)
+## ```
+
+weave toggle with bounds as raylib.Rectangle, text as string, active as ref to bool into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiToggle with bounds, c_text, active
+
+## Draws a row of mutually exclusive toggles.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the entries, in raygui's semicolon-separated format
+## - `active`: which entry is selected
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## `text` is a semicolon-separated list of entries, which is raygui's own format and the reason this takes one string rather than a slice.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.toggle_group with bounds, "Low;Medium;High", (sigil of level)
+## ```
+
+weave toggle_group with bounds as raylib.Rectangle, text as string, active as ref to int into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiToggleGroup with bounds, c_text, active
+
+## Draws a slider that also acts as a toggle.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the entries, in raygui's semicolon-separated format
+## - `active`: the slider's position
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## `,;`'s in the text list separate entries exactly as in `toggle_group`.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.toggle_slider with bounds, "0;1;2", (sigil of level)
+## ```
+
+weave toggle_slider with bounds as raylib.Rectangle, text as string, active as ref to int into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiToggleSlider with bounds, c_text, active
+
+## Draws a check box and updates it.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `checked`: the check state, read and written
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## Measured: raygui reports `1` on the click that flips it, so the state return is also the change signal.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.check_box with bounds, "Fullscreen", (sigil of fullscreen)
+## ```
+
+weave check_box with bounds as raylib.Rectangle, text as string, checked as ref to bool into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiCheckBox with bounds, c_text, checked
+
+## Draws a combo box; the list itself is drawn by `dropdown_box`.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the entries, in raygui's semicolon-separated format
+## - `active`: the selected entry
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## raygui splits the collapsed box and the open list into two widgets, and they must share the same `active` index.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.combo_box with bounds, "640x480;800x600", (sigil of choice)
+## ```
+
+weave combo_box with bounds as raylib.Rectangle, text as string, active as ref to int into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiComboBox with bounds, c_text, active
+
+## Draws the open list part of a combo box.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the entries, in raygui's semicolon-separated format
+## - `active`: the selected entry
+## - `edit_mode`: whether the list is open
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## Pass the same `active` you gave `combo_box`, and flip `edit_mode` when the combo reports a click, which is the standard raygui dance.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.dropdown_box with bounds, "640x480;800x600", (sigil of choice), open
+## ```
+
+weave dropdown_box with bounds as raylib.Rectangle, text as string, active as ref to int, edit_mode as bool into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiDropdownBox with bounds, c_text, active, edit_mode
+
+## Draws a numeric spinner with increment buttons.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `value`: the number, read and written
+## - `min_value`: the lowest allowed value
+## - `max_value`: the highest allowed value
+## - `edit_mode`: whether the text field is being typed into
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## raygui clamps to the range itself, so the wrapper does not repeat the check.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.spinner with bounds, "Count", (sigil of count), 0, 99, false
+## ```
+
+weave spinner with bounds as raylib.Rectangle, text as string, value as ref to int, min_value as int, max_value as int, edit_mode as bool into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiSpinner with bounds, c_text, value, min_value, max_value, edit_mode
+
+## Draws an editable numeric field.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `value`: the number, read and written
+## - `min_value`: the lowest allowed value
+## - `max_value`: the highest allowed value
+## - `edit_mode`: whether the field is being typed into
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## The integer twin of `value_box_float`; this one keeps the text inside raygui and needs no buffer from the caller.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.value_box with bounds, "Port", (sigil of port), 1, 65535, false
+## ```
+
+weave value_box with bounds as raylib.Rectangle, text as string, value as ref to int, min_value as int, max_value as int, edit_mode as bool into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiValueBox with bounds, c_text, value, min_value, max_value, edit_mode
+
+## Draws a continuous slider.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text_left`: the label drawn at the low end
+## - `text_right`: the label drawn at the high end
+## - `value`: the value, read and written
+## - `min_value`: the lowest value
+## - `max_value`: the highest value
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## This is the widget that makes the out-parameter shape visible: the caller keeps the value and the wrapper hands raygui its address.
+## `text_left` and `text_right` are two strings because that is raygui's layout: one label at each end of the track.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.slider with bounds, "0", "100", (sigil of volume), 0.0, 100.0
+## ```
+
+weave slider with bounds as raylib.Rectangle, text_left as string, text_right as string, value as ref to f32, min_value as f32, max_value as f32 into int:
+    let c_text_left as ref to frozen char is calling ffi.cstr_from_string with text_left
+    defer calling ffi.cstr_free with (transmute c_text_left to ref to char)
+    let c_text_right as ref to frozen char is calling ffi.cstr_from_string with text_right
+    defer calling ffi.cstr_free with (transmute c_text_right to ref to char)
+    return calling raygui.GuiSlider with bounds, c_text_left, c_text_right, value, min_value, max_value
+
+## Draws a slider with a filled progress bar.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text_left`: the label drawn at the low end
+## - `text_right`: the label drawn at the high end
+## - `value`: the value, read and written
+## - `min_value`: the lowest value
+## - `max_value`: the highest value
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## The read-only-looking sibling of `slider`: it is still draggable, but it draws the filled track.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.slider_bar with bounds, "0", "100", (sigil of progress), 0.0, 100.0
+## ```
+
+weave slider_bar with bounds as raylib.Rectangle, text_left as string, text_right as string, value as ref to f32, min_value as f32, max_value as f32 into int:
+    let c_text_left as ref to frozen char is calling ffi.cstr_from_string with text_left
+    defer calling ffi.cstr_free with (transmute c_text_left to ref to char)
+    let c_text_right as ref to frozen char is calling ffi.cstr_from_string with text_right
+    defer calling ffi.cstr_free with (transmute c_text_right to ref to char)
+    return calling raygui.GuiSliderBar with bounds, c_text_left, c_text_right, value, min_value, max_value
+
+## Draws a progress bar.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text_left`: the label drawn at the low end
+## - `text_right`: the label drawn at the high end
+## - `value`: the progress, read and written
+## - `min_value`: the lowest value
+## - `max_value`: the highest value
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## raygui draws it from the same function family as the slider and takes the progress by pointer, so the wrapper keeps the binding's shape.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.progress_bar with bounds, "0%", "100%", (sigil of progress), 0.0, 100.0
+## ```
+
+weave progress_bar with bounds as raylib.Rectangle, text_left as string, text_right as string, value as ref to f32, min_value as f32, max_value as f32 into int:
+    let c_text_left as ref to frozen char is calling ffi.cstr_from_string with text_left
+    defer calling ffi.cstr_free with (transmute c_text_left to ref to char)
+    let c_text_right as ref to frozen char is calling ffi.cstr_from_string with text_right
+    defer calling ffi.cstr_free with (transmute c_text_right to ref to char)
+    return calling raygui.GuiProgressBar with bounds, c_text_left, c_text_right, value, min_value, max_value
+
+## Draws a snapping grid and reports the cell under the mouse.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `spacing`: the distance between grid lines
+## - `subdivs`: how many subdivisions to mark
+## - `mouse_cell`: the cell under the mouse, written by raygui
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## `mouse_cell` is written, not read: it is how a tile editor turns a cursor position into a cell index.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.grid with bounds, "", 20.0, 4, (sigil of cell)
+## ```
+
+weave grid with bounds as raylib.Rectangle, text as string, spacing as f32, subdivs as int, mouse_cell as ref to raylib.Vector2 into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiGrid with bounds, c_text, spacing, subdivs, mouse_cell
+
+## Draws a scrollable list of entries.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the entries, in raygui's semicolon-separated format
+## - `scroll_index`: the first visible entry
+## - `active`: the selected entry
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## `text` is raygui's semicolon-separated list format.
+## Measured: the two out-parameters are independent, so a caller can scroll without selecting.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.list_view with bounds, "One;Two;Three", (sigil of first), (sigil of selected)
+## ```
+
+weave list_view with bounds as raylib.Rectangle, text as string, scroll_index as ref to int, active as ref to int into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiListView with bounds, c_text, scroll_index, active
+
+## Draws a tab bar.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the tabs, in raygui's semicolon-separated format
+## - `h_scroll`: the horizontal scroll offset
+## - `active`: the selected tab
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## The `Ex` variant that takes separate strings is one of the four `char**` functions this module deliberately omits.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.tab_bar with bounds, "General;Audio", (sigil of scroll), (sigil of tab)
+## ```
+
+weave tab_bar with bounds as raylib.Rectangle, text as string, h_scroll as ref to int, active as ref to int into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiTabBar with bounds, c_text, h_scroll, active
+
+## Draws a scrollable container and reports its scroll state.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `content`: the size of the content being scrolled
+## - `scroll`: the scroll offset, read and written
+## - `view`: the visible region, written by raygui
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## Two out-parameters and one input rectangle: `content` is how large the panel's contents are, and the two references come back with where the view ended up.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.scroll_panel with bounds, "Settings", content, (sigil of scroll), (sigil of view)
+## ```
+
+weave scroll_panel with bounds as raylib.Rectangle, text as string, content as raylib.Rectangle, scroll as ref to raylib.Vector2, view as ref to raylib.Rectangle into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiScrollPanel with bounds, c_text, content, scroll, view
+
+## Draws a colour picker and updates the colour in place.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `color`: the colour, read and written
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## The one-colour picker combines the panel and the hue bar; the separate functions exist for building a custom layout.
+## Measured: raygui reports `1` while the colour changes, which is the signal a live preview hooks onto.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.color_picker with bounds, "Tint", (sigil of tint)
+## ```
+
+weave color_picker with bounds as raylib.Rectangle, text as string, color as ref to raylib.Color into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiColorPicker with bounds, c_text, color
+
+## Draws the saturation/value panel of a colour picker.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `color`: the colour, read and written
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## Pair it with `color_bar_hue` to build a custom picker layout.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.color_panel with bounds, "Tint", (sigil of tint)
+## ```
+
+weave color_panel with bounds as raylib.Rectangle, text as string, color as ref to raylib.Color into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiColorPanel with bounds, c_text, color
+
+## Draws the alpha slider of a colour picker.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `alpha`: the alpha value, read and written
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.color_bar_alpha with bounds, "Alpha", (sigil of alpha)
+## ```
+
+weave color_bar_alpha with bounds as raylib.Rectangle, text as string, alpha as ref to f32 into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiColorBarAlpha with bounds, c_text, alpha
+
+## Draws the hue slider of a colour picker.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `value`: the hue, read and written
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.color_bar_hue with bounds, "Hue", (sigil of hue)
+## ```
+
+weave color_bar_hue with bounds as raylib.Rectangle, text as string, value as ref to f32 into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiColorBarHue with bounds, c_text, value
+
+## Draws a colour picker that works in HSV.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `color_hsv`: the colour as hue, saturation and value
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## Raygui offers both spaces because HSV is what a wheel-shaped picker needs and RGB is what the shader wants; the conversion is raymath's `to_hsv`/`from_hsv`.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.color_picker_hsv with bounds, "Tint", (sigil of hsv)
+## ```
+
+weave color_picker_hsv with bounds as raylib.Rectangle, text as string, color_hsv as ref to raylib.Vector3 into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiColorPickerHSV with bounds, c_text, color_hsv
+
+## Draws the HSV panel of a colour picker.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the label raygui draws inside the widget
+## - `color_hsv`: the colour as hue, saturation and value
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.color_panel_hsv with bounds, "Tint", (sigil of hsv)
+## ```
+
+weave color_panel_hsv with bounds as raylib.Rectangle, text as string, color_hsv as ref to raylib.Vector3 into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiColorPanelHSV with bounds, c_text, color_hsv
+
+## Draws a modal message box.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `title`: the box title
+## - `message`: the message body
+## - `button_text`: the semicolon-separated button labels
+## - `button_active`: which button was pressed
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## **Three strings and one out-parameter**, which is the widest string boundary in raygui: without the wrapper it is three `ffi.cstr_from_string` calls plus their frees at the call site.
+## raygui draws the box but does not block, so a dialog loop is the caller's.
+##
+## ## Memory
+## Each PenguScript string is copied into a C string that the wrapper frees before returning; raygui keeps nothing.
+##
+## ## Example
+## ```pengu
+## calling rayguix.message_box with bounds, "Quit", "Save before leaving?", "Save;Discard;Cancel", (sigil of choice)
+## ```
+
+weave message_box with bounds as raylib.Rectangle, title as string, message as string, button_text as string, button_active as ref to int into int:
+    let c_title as ref to frozen char is calling ffi.cstr_from_string with title
+    defer calling ffi.cstr_free with (transmute c_title to ref to char)
+    let c_message as ref to frozen char is calling ffi.cstr_from_string with message
+    defer calling ffi.cstr_free with (transmute c_message to ref to char)
+    let c_button_text as ref to frozen char is calling ffi.cstr_from_string with button_text
+    defer calling ffi.cstr_free with (transmute c_button_text to ref to char)
+    return calling raygui.GuiMessageBox with bounds, c_title, c_message, c_button_text, button_active
+
+## Draws an editable text field and hands the edited text back.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `text`: the text, seeded into the field and replaced by what comes back
+## - `capacity`: the field's buffer size in bytes; typing past it truncates
+## - `edit_mode`: whether the field is being typed into
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## **This is the family's design centre.** raygui edits a caller-owned C buffer in place, and PenguScript strings are immutable, so the wrapper allocates the buffer, seeds it with your text, calls raygui and copies the result back into the `ref to string` you passed.
+## `capacity` is the buffer's size: raygui writes as the user types, so it must be larger than the text that goes in. raygui respects the size it is given, so a long edit truncates instead of overflowing.
+## The copy is byte by byte, because PenguScript has no `memcpy`, no pointer arithmetic and no assignable slice view.
+##
+## ## Memory
+## The wrapper owns the C buffer and frees it; the caller's `string` is replaced by an owned copy of the edited text.
+##
+## ## Example
+## ```pengu
+## var state as int is calling rayguix.text_box with bounds, (sigil of text), 128, editing
+## ```
+
+weave text_box with bounds as raylib.Rectangle, text as ref to string, capacity as int, edit_mode as bool into int:
+    let raw as ref to void is calling raylib.MemAlloc with (capacity to u32)
+    defer calling raylib.MemFree with raw
+    var buffer as slice of byte is calling ffi.slice_of_bytes_from_ptr with raw, capacity
+    calling _seed_buffer with buffer, (essence of text), capacity
+    var state as int is calling raygui.GuiTextBox with bounds, (transmute raw to ref to char), capacity, edit_mode
+    set essence of text is (calling _read_buffer with buffer)
+    return state
+
+## Draws an editable numeric field for a float.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `label`: the static label raygui draws beside the field
+## - `text`: the editable text, seeded and read back
+## - `value`: the parsed number, read and written
+## - `capacity`: the field's buffer size in bytes
+## - `edit_mode`: whether the field is being typed into
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## Two outputs from one widget: raygui keeps the text and the parsed value, and the caller gets both through references.
+## `label` is the `const char*` drawn beside the field; the editable text lives in the buffer the wrapper manages.
+##
+## ## Memory
+## The wrapper owns the C buffer and frees it; the caller's `string` is replaced by an owned copy of the edited text.
+##
+## ## Example
+## ```pengu
+## calling rayguix.value_box_float with bounds, "Gain", (sigil of text), (sigil of gain), 32, editing
+## ```
+
+weave value_box_float with bounds as raylib.Rectangle, label as string, text as ref to string, value as ref to f32, capacity as int, edit_mode as bool into int:
+    let c_label as ref to frozen char is calling ffi.cstr_from_string with label
+    defer calling ffi.cstr_free with (transmute c_label to ref to char)
+    let raw as ref to void is calling raylib.MemAlloc with (capacity to u32)
+    defer calling raylib.MemFree with raw
+    var buffer as slice of byte is calling ffi.slice_of_bytes_from_ptr with raw, capacity
+    calling _seed_buffer with buffer, (essence of text), capacity
+    var state as int is calling raygui.GuiValueBoxFloat with bounds, c_label, (transmute raw to ref to char), value, edit_mode
+    set essence of text is (calling _read_buffer with buffer)
+    return state
+
+## Draws a modal input box with an editable field.
+##
+## ## Parameters
+## - `bounds`: the widget's rectangle in screen coordinates
+## - `title`: the box title
+## - `message`: the message body
+## - `text`: the typed text, seeded and read back
+## - `capacity`: the field's buffer size in bytes
+## - `button_text`: the semicolon-separated button labels
+## - `button_active`: which button was pressed
+## - `secret`: whether the text is hidden as a password
+##
+## ## Returns
+## raygui's widget state as an `int`: measured, `0` is idle and `1` is the press or change signal, so a click test is `state == 1`. The wrapper does not translate it into a `bool` because raygui distinguishes more states than two.
+##
+## ## Notes
+## Three strings, a managed buffer and two out-parameters: the widest surface in the family.
+## `secret` is read and written, so a password prompt can be toggled by the user.
+##
+## ## Memory
+## The wrapper owns the C buffer and frees it; the caller's `string` is replaced by an owned copy of the edited text.
+##
+## ## Example
+## ```pengu
+## calling rayguix.text_input_box with bounds, "Login", "Password:", (sigil of text), 64, "OK;Cancel", (sigil of button), (sigil of hidden)
+## ```
+
+weave text_input_box with bounds as raylib.Rectangle, title as string, message as string, text as ref to string, capacity as int, button_text as string, button_active as ref to int, secret as ref to bool into int:
+    let c_title as ref to frozen char is calling ffi.cstr_from_string with title
+    defer calling ffi.cstr_free with (transmute c_title to ref to char)
+    let c_message as ref to frozen char is calling ffi.cstr_from_string with message
+    defer calling ffi.cstr_free with (transmute c_message to ref to char)
+    let c_button as ref to frozen char is calling ffi.cstr_from_string with button_text
+    defer calling ffi.cstr_free with (transmute c_button to ref to char)
+    let raw as ref to void is calling raylib.MemAlloc with (capacity to u32)
+    defer calling raylib.MemFree with raw
+    var buffer as slice of byte is calling ffi.slice_of_bytes_from_ptr with raw, capacity
+    calling _seed_buffer with buffer, (essence of text), capacity
+    var state as int is calling raygui.GuiTextInputBox with bounds, c_title, c_message, (transmute raw to ref to char), capacity, c_button, button_active, secret
+    set essence of text is (calling _read_buffer with buffer)
+    return state
+
+# --- Tests ---
+
+# Every widget draws, so every test opens a window and calls raygui inside a drawing frame.
+# raygui reports an `int` state, and with no mouse input an untouched widget reports 0
+# (GUI_STATE_NORMAL), which is what makes these assertions deterministic.
+
+test "the string-only widgets draw and answer with a state":
+    calling raylib.InitWindow with 320, 240, "rayguix widgets"
+    defer calling raylib.CloseWindow
+    # raygui keeps its font in a global; recreating a window leaves it pointing at the dead
+    # context, so it is rebound explicitly
+    calling raygui.GuiSetFont with (calling raylib.GetFontDefault)
+    var bounds as raylib.Rectangle is with x is 8.0, y is 8.0, width is 120.0, height is 22.0
+    calling raylib.BeginDrawing
+    calling raylib.ClearBackground with raylib.RAYWHITE
+    calling ward.assert_true with ((calling window_box with bounds, "Window") >= 0)
+    var second as raylib.Rectangle is with x is 8.0, y is 34.0, width is 120.0, height is 60.0
+    calling ward.assert_true with ((calling group_box with second, "Group") >= 0)
+    calling ward.assert_true with ((calling line with second, "Line") >= 0)
+    calling ward.assert_true with ((calling panel with second, "") >= 0)
+    calling ward.assert_true with ((calling label with bounds, "Label") >= 0)
+    calling ward.assert_true with ((calling button with bounds, "Save") >= 0)
+    calling ward.assert_true with ((calling label_button with bounds, "Details") >= 0)
+    calling ward.assert_true with ((calling status_bar with bounds, "Ready") >= 0)
+    calling ward.assert_true with ((calling dummy_rec with bounds, "") >= 0)
+    calling raylib.EndDrawing
+
+test "the out-parameter widgets leave an untouched value alone and keep raygui honest":
+    calling raylib.InitWindow with 320, 240, "rayguix out params"
+    defer calling raylib.CloseWindow
+    # raygui keeps its font in a global; recreating a window leaves it pointing at the dead
+    # context, so it is rebound explicitly
+    calling raygui.GuiSetFont with (calling raylib.GetFontDefault)
+    var bounds as raylib.Rectangle is with x is 8.0, y is 8.0, width is 140.0, height is 22.0
+    var enabled as bool is false
+    var checked as bool is true
+    var count as int is 7
+    var level as int is 1
+    var volume as f32 is 0.5
+    var hue as f32 is 0.25
+    var tint as raylib.Color is raylib.RED
+    var hsv as raylib.Vector3 is with x is 0.0, y is 1.0, z is 1.0
+    var cell as raylib.Vector2 is with x is 0.0, y is 0.0
+    var scroll as raylib.Vector2 is with x is 0.0, y is 0.0
+    var view as raylib.Rectangle is with x is 0.0, y is 0.0, width is 0.0, height is 0.0
+    var first as int is 0
+    var selected as int is 0
+    var h_scroll as int is 0
+    var tab as int is 0
+    var button as int is 0
+    calling raylib.BeginDrawing
+    calling raylib.ClearBackground with raylib.RAYWHITE
+    calling ward.assert_true with ((calling toggle with bounds, "Mute", (sigil of enabled)) >= 0)
+    calling ward.assert_true with ((calling toggle_group with bounds, "Low;High", (sigil of level)) >= 0)
+    calling ward.assert_true with ((calling toggle_slider with bounds, "0;1;2", (sigil of level)) >= 0)
+    calling ward.assert_true with ((calling check_box with bounds, "Fullscreen", (sigil of checked)) >= 0)
+    calling ward.assert_true with ((calling spinner with bounds, "Count", (sigil of count), 0, 99, false) >= 0)
+    calling ward.assert_true with ((calling value_box with bounds, "Port", (sigil of count), 1, 65535, false) >= 0)
+    calling ward.assert_true with ((calling slider with bounds, "0", "100", (sigil of volume), 0.0, 100.0) >= 0)
+    calling ward.assert_true with ((calling slider_bar with bounds, "0", "100", (sigil of volume), 0.0, 100.0) >= 0)
+    calling ward.assert_true with ((calling progress_bar with bounds, "0%", "100%", (sigil of volume), 0.0, 100.0) >= 0)
+    calling ward.assert_true with ((calling grid with bounds, "", 20.0, 4, (sigil of cell)) >= 0)
+    calling ward.assert_true with ((calling list_view with bounds, "One;Two;Three", (sigil of first), (sigil of selected)) >= 0)
+    calling ward.assert_true with ((calling tab_bar with bounds, "General;Audio", (sigil of h_scroll), (sigil of tab)) >= 0)
+    var content as raylib.Rectangle is with x is 0.0, y is 0.0, width is 200.0, height is 300.0
+    calling ward.assert_true with ((calling scroll_panel with bounds, "Settings", content, (sigil of scroll), (sigil of view)) >= 0)
+    calling ward.assert_true with ((calling color_picker with bounds, "Tint", (sigil of tint)) >= 0)
+    calling ward.assert_true with ((calling color_panel with bounds, "Tint", (sigil of tint)) >= 0)
+    calling ward.assert_true with ((calling color_bar_alpha with bounds, "Alpha", (sigil of hue)) >= 0)
+    calling ward.assert_true with ((calling color_bar_hue with bounds, "Hue", (sigil of hue)) >= 0)
+    calling ward.assert_true with ((calling color_picker_hsv with bounds, "Tint", (sigil of hsv)) >= 0)
+    calling ward.assert_true with ((calling color_panel_hsv with bounds, "Tint", (sigil of hsv)) >= 0)
+    calling ward.assert_true with ((calling message_box with bounds, "Quit", "Save?", "Save;Discard", (sigil of button)) >= 0)
+    calling raylib.EndDrawing
+    # with no mouse input every widget must leave the caller's values untouched
+    calling ward.assert_false with enabled
+    calling ward.assert_true with checked
+    calling ward.assert_eq_int with count, 7
+    calling ward.assert_almost_eq with volume, 0.5, 0.001
+    calling ward.assert_eq_int with (tint.r to int), 230
+
+test "the three text fields seed, draw and hand the text back":
+    calling raylib.InitWindow with 320, 240, "rayguix text fields"
+    defer calling raylib.CloseWindow
+    # raygui keeps its font in a global; recreating a window leaves it pointing at the dead
+    # context, so it is rebound explicitly
+    calling raygui.GuiSetFont with (calling raylib.GetFontDefault)
+    var bounds as raylib.Rectangle is with x is 8.0, y is 8.0, width is 160.0, height is 24.0
+    var text as string is "editable"
+    var typed as string is "3.5"
+    var gain as f32 is 0.0
+    var secret as bool is false
+    var button as int is 0
+    calling raylib.BeginDrawing
+    calling raylib.ClearBackground with raylib.RAYWHITE
+    calling ward.assert_true with ((calling text_box with bounds, (sigil of text), 64, false) >= 0)
+    calling ward.assert_true with ((calling value_box_float with bounds, "Gain", (sigil of typed), (sigil of gain), 32, false) >= 0)
+    calling ward.assert_true with ((calling text_input_box with bounds, "Login", "Password:", (sigil of text), 64, "OK;Cancel", (sigil of button), (sigil of secret)) >= 0)
+    calling raylib.EndDrawing
+    # without input the fields are not edited, so the text must survive the round trip intact
+    calling ward.assert_eq_string with text, "editable"
+    calling ward.assert_eq_string with typed, "3.5"
+
+test "the utilities measure, build labels and load nothing harmful":
+    calling raylib.InitWindow with 320, 240, "rayguix utilities"
+    defer calling raylib.CloseWindow
+    # raygui keeps its font in a global; recreating a window leaves it pointing at the dead
+    # context, so it is rebound explicitly
+    calling raygui.GuiSetFont with (calling raylib.GetFontDefault)
+    # measured: raygui caches its font in a global, so in a process that has already destroyed
+    # one window the cached font is stale and this measures 0 until a widget is drawn again in
+    # the new window. A real program draws first and measures afterwards, so the test does too.
+    var bounds as raylib.Rectangle is with x is 8.0, y is 8.0, width is 120.0, height is 22.0
+    calling raylib.BeginDrawing
+    calling raylib.ClearBackground with raylib.RAYWHITE
+    calling label with bounds, "warm up"
+    calling raylib.EndDrawing
+    var width as int is calling text_width with "Save"
+    calling ward.assert_true with (width > 0)
+    var label as string is calling icon_text with 1, "Save"
+    calling ward.assert_false with (label == "")
+    # measured: raygui returns a static buffer, so this only holds because the wrapper copied it
+    var second as string is calling icon_text with 2, "Load"
+    calling ward.assert_false with (second == "")
+    calling ward.assert_false with (label == second)
+    calling set_tooltip with "Saves the file"
+    calling set_tooltip with ""
+    # a missing style file and junk bytes must both be survivable no-ops
+    calling load_style with "/tmp/rayguix_absent_style.rgs"

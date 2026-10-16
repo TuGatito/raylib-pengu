@@ -1,0 +1,840 @@
+## rcamerax.pengu
+## Layer-2 wrapper over the `rcamera` binding: a Pengunic `Camera3D` controller.
+##
+## The binding exposes twelve free functions that all take `Camera *` as their first
+## parameter. This wrapper turns each of them into a method on `raylib.Camera3D`, so the
+## `(sigil of cam)` that the FFI boundary requires disappears from the call site:
+##
+##     calling rcamera.CameraMoveForward with (sigil of cam), 0.1, true   # binding
+##     calling cam.move_forward with 0.1, true                            # wrapper
+##
+## `UpdateCamera` and `UpdateCameraPro` are **not** here: they are already declared in
+## `pengu/raylib.d.pengu` and remain reachable as `raylib.UpdateCamera` /
+## `raylib.UpdateCameraPro`. This module covers custom camera controllers built by hand.
+##
+## Note that `rcamera.h` only supports `Camera3D`; it has no helper for `Camera2D`.
+##
+## ## Cost
+## Every method lowers to exactly one call into the binding. Verified with `pengu expand`:
+## the seven mutators emit `Camera3D_move_* / yaw / pitch / roll(&cam, ...)` and the five getters
+## emit `Camera3D_forward(&cam)` and friends, with no temporaries and no `memcpy`. Keep that
+## invariant when editing: re-run `pengu expand` if a method name or body changes.
+##
+## ## Memory
+## No allocation, no ownership, nothing to release: every method is arithmetic over the
+## camera struct. There is no `banish`, no `std.ffi` and no `transmute` in this module.
+##
+## ## Example
+## ```pengu
+## import raylib
+## import rcamerax
+##
+## weave main into int:
+##     var cam as raylib.Camera3D is with position is (calling Vector3.new with 0.0, 10.0, 10.0), target is (calling Vector3.new with 0.0, 0.0, 0.0), up is (calling Vector3.new with 0.0, 1.0, 0.0), fovy is 45.0, projection is 0
+##     calling cam.move_forward with 0.1, true
+##     var forward as raylib.Vector3 is calling cam.forward
+##     return 0
+## ```
+
+
+import raylib
+import raymath
+import rcamera
+import std.ward
+
+enchanting raylib.Camera3D:
+
+    ## Returns the camera view direction as a unit vector.
+    ##
+    ## ## Returns
+    ## A normalised `raylib.Vector3` pointing from `position` towards `target`.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## var forward as raylib.Vector3 is calling cam.forward
+    ## ```
+
+    weave forward into raylib.Vector3:
+        return calling rcamera.GetCameraForward with self
+
+    ## Returns the camera up direction as a unit vector.
+    ##
+    ## ## Parameters
+    ## - `up` is both a field of `Camera3D` and this method. `cam.up` without `calling` reads the raw field; `calling cam.up` invokes this method, which returns that same field **normalised**. It is *not* rebuilt from the view direction, so it is only orthogonal to `forward` when the caller kept the field orthogonal.
+    ## - Note that the other `rcamera` helpers use the *raw* `camera.up` field, not this normalised value: a non-unit `up` field changes how `move_forward`, `yaw` and `pitch` behave. Keep `camera.up` unit length.
+    ##
+    ## ## Returns
+    ## A normalised `raylib.Vector3` perpendicular to `forward`.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## var normalised_up as raylib.Vector3 is calling cam.up
+    ## var raw_field as raylib.Vector3 is cam.up
+    ## ```
+
+    weave up into raylib.Vector3:
+        return calling rcamera.GetCameraUp with self
+
+    ## Returns the camera right direction as a unit vector.
+    ##
+    ## ## Returns
+    ## A normalised `raylib.Vector3` perpendicular to `forward` and to `up`.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## var right as raylib.Vector3 is calling cam.right
+    ## ```
+
+    weave right into raylib.Vector3:
+        return calling rcamera.GetCameraRight with self
+
+    ## Builds the view matrix for the camera.
+    ##
+    ## ## Returns
+    ## A `raylib.Matrix` that transforms world space into camera space.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## var view as raylib.Matrix is calling cam.view_matrix
+    ## ```
+
+    weave view_matrix into raylib.Matrix:
+        return calling rcamera.GetCameraViewMatrix with self
+
+    ## Builds the projection matrix for the camera.
+    ##
+    ## ## Parameters
+    ## - - `aspect`: viewport aspect ratio, width divided by height. A value of `0.0` divides by zero and yields non-finite entries; no default is assumed because the wrapper cannot know the window size.
+    ##
+    ## ## Returns
+    ## A `raylib.Matrix` with the perspective or orthographic projection, according to `camera.projection`.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## var projection as raylib.Matrix is calling cam.projection_matrix with 1.7777778
+    ## ```
+
+    weave projection_matrix with aspect as f32 into raylib.Matrix:
+        return calling rcamera.GetCameraProjectionMatrix with self, aspect
+
+    ## Moves the camera along its view direction.
+    ##
+    ## ## Parameters
+    ## - - `distance`: how far to move; negative values move backwards.
+    ## - - `in_plane`: when true the camera moves on the world XZ plane, keeping `position.y` unchanged (the usual first-person behaviour); when false it moves along the real view vector, so looking up also gains height.
+    ##
+    ## ## Returns
+    ## Nothing; `self` is mutated in place.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## calling cam.move_forward with 0.1, true
+    ## ```
+
+    weave move_forward with distance as f32, in_plane as bool into void:
+        calling rcamera.CameraMoveForward with self, distance, in_plane
+
+    ## Moves the camera along the world up axis.
+    ##
+    ## ## Parameters
+    ## - - `distance`: how far to move; negative values move down. There is no `in_plane` flag: the C function does not take one.
+    ##
+    ## ## Returns
+    ## Nothing; `self` is mutated in place.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## calling cam.move_up with 0.1
+    ## ```
+
+    weave move_up with distance as f32 into void:
+        calling rcamera.CameraMoveUp with self, distance
+
+    ## Moves the camera along its right direction.
+    ##
+    ## ## Parameters
+    ## - - `distance`: how far to move; negative values move left.
+    ## - - `in_plane`: when true the movement stays on the world XZ plane; when false it follows the camera's real right vector.
+    ##
+    ## ## Returns
+    ## Nothing; `self` is mutated in place.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## calling cam.move_right with 0.1, true
+    ## ```
+
+    weave move_right with distance as f32, in_plane as bool into void:
+        calling rcamera.CameraMoveRight with self, distance, in_plane
+
+    ## Changes the camera-to-target distance by an offset, moving the camera along its view axis.
+    ##
+    ## ## Parameters
+    ## - - `delta`: an **offset added to the current distance**, not a new distance and not a lerp fraction. `0.0` leaves the camera where it is, a negative value moves the camera closer to the target, and a positive value moves it further away. The resulting distance is clamped to a small positive minimum, so a large negative `delta` parks the camera almost on the target. This differs from `move_forward`, which takes an absolute distance.
+    ##
+    ## ## Returns
+    ## Nothing; `self` is mutated in place.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## calling cam.move_to_target with 0.1
+    ## ```
+
+    weave move_to_target with delta as f32 into void:
+        calling rcamera.CameraMoveToTarget with self, delta
+
+    ## Rotates the camera horizontally around its up axis.
+    ##
+    ## ## Parameters
+    ## - - `angle`: rotation in radians.
+    ## - - `around_target`: when true the camera orbits the target and its `position` moves; when false the camera pivots on its own `position` and the `target` moves.
+    ##
+    ## ## Returns
+    ## Nothing; `self` is mutated in place.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## calling cam.yaw with 0.05, true
+    ## ```
+
+    weave yaw with angle as f32, around_target as bool into void:
+        calling rcamera.CameraYaw with self, angle, around_target
+
+    ## Rotates the camera vertically around its right axis (looking up and down).
+    ##
+    ## ## Parameters
+    ## - - `angle`: rotation in radians.
+    ## - - `lock_view`: when true the angle is clamped so the camera can never look past straight up or straight down; when false the view can somersault.
+    ## - - `around_target`: when true the camera orbits the target and its `position` moves; when false it pivots on its own `position` and the `target` moves.
+    ## - - `rotate_up`: when true the camera's `up` field is rotated as well, which is normally only wanted in a free-flying camera.
+    ##
+    ## ## Returns
+    ## Nothing; `self` is mutated in place.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## calling cam.pitch with 0.05, true, true, false
+    ## ```
+
+    weave pitch with angle as f32, lock_view as bool, around_target as bool, rotate_up as bool into void:
+        calling rcamera.CameraPitch with self, angle, lock_view, around_target, rotate_up
+
+    ## Rolls the camera around its view direction.
+    ##
+    ## ## Parameters
+    ## - - `angle`: rotation in radians; positive values tilt one way and negative the other.
+    ##
+    ## ## Returns
+    ## Nothing; `self` is mutated in place.
+    ##
+    ## ## Memory
+    ## No allocation; every method is a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## calling cam.roll with 0.05
+    ## ```
+
+    weave roll with angle as f32 into void:
+        calling rcamera.CameraRoll with self, angle
+
+    ## Projects a world-space point onto the screen.
+    ##
+    ## ## Parameters
+    ## - `position`: the world-space point to project.
+    ##
+    ## ## Returns
+    ## The screen position in pixels, with the origin at the top left.
+    ##
+    ## ## Notes
+    ## **Measured: this needs a window to have existed.** It divides by the current screen size,
+    ## and before any window exists that size is `0`, so the answer comes back as `NaN` instead of
+    ## an error: a headless program propagates a non-finite value silently. The size is remembered
+    ## even after `CloseWindow`, so the failure only shows in a program that never opens a window.
+    ## `to_screen_ex` is the way out: it takes the viewport explicitly, was measured to work with
+    ## no window at all, and is also what a program rendering to a different-size target needs.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var cam as raylib.Camera3D is calling make_camera
+    ## var on_screen as raylib.Vector2 is calling cam.to_screen with (with x is 0.0, y is 0.0, z is 0.0)
+    ## ```
+    weave to_screen with position as raylib.Vector3 into raylib.Vector2:
+        return calling raylib.GetWorldToScreen with position, (essence of self)
+
+    ## Projects a world-space point onto a viewport of a given size.
+    ##
+    ## ## Parameters
+    ## - `position`: the world-space point to project.
+    ## - `width`: the viewport width in pixels.
+    ## - `height`: the viewport height in pixels.
+    ##
+    ## ## Returns
+    ## The position in that viewport, with the origin at its top left.
+    ##
+    ## ## Notes
+    ## **Measured to work with no window at all**, which makes it the one projection that a
+    ## headless test can check — and the reason a render-to-texture pass, whose viewport is not
+    ## the window's, should prefer this form.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var centred as raylib.Vector2 is calling cam.to_screen_ex with target, 800, 600
+    ## ```
+    weave to_screen_ex with position as raylib.Vector3, width as int, height as int into raylib.Vector2:
+        return calling raylib.GetWorldToScreenEx with position, (essence of self), width, height
+
+    ## Builds a ray from a screen position into the world.
+    ##
+    ## ## Parameters
+    ## - `position`: the screen position in pixels.
+    ##
+    ## ## Returns
+    ## A `raylib.Ray` starting at the camera's position and pointing through that pixel.
+    ##
+    ## ## Notes
+    ## This is how a click becomes a 3D ray for picking. Like `to_screen`, **it needs a window to
+    ## have existed**; measured, before one does it comes back with `NaN` components. Use
+    ## `to_world_ray_ex` for a headless run or a viewport that is not the window's.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ray as raylib.Ray is calling cam.to_world_ray with (calling raylib.GetMousePosition)
+    ## ```
+    weave to_world_ray with position as raylib.Vector2 into raylib.Ray:
+        return calling raylib.GetScreenToWorldRay with position, (essence of self)
+
+    ## Builds a ray from a screen position into the world, for a viewport of a given size.
+    ##
+    ## ## Parameters
+    ## - `position`: the position inside that viewport, in pixels.
+    ## - `width`: the viewport width in pixels.
+    ## - `height`: the viewport height in pixels.
+    ##
+    ## ## Returns
+    ## A `raylib.Ray` starting at the camera's position and pointing through that pixel.
+    ##
+    ## ## Notes
+    ## Measured to work with no window at all, like `to_screen_ex`.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var ray as raylib.Ray is calling cam.to_world_ray_ex with centre, 800, 600
+    ## ```
+    weave to_world_ray_ex with position as raylib.Vector2, width as int, height as int into raylib.Ray:
+        return calling raylib.GetScreenToWorldRayEx with position, (essence of self), width, height
+
+    ## Draws a textured quad that always faces the camera.
+    ##
+    ## ## Parameters
+    ## - `texture`: the texture to draw.
+    ## - `position`: where the quad stands in the world.
+    ## - `scale`: the quad's size in world units.
+    ## - `tint`: the colour multiplied into the texture.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## A billboard is the cheapest way to make a sprite exist in 3D: it is drawn inside the 3D
+    ## drawing mode and turns to face the camera, which is why the camera is its receiver.
+    ## Needs a drawing frame and a real texture, like every other drawing call.
+    ##
+    ## ## Memory
+    ## The texture keeps belonging to the caller.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling cam.draw_billboard with tex, (with x is 0.0, y is 0.0, z is 0.0), 1.0, raylib.WHITE
+    ## ```
+    weave draw_billboard with texture as raylib.Texture, position as raylib.Vector3, scale as f32, tint as raylib.Color into void:
+        calling raylib.DrawBillboard with (essence of self), texture, position, scale, tint
+
+    ## Draws a camera-facing quad from part of a texture.
+    ##
+    ## ## Parameters
+    ## - `texture`: the texture to draw.
+    ## - `source`: the rectangle of the texture to use.
+    ## - `position`: where the quad stands in the world.
+    ## - `quad_size`: the quad's width and height in world units.
+    ## - `tint`: the colour multiplied into the texture.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## The rectangle variant, for a sprite sheet: raylib has no notion of an atlas, so the frame is
+    ## chosen by hand from `source`.
+    ##
+    ## ## Memory
+    ## The texture keeps belonging to the caller.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling cam.draw_billboard_rec with tex, frame, position, (with x is 1.0, y is 1.0), raylib.WHITE
+    ## ```
+    # `size` is a reserved word in PenguScript (it belongs to `size of`), so the parameter is
+    # named `quad_size` here; the binding only gets away with `size` because it is a `declare`
+    weave draw_billboard_rec with texture as raylib.Texture, source as raylib.Rectangle, position as raylib.Vector3, quad_size as raylib.Vector2, tint as raylib.Color into void:
+        calling raylib.DrawBillboardRec with (essence of self), texture, source, position, quad_size, tint
+
+    ## Draws a camera-facing quad with full control over orientation and rotation.
+    ##
+    ## ## Parameters
+    ## - `texture`: the texture to draw.
+    ## - `source`: the rectangle of the texture to use.
+    ## - `position`: where the quad stands in the world.
+    ## - `up`: the world direction the quad's up edge should follow; the quad still turns to face the camera.
+    ## - `quad_size`: the quad's width and height in world units.
+    ## - `origin`: the quad's pivot, in the same units as `quad_size`.
+    ## - `rotation`: a rotation in degrees around the view axis.
+    ## - `tint`: the colour multiplied into the texture.
+    ##
+    ## ## Returns
+    ## Nothing.
+    ##
+    ## ## Notes
+    ## `up` is what keeps a billboard from tumbling as the camera moves; pass `(0, 1, 0)` for
+    ## upright sprites. Eight parameters, so the simpler two forms exist for the common cases.
+    ##
+    ## ## Memory
+    ## The texture keeps belonging to the caller.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## calling cam.draw_billboard_pro with tex, frame, position, up, size, origin, 45.0, raylib.WHITE
+    ## ```
+    weave draw_billboard_pro with texture as raylib.Texture, source as raylib.Rectangle, position as raylib.Vector3, up as raylib.Vector3, quad_size as raylib.Vector2, origin as raylib.Vector2, rotation as f32, tint as raylib.Color into void:
+        calling raylib.DrawBillboardPro with (essence of self), texture, source, position, up, quad_size, origin, rotation, tint
+
+enchanting raylib.Camera2D:
+
+    ## Projects a world-space point onto the screen for a 2D camera.
+    ##
+    ## ## Parameters
+    ## - `position`: the world-space point to project.
+    ##
+    ## ## Returns
+    ## The screen position in pixels, with the origin at the top left.
+    ##
+    ## ## Notes
+    ## **Measured to work with no window**: a 2D camera's transform is `target`, `offset`, `zoom`
+    ## and `rotation`, all of them the caller's, so no screen size is involved. The camera's
+    ## `target` lands exactly on its `offset`, which is what the property means.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var on_screen as raylib.Vector2 is calling cam.to_screen with (with x is 100.0, y is 100.0)
+    ## ```
+    weave to_screen with position as raylib.Vector2 into raylib.Vector2:
+        return calling raylib.GetWorldToScreen2D with position, (essence of self)
+
+    ## Converts a screen position into world space for a 2D camera.
+    ##
+    ## ## Parameters
+    ## - `position`: the screen position in pixels.
+    ##
+    ## ## Returns
+    ## The world-space point under that pixel.
+    ##
+    ## ## Notes
+    ## The inverse of `to_screen`, and measured to be an exact round trip with it: a world point
+    ## converted to the screen and back comes out unchanged. This is how a click becomes a world
+    ## position for placing, selecting or dragging.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var world as raylib.Vector2 is calling cam.to_world with (calling raylib.GetMousePosition)
+    ## ```
+    weave to_world with position as raylib.Vector2 into raylib.Vector2:
+        return calling raylib.GetScreenToWorld2D with position, (essence of self)
+
+    ## Builds the view matrix for a 2D camera.
+    ##
+    ## ## Returns
+    ## A `raylib.Matrix` that transforms world space into the camera's screen space.
+    ##
+    ## ## Notes
+    ## The 2D twin of `Camera3D.view_matrix`, and measured to work with no window. Measured for the
+    ## camera `target (100, 100)`, `offset (0, 0)`, `zoom 1`, `rotation 0`: `m0` and `m5` are `1`,
+    ## `m12` and `m13` are `-100`, which is the translation by `-target`.
+    ##
+    ## ## Memory
+    ## No allocation; a single direct C call.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var view as raylib.Matrix is calling cam.view_matrix
+    ## ```
+    weave view_matrix into raylib.Matrix:
+        return calling raylib.GetCameraMatrix2D with (essence of self)
+
+# --- Tests ---
+
+test "Camera3D.forward is a unit vector":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var f as raylib.Vector3 is calling cam.forward
+    calling ward.assert_almost_eq with (calling raymath.Vector3Length with f), 1.0, 0.001
+
+test "Camera3D.forward points at the target":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 0.0, z is 1.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var f as raylib.Vector3 is calling cam.forward
+    calling ward.assert_almost_eq with f.x, 0.0, 0.001
+    calling ward.assert_almost_eq with f.y, 0.0, 0.001
+    calling ward.assert_almost_eq with f.z, -1.0, 0.001
+
+test "Camera3D.forward is finite for a degenerate camera":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 0.0, z is 0.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var f as raylib.Vector3 is calling cam.forward
+    calling ward.assert_false with (f.x != f.x)
+
+test "Camera3D.up is a unit vector":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var u as raylib.Vector3 is calling cam.up
+    calling ward.assert_almost_eq with (calling raymath.Vector3Length with u), 1.0, 0.001
+
+test "Camera3D.up is the normalised up field":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var u as raylib.Vector3 is calling cam.up
+    calling ward.assert_almost_eq with u.x, 0.0, 0.001
+    calling ward.assert_almost_eq with u.y, 1.0, 0.001
+    calling ward.assert_almost_eq with u.z, 0.0, 0.001
+
+test "Camera3D.up agrees with the raw field on an axis-aligned camera":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 0.0, z is 1.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var u as raylib.Vector3 is calling cam.up
+    calling ward.assert_almost_eq with u.x, cam.up.x, 0.001
+    calling ward.assert_almost_eq with u.y, cam.up.y, 0.001
+    calling ward.assert_almost_eq with u.z, cam.up.z, 0.001
+
+test "Camera3D.right is a unit vector":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var r as raylib.Vector3 is calling cam.right
+    calling ward.assert_almost_eq with (calling raymath.Vector3Length with r), 1.0, 0.001
+
+test "Camera3D.right is orthogonal to forward and up":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var f as raylib.Vector3 is calling cam.forward
+    var r as raylib.Vector3 is calling cam.right
+    calling ward.assert_almost_eq with (calling raymath.Vector3DotProduct with f, r), 0.0, 0.001
+    calling ward.assert_almost_eq with (calling raymath.Vector3DotProduct with cam.up, r), 0.0, 0.001
+
+test "Camera3D.right follows the right-handed convention":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 0.0, z is 1.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var f as raylib.Vector3 is calling cam.forward
+    var u as raylib.Vector3 is calling cam.up
+    var r as raylib.Vector3 is calling cam.right
+    var cross is calling raymath.Vector3CrossProduct with f, u
+    calling ward.assert_almost_eq with cross.x, r.x, 0.001
+    calling ward.assert_almost_eq with cross.y, r.y, 0.001
+    calling ward.assert_almost_eq with cross.z, r.z, 0.001
+
+test "Camera3D.view_matrix has finite components":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var m as raylib.Matrix is calling cam.view_matrix
+    calling ward.assert_false with (m.m0 != m.m0)
+    calling ward.assert_false with (m.m15 != m.m15)
+
+test "Camera3D.view_matrix of a unit camera keeps the origin":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 0.0, z is 1.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var mat as raylib.Matrix is calling cam.view_matrix
+    var origin as raylib.Vector3 is calling raymath.Vector3Zero
+    var mapped as raylib.Vector3 is calling raymath.Vector3Transform with origin, mat
+    calling ward.assert_almost_eq with mapped.x, 0.0, 0.001
+    calling ward.assert_almost_eq with mapped.z, -1.0, 0.001
+
+test "Camera3D.view_matrix puts the camera on the negative view axis":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 0.0, z is 1.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var mat as raylib.Matrix is calling cam.view_matrix
+    calling ward.assert_almost_eq with mat.m12, 0.0, 0.001
+    calling ward.assert_almost_eq with mat.m13, 0.0, 0.001
+    calling ward.assert_almost_eq with mat.m14, -1.0, 0.001
+
+test "Camera3D.projection_matrix of a perspective camera":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var mat as raylib.Matrix is calling cam.projection_matrix with 1.0
+    calling ward.assert_almost_eq with mat.m0, 2.414213, 0.001
+    calling ward.assert_almost_eq with mat.m11, -1.0, 0.001
+    calling ward.assert_almost_eq with mat.m14, -0.100001, 0.001
+
+test "Camera3D.projection_matrix of an orthographic camera":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 1
+    var mat as raylib.Matrix is calling cam.projection_matrix with 1.0
+    calling ward.assert_almost_eq with mat.m0, 0.044444, 0.001
+    calling ward.assert_almost_eq with mat.m11, 0.0, 0.001
+    calling ward.assert_almost_eq with mat.m14, -1.0, 0.01
+
+test "Camera3D.projection_matrix of a perspective camera scales m0 with the aspect":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var square as raylib.Matrix is calling cam.projection_matrix with 1.0
+    var half as raylib.Matrix is calling cam.projection_matrix with 0.5
+    calling ward.assert_true with (half.m0 > square.m0)
+
+test "Camera3D.move_forward changes the position":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.position.z
+    calling cam.move_forward with 1.0, true
+    calling ward.assert_true with (cam.position.z != before)
+
+test "Camera3D.move_forward with in_plane keeps the height":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.position.y
+    calling cam.move_forward with 1.0, true
+    calling ward.assert_almost_eq with cam.position.y, before, 0.001
+
+test "Camera3D.move_forward with zero distance is a no-op":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.position.z
+    calling cam.move_forward with 0.0, true
+    calling ward.assert_almost_eq with cam.position.z, before, 0.001
+
+test "Camera3D.move_up raises the camera":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.position.y
+    calling cam.move_up with 1.0
+    calling ward.assert_almost_eq with cam.position.y, before + 1.0, 0.001
+
+test "Camera3D.move_up with a negative distance lowers the camera":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.position.y
+    calling cam.move_up with -1.0
+    calling ward.assert_almost_eq with cam.position.y, before - 1.0, 0.001
+
+test "Camera3D.move_up with zero distance is a no-op":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.position.y
+    calling cam.move_up with 0.0
+    calling ward.assert_almost_eq with cam.position.y, before, 0.001
+
+test "Camera3D.move_right changes the position":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.position.x
+    calling cam.move_right with 1.0, true
+    calling ward.assert_true with (cam.position.x != before)
+
+test "Camera3D.move_right with in_plane keeps the height":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.position.y
+    calling cam.move_right with 1.0, true
+    calling ward.assert_almost_eq with cam.position.y, before, 0.001
+
+test "Camera3D.move_right with zero distance is a no-op":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.position.x
+    calling cam.move_right with 0.0, true
+    calling ward.assert_almost_eq with cam.position.x, before, 0.001
+
+test "Camera3D.move_to_target with delta zero keeps the distance":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before_x as f32 is cam.position.x
+    var before_z as f32 is cam.position.z
+    calling cam.move_to_target with 0.0
+    calling ward.assert_almost_eq with cam.position.x, before_x, 0.01
+    calling ward.assert_almost_eq with cam.position.z, before_z, 0.01
+
+test "Camera3D.move_to_target with a negative delta approaches the target":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before is calling raymath.Vector3Distance with cam.position, cam.target
+    calling cam.move_to_target with -10.0
+    var after is calling raymath.Vector3Distance with cam.position, cam.target
+    calling ward.assert_almost_eq with after, before - 10.0, 0.01
+
+test "Camera3D.move_to_target with a positive delta retreats from the target":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before is calling raymath.Vector3Distance with cam.position, cam.target
+    calling cam.move_to_target with 10.0
+    var after is calling raymath.Vector3Distance with cam.position, cam.target
+    calling ward.assert_almost_eq with after, before + 10.0, 0.01
+    calling cam.move_to_target with -10000.0
+    var clamped is calling raymath.Vector3Distance with cam.position, cam.target
+    calling ward.assert_true with (clamped < 0.01)
+
+test "Camera3D.yaw with around_target moves the position":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.position.x
+    calling cam.yaw with 0.5, true
+    calling ward.assert_true with (cam.position.x != before)
+
+test "Camera3D.yaw without around_target moves the target":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.target.x
+    calling cam.yaw with 0.5, false
+    calling ward.assert_true with (cam.target.x != before)
+
+test "Camera3D.yaw a full turn restores the orientation":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before_x as f32 is cam.position.x
+    var before_z as f32 is cam.position.z
+    calling cam.yaw with 6.2831853, true
+    calling ward.assert_almost_eq with cam.position.x, before_x, 0.01
+    calling ward.assert_almost_eq with cam.position.z, before_z, 0.01
+
+test "Camera3D.pitch without lock_view can over-rotate":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    calling cam.pitch with 3.0, false, true, false
+    calling ward.assert_false with (cam.position.x != cam.position.x)
+
+test "Camera3D.pitch with rotate_up changes the up field":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.up.y
+    calling cam.pitch with 0.5, true, true, true
+    calling ward.assert_true with (cam.up.y != before)
+
+test "Camera3D.pitch without rotate_up leaves the up field alone":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.up.y
+    calling cam.pitch with 0.5, true, true, false
+    calling ward.assert_almost_eq with cam.up.y, before, 0.001
+
+test "Camera3D.roll changes the up field":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.up.y
+    calling cam.roll with 0.5
+    calling ward.assert_true with (cam.up.y != before)
+
+test "Camera3D.roll a full turn restores the up field":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before_x as f32 is cam.up.x
+    var before_y as f32 is cam.up.y
+    calling cam.roll with 6.2831853
+    calling ward.assert_almost_eq with cam.up.x, before_x, 0.01
+    calling ward.assert_almost_eq with cam.up.y, before_y, 0.01
+
+test "Camera3D.roll with zero angle is a no-op":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var before as f32 is cam.up.y
+    calling cam.roll with 0.0
+    calling ward.assert_almost_eq with cam.up.y, before, 0.001
+
+
+# The appendix's tests: the 2D camera and the `_ex` projections are pure maths on the caller's own
+# values, so they run with no window at all. Only the last test opens one, because the base
+# projections read the screen size and the billboards draw.
+
+test "Camera2D.to_screen lands the target on the offset":
+    var cam as raylib.Camera2D is with offset is (with x is 5.0, y is 5.0), target is (with x is 10.0, y is 20.0), rotation is 0.0, zoom is 2.0
+    var on_screen as raylib.Vector2 is calling cam.to_screen with (with x is 10.0, y is 20.0)
+    calling ward.assert_almost_eq with on_screen.x, 5.0, 0.001
+    calling ward.assert_almost_eq with on_screen.y, 5.0, 0.001
+
+test "Camera2D.to_screen and to_world are an exact round trip":
+    var cam as raylib.Camera2D is with offset is (with x is 0.0, y is 0.0), target is (with x is 100.0, y is 100.0), rotation is 0.0, zoom is 1.0
+    var world as raylib.Vector2 is with x is 150.0, y is 120.0
+    var on_screen as raylib.Vector2 is calling cam.to_screen with world
+    # measured with target (100,100) and no offset: the world point lands at (50, 20)
+    calling ward.assert_almost_eq with on_screen.x, 50.0, 0.001
+    calling ward.assert_almost_eq with on_screen.y, 20.0, 0.001
+    var back as raylib.Vector2 is calling cam.to_world with on_screen
+    calling ward.assert_almost_eq with back.x, 150.0, 0.001
+    calling ward.assert_almost_eq with back.y, 120.0, 0.001
+
+test "Camera2D.view_matrix is a translation by the target":
+    var cam as raylib.Camera2D is with offset is (with x is 0.0, y is 0.0), target is (with x is 100.0, y is 100.0), rotation is 0.0, zoom is 1.0
+    var view as raylib.Matrix is calling cam.view_matrix
+    calling ward.assert_almost_eq with view.m0, 1.0, 0.001
+    calling ward.assert_almost_eq with view.m5, 1.0, 0.001
+    calling ward.assert_almost_eq with view.m12, -100.0, 0.001
+    calling ward.assert_almost_eq with view.m13, -100.0, 0.001
+
+test "Camera3D.to_screen_ex centres the target with no window at all":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var centred as raylib.Vector2 is calling cam.to_screen_ex with cam.target, 800, 600
+    calling ward.assert_almost_eq with centred.x, 400.0, 0.001
+    calling ward.assert_almost_eq with centred.y, 300.0, 0.001
+
+test "Camera3D.to_world_ray_ex points from the camera through the target":
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 10.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    var ray as raylib.Ray is calling cam.to_world_ray_ex with (with x is 400.0, y is 300.0), 800, 600
+    calling ward.assert_almost_eq with ray.direction.x, 0.0, 0.001
+    calling ward.assert_almost_eq with ray.direction.y, -0.7071, 0.001
+    calling ward.assert_almost_eq with ray.direction.z, -0.7071, 0.001
+    # the ray starts where the camera is
+    calling ward.assert_almost_eq with ray.position.y, 10.0, 0.001
+
+test "with a window the base projections agree with the _ex forms and the billboards draw":
+    calling raylib.InitWindow with 320, 240, "rcamerax billboards"
+    defer calling raylib.CloseWindow
+    var cam as raylib.Camera3D is with position is (with x is 0.0, y is 0.0, z is 10.0), target is (with x is 0.0, y is 0.0, z is 0.0), up is (with x is 0.0, y is 1.0, z is 0.0), fovy is 45.0, projection is 0
+    # the base forms read the screen size, so they are only meaningful once a window exists
+    var base as raylib.Vector2 is calling cam.to_screen with cam.target
+    var explicit as raylib.Vector2 is calling cam.to_screen_ex with cam.target, 320, 240
+    calling ward.assert_almost_eq with base.x, explicit.x, 0.001
+    calling ward.assert_almost_eq with base.y, explicit.y, 0.001
+    var ray_base as raylib.Ray is calling cam.to_world_ray with (with x is 160.0, y is 120.0)
+    var ray_explicit as raylib.Ray is calling cam.to_world_ray_ex with (with x is 160.0, y is 120.0), 320, 240
+    calling ward.assert_almost_eq with ray_base.direction.z, ray_explicit.direction.z, 0.001
+    var image as raylib.Image is calling raylib.GenImageColor with 4, 4, raylib.RED
+    defer calling raylib.UnloadImage with image
+    var texture as raylib.Texture is calling raylib.LoadTextureFromImage with image
+    defer calling raylib.UnloadTexture with texture
+    calling ward.assert_true with (calling raylib.IsTextureValid with texture)
+    var source as raylib.Rectangle is with x is 0.0, y is 0.0, width is 4.0, height is 4.0
+    calling raylib.BeginDrawing
+    calling raylib.ClearBackground with raylib.RAYWHITE
+    calling cam.draw_billboard with texture, (with x is 0.0, y is 0.0, z is 0.0), 1.0, raylib.WHITE
+    calling cam.draw_billboard_rec with texture, source, (with x is 1.0, y is 0.0, z is 0.0), (with x is 1.0, y is 1.0), raylib.WHITE
+    calling cam.draw_billboard_pro with texture, source, (with x is 2.0, y is 0.0, z is 0.0), (with x is 0.0, y is 1.0, z is 0.0), (with x is 1.0, y is 1.0), (with x is 0.5, y is 0.5), 45.0, raylib.WHITE
+    calling raylib.EndDrawing
