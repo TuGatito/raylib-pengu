@@ -8,6 +8,11 @@ The committed headers are raylib **6.1-dev**; `pengu/*.d.pengu` was generated
 from exactly those files, so the library you link must be built from a matching
 raylib (see [Native library](#native-library)).
 
+**Reference and notes live in [`docs/`](docs/README.md)**: a generated page per
+binding and per wrapper module, plus [`docs/NOTES.md`](docs/NOTES.md) for the
+design decisions and the measured traps. Start at
+[`docs/README.md`](docs/README.md).
+
 ## Modules
 
 | `import`       | header        | surface                                                            | implemented by              |
@@ -219,7 +224,14 @@ raylib-pengu/
 ├── lib/                        # libraylib.a produced by build.py
 ├── tools/
 │   ├── check_bindings.py       # completeness audit
+│   ├── gen_docs.py             # regenerates docs/bindings + docs/wrappers
 │   └── gen_raymath_protos.py   # raymath.h -> prototype-only header
+├── docs/                       # the reference: start at docs/README.md
+│   ├── README.md               # index: the two layers, the module map, how to cite
+│   ├── NOTES.md                # decisions, PenguScript traps, measured raylib traps
+│   ├── bindings/               # layer 1: one generated page per binding
+│   ├── wrappers/               # layer 2: one generated page per wrapper module
+│   └── WRAPPER_CONVENTIONS.md  # the design contract for new wrappers
 └── examples/                   # the upstream .c examples and their .pengu translations
     └── core/
         ├── core_basic_window.c      # original

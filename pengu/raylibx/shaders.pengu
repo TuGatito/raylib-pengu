@@ -14,7 +14,7 @@
 ## contract section 2's "one C function may become several wrappers when the type is what
 ## varies", and it is what removes both the `void*` and the enum from the call site.
 ##
-## This is family `shaders` of `raylibx`; see `docs/plans/raylibx_shaders.md`.
+## This is family `shaders` of `raylibx`; see `docs/wrappers/raylibx-shaders.md`.
 ##
 ## ## The silent fallback, and what the wrapper does about it
 ## Measured: raylib **never fails to return a shader**. A missing file and empty source both

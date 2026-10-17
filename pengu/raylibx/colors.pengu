@@ -8,7 +8,7 @@
 ##     calling raylib.ColorAlpha with (sigil of c), 0.5      # binding
 ##     calling c.with_alpha with 0.5                          # wrapper
 ##
-## The family is `colors` of `docs/plans/raylibx.md`; see `docs/plans/raylibx_colors.md`.
+## The family is `colors` of `docs/README.md`; see `docs/wrappers/raylibx-colors.md`.
 ##
 ## `SetPixelColor` and `GetPixelColor` are deliberately **not** wrapped: both operate on a
 ## raw `void*` into foreign memory tagged with a `PixelFormat`, and a wrapper cannot make

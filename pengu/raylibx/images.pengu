@@ -11,7 +11,7 @@
 ## so an image that comes from a loader or a factory must be released with `unload_image`,
 ## and so must the ones that `copy`, `region` and `channel` hand back.
 ##
-## This is family `images` of `raylibx`; see `docs/plans/raylibx_images.md`.
+## This is family `images` of `raylibx`; see `docs/wrappers/raylibx-images.md`.
 ##
 ## ## Most of it is testable without a window
 ## The `gen_image_*` factories, the transforms, the drawing methods and the pixel readers are

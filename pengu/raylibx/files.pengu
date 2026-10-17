@@ -10,7 +10,7 @@
 ##     calling raylib.LoadFileText with cstr                     # binding
 ##     calling raylibx_files.file_text with "notes.txt"          # wrapper
 ##
-## This is family `files` of `docs/plans/raylibx.md`; see `docs/plans/raylibx_files.md`.
+## This is family `files` of `docs/README.md`; see `docs/wrappers/raylibx-files.md`.
 ##
 ## ## Ownership
 ## Three rules, all enforced here:

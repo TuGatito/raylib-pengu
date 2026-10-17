@@ -15,7 +15,7 @@
 ## What stays module-level is the resource lifecycle: the four loaders and the two unloaders,
 ## matching `unload_font` in `raylibx_text` and `unload_image` in `raylibx_images`.
 ##
-## This is family `textures` of `raylibx`; see `docs/plans/raylibx_textures.md`.
+## This is family `textures` of `raylibx`; see `docs/wrappers/raylibx-textures.md`.
 ##
 ## ## This family needs a window
 ## Measured: a texture cannot exist without a graphics context. The loaders fail *gracefully*

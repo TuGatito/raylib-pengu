@@ -25,7 +25,7 @@
 ##   against it is false. Guard with `is_valid`.
 ## * Looping a `Music` is not a function call: set its `looping` field.
 ##
-## This is family `audio` of `raylibx`; see `docs/plans/raylibx_audio.md`.
+## This is family `audio` of `raylibx`; see `docs/wrappers/raylibx-audio.md`.
 ##
 ## ## Memory
 ## Waves own their sample buffer (`unload_wave`), sounds own a playback buffer

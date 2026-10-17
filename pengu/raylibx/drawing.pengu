@@ -25,7 +25,7 @@ import std.ward
 ##
 ## Every `end_*` docstring names the `begin_*` it closes.
 ##
-## This is family `drawing` of `raylibx`; see `docs/plans/raylibx_drawing.md`.
+## This is family `drawing` of `raylibx`; see `docs/wrappers/raylibx-drawing.md`.
 ##
 ## ## Needs a window
 ## Measured: most of this family crashes without a graphics context and the one pair that

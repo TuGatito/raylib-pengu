@@ -1,7 +1,7 @@
 ## raylibx/shapes3d.pengu
 ## Layer-2 wrapper over the 21 primitive 3D shape functions of the `raylib` binding.
 ##
-## The family splits by the anchor rule of `docs/plans/raylibx.md` D9, extended to 3D:
+## The family splits by the anchor rule of `docs/NOTES.md` D9, extended to 3D:
 ## raylib marks the functions whose first argument *is* the anchor with a `V` in the name.
 ##
 ## - **4 methods on `raylib.Vector3`**: `draw_point`, `draw_cube`, `draw_cube_wires`,
@@ -11,7 +11,7 @@
 ##   sphere and cylinder families take a `Vector3` centre but carry no `V`, so they stay
 ##   here; making them methods would invent names that no longer say which C function runs.
 ##
-## This is family `shapes3d` of `raylibx`; see `docs/plans/raylibx_shapes3d.md`.
+## This is family `shapes3d` of `raylibx`; see `docs/wrappers/raylibx-shapes3d.md`.
 ##
 ## ## Drawing needs a 3D mode
 ## Every entry issues a raylib drawing command and is only meaningful between `BeginMode3D`

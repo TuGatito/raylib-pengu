@@ -15,7 +15,7 @@
 ## Five methods live on `raylib.Font` (`draw`, `draw_pro`, `draw_codepoint`,
 ## `draw_codepoints`, `measure`); everything else is a module-level function.
 ##
-## This is family `text` of `raylibx`; see `docs/plans/md`.
+## This is family `text` of `raylibx`; see `docs/wrappers/raylibx-text.md`.
 ##
 ## ## A headless process has no usable font
 ## Outside `InitWindow`, `GetFontDefault()` returns a `Font` with `glyphCount == 0` and a

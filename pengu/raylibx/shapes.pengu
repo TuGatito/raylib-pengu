@@ -2,7 +2,7 @@
 ## Layer-2 wrapper over the 2D shape surface of the `raylib` binding.
 ##
 ## The 61 functions split three ways, following the master plan's subjecthood rule
-## (`docs/plans/raylibx.md` D9):
+## (`docs/NOTES.md` D9):
 ##
 ## - **18 methods on `raylib.Vector2`** — every `Draw*` whose C name ends in `V`, because
 ##   then the first argument really is the shape's anchor: `center.draw_circle`, `a.draw_line_to`.
@@ -11,7 +11,7 @@
 ## - **36 module-level functions** — the integer-coordinate variants (`draw_pixel with x, y, color`),
 ##   the slice-shaped draws (`draw_line_strip`, `draw_spline_*`) and the collision predicates.
 ##
-## This is family `shapes` of `raylibx`; see `docs/plans/raylibx_shapes.md`.
+## This is family `shapes` of `raylibx`; see `docs/wrappers/raylibx-shapes.md`.
 ##
 ## ## Drawing needs a window
 ## Every `Draw*` entry issues a raylib drawing command and is only meaningful between

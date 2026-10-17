@@ -17,7 +17,7 @@
 ## wrapped, because the binding call is already clear and a wrapper would only add a jump
 ## (contract section 9). Read those through `raylib` directly.
 ##
-## This is family `input` of `raylibx`; see `docs/plans/md`.
+## This is family `input` of `raylibx`; see `docs/wrappers/raylibx-input.md`.
 ##
 ## ## No window needed
 ## Every wrapped function is safe to call headless: with no input the predicates are

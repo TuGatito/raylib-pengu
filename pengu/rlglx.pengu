@@ -24,7 +24,7 @@
 ## the framebuffer and shader-buffer plumbing, and every function whose only difference from the
 ## binding is an enum parameter. On that last point, measured: **a parameter typed as an `omen`
 ## accepts any integer** (master plan D22), so typing an enum buys documentation and a shorter
-## call, never enforcement. `docs/plans/rlglx.md` lists every exclusion with its rule.
+## call, never enforcement. `docs/wrappers/rlglx.md` lists every exclusion with its rule.
 ##
 ## ## Needs a window
 ## Measured: `rlGetVersion` and `rlGetPixelFormatName` work with no context, but the matrix stack
@@ -382,7 +382,7 @@ weave set_uniform_floats with location as int, values as slice of f32 into void:
 ## ```pengu
 ## calling rlglx.set_uniform_matrices with location, (bones at 0 to (bones.length))
 ## ```
-weave set_uniform_matrices with location as int, matrices as slice of raylib.Matrix into void:
+weave set_uniform_matrices with location as int, matrices as slice of Matrix into void:
     if (matrices.length) == 0:
         return
     let first as ref to raylib.Matrix is sigil of (matrices at 0)

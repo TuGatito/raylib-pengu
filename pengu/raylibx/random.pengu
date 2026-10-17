@@ -18,7 +18,7 @@
 ##
 ##     calling raylib.SetRandomSeed with 12345
 ##
-## `docs/plans/raylibx_random.md` records that measurement, and why `seed` itself is not wrapped.
+## `docs/wrappers/raylibx-random.md` records that measurement, and why `seed` itself is not wrapped.
 ##
 ## ## The other three measured traps
 ## - `between` is **inclusive on both ends** and **silently swaps inverted bounds**: measured,
@@ -60,7 +60,7 @@ import std.ward
 ##
 ## **This needs a seed to vary between runs.** Measured, raylib starts from a fixed default seed,
 ## so two runs of the same program return the same numbers until
-## `raylib.SetRandomSeed` is called; see the module header and `docs/plans/raylibx_random.md`.
+## `raylib.SetRandomSeed` is called; see the module header and `docs/wrappers/raylibx-random.md`.
 ##
 ## ## Memory
 ## No allocation; a single direct C call over raylib's own generator state.

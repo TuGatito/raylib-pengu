@@ -23,7 +23,7 @@
 ## that defines `RAYGUI_IMPLEMENTATION`. That is already handled by `c/raygui_impl.c`, which the
 ## build compiles into the bundle, so no `antiquus`, no compiler change and no extra archive are
 ## needed -- and measured, the `Gui*` symbols are absent from `libraylib.so`, which is why the
-## bridge is load-bearing rather than decorative. See `docs/plans/rayguix.md`.
+## bridge is load-bearing rather than decorative. See `docs/wrappers/rayguix.md`.
 ##
 ## ## The out-parameter shape
 ## Twenty-two widgets read **and write** a value the caller owns -- a toggle's flag, a slider's

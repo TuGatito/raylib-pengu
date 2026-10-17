@@ -19,7 +19,7 @@
 ## pointer, so `load_animations` returns `slice of raylib.ModelAnimation` — a view whose
 ## lifetime is the pair `load_animations` / `unload_animations`.
 ##
-## This is family `models` of `raylibx`; see `docs/plans/raylibx_models.md`.
+## This is family `models` of `raylibx`; see `docs/wrappers/raylibx-models.md`.
 ##
 ## ## What is testable, and what is not
 ## The **eight collision functions and the bounding boxes are pure CPU arithmetic**, so they
@@ -151,7 +151,7 @@ enchanting raylib.Mesh:
     ## calling mesh.draw_instanced with material, (transforms at 0 to (transforms.length))
     ## ```
 
-    weave draw_instanced with material as raylib.Material, transforms as slice of raylib.Matrix into void:
+    weave draw_instanced with material as raylib.Material, transforms as slice of Matrix into void:
         if (transforms.length) == 0:
             return
         let first as ref to raylib.Matrix is sigil of (transforms at 0)

@@ -51,8 +51,8 @@
 ## | `raylibx.audio` | waves, sounds, music and audio streams |
 ## | `raylibx.random` | randomness: `between` and `sequence`, plus the four measured traps |
 ##
-## Every family's own plan is in `docs/plans/raylibx_<family>.md`, and the layer's shared
-## decisions are in `docs/plans/raylibx.md`.
+## Every family's own plan is in `docs/wrappers/raylibx-<family>.md`, and the layer's shared
+## decisions are in `docs/README.md`.
 
 import raylibx.audio as audio
 import raylibx.colors as colors
