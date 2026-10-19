@@ -1,0 +1,197 @@
+## examples/core/core_2d_camera_mouse_zoom.pengu
+## raylib [core] example - 2d camera mouse zoom
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 4.2, last time updated with raylib 4.2
+##
+## Example contributed by Jeffery Myers (@JeffM2501) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2022-2025 Jeffery Myers (@JeffM2501)
+##
+## ## Port a PenguScript
+## Traducción 1:1 de `examples/core/core_2d_camera_mouse_zoom.c` sobre la capa
+## de wrappers `raylibx`. Los dos modos de zoom de C (`0` rueda, `1` arrastre)
+## se modelan con el `omen ZoomMode`, y el `judge` exhaustivo elige la rama.
+## La matriz de `rlgl` se usa directamente porque `rlglx` no envuelve la pila de
+## matrices (contrato §9, fila 9); los círculos, la rejilla y el texto sí pasan
+## por los wrappers.
+##
+## ## Ejemplo
+## ```bash
+## pengu run examples/core/core_2d_camera_mouse_zoom.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raymathx
+import rcamerax
+import rlgl
+import std.fractio
+
+# --- Constantes ---------------------------------------------------------
+## Ancho de la ventana, en píxeles.
+const SCREEN_WIDTH as int is 800
+
+## Alto de la ventana, en píxeles.
+const SCREEN_HEIGHT as int is 450
+
+## Fotogramas por segundo a los que corre el bucle principal.
+const TARGET_FPS as int is 60
+
+## Límites de zoom de la cámara.
+const MIN_ZOOM as f32 is 0.125
+const MAX_ZOOM as f32 is 64.0
+
+# --- Tipos --------------------------------------------------------------
+## Modo de zoom activo.
+omen ZoomMode:
+    ## El zoom lo controla la rueda del ratón.
+    Wheel
+    ## El zoom lo controla el arrastre con el botón derecho.
+    Move
+
+# --- Helpers ------------------------------------------------------------
+## Aplica el zoom basado en la rueda del ratón.
+##
+## ## Parámetros
+## - `camera`: cámara 2D que se muta en el sitio.
+##
+## ## Notas
+## Fija el `offset` en la posición del ratón y el `target` en el punto del mundo
+## bajo el cursor, para que el punto bajo el cursor se quede quieto a cualquier
+## zoom.
+##
+## ## Memoria
+## No asigna memoria; solo escribe los campos de la cámara.
+weave update_wheel_zoom with camera as ref to raylib.Camera2D into void:
+    let wheel as f32 is calling raylib.GetMouseWheelMove
+    if wheel != 0.0:
+        let mouse as raylib.Vector2 is calling raylib.GetMousePosition
+        let world as raylib.Vector2 is calling camera.to_world with mouse
+        let dpi as raylib.Vector2 is calling raylib.GetWindowScaleDPI
+
+        set camera->offset is (calling mouse.get_multiply with dpi)
+        set camera->target is world
+
+        let zoom as f32 is camera->zoom
+        let log_zoom as f32 is calling zoom.get_ln
+        let grown as f32 is log_zoom + (0.2 * wheel)
+        set camera->zoom is (calling raymathx.clamp with (calling grown.get_exp), MIN_ZOOM, MAX_ZOOM)
+
+## Aplica el zoom basado en el arrastre con el botón derecho.
+##
+## ## Parámetros
+## - `camera`: cámara 2D que se muta en el sitio.
+##
+## ## Memoria
+## No asigna memoria; solo escribe los campos de la cámara.
+weave update_move_zoom with camera as ref to raylib.Camera2D into void:
+    if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_RIGHT:
+        let mouse as raylib.Vector2 is calling raylib.GetMousePosition
+        let world as raylib.Vector2 is calling camera.to_world with mouse
+        let dpi as raylib.Vector2 is calling raylib.GetWindowScaleDPI
+
+        set camera->offset is (calling mouse.get_multiply with dpi)
+        set camera->target is world
+
+    if calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_RIGHT:
+        let delta as raylib.Vector2 is calling raylib.GetMouseDelta
+        let zoom as f32 is camera->zoom
+        let log_zoom as f32 is calling zoom.get_ln
+        let grown as f32 is log_zoom + (0.005 * delta.x)
+        set camera->zoom is (calling raymathx.clamp with (calling grown.get_exp), MIN_ZOOM, MAX_ZOOM)
+
+# --- Punto de entrada ---------------------------------------------------
+## Muestra una rejilla 3D proyectada sobre el plano XY, con zoom de cámara 2D
+## controlado por la rueda o por el arrastre del botón derecho.
+##
+## ## Retorno
+## Código de salida del proceso: `0` cuando la ventana se cierra con normalidad.
+weave main into int:
+    # Inicialización
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - 2d camera mouse zoom"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera2D with:
+        set .target is with x is 0.0, y is 0.0
+        set .offset is with x is 0.0, y is 0.0
+        set .rotation is 0.0
+        set .zoom is 1.0
+
+    var zoom_mode as ZoomMode is ZoomMode.Wheel
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Bucle principal
+    while not calling raylib.WindowShouldClose:
+        # Actualización
+        # -----------------------------------------------------------------
+        if calling input.is_key_pressed with raylib.KEY_ONE:
+            set zoom_mode is ZoomMode.Wheel
+        else if calling input.is_key_pressed with raylib.KEY_TWO:
+            set zoom_mode is ZoomMode.Move
+
+        # Desplazamiento con el botón izquierdo
+        if calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT:
+            let delta as raylib.Vector2 is calling raylib.GetMouseDelta
+            let scaled as raylib.Vector2 is calling delta.get_scale with (-1.0 / camera.zoom)
+            let target as raylib.Vector2 is camera.target
+            set camera.target is (calling target.get_add with scaled)
+
+        judge zoom_mode:
+            when Wheel -> calling update_wheel_zoom with (sigil of camera)
+            when Move -> calling update_move_zoom with (sigil of camera)
+        # -----------------------------------------------------------------
+
+        # Dibujo
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_2d with camera  # Dibuja la rejilla 3D girada 90 grados
+
+        calling rlgl.rlPushMatrix
+        calling rlgl.rlTranslatef with 0.0, (25.0 * 50.0), 0.0
+        calling rlgl.rlRotatef with 90.0, 1.0, 0.0, 0.0
+        calling shapes3d.draw_grid with 100, 50.0
+        calling rlgl.rlPopMatrix
+
+        # Círculo de referencia
+        calling shapes.draw_circle with ((calling raylib.GetScreenWidth) / 2), ((calling raylib.GetScreenHeight) / 2), 50.0, raylib.MAROON
+
+        calling drawing.end_mode_2d
+
+        # Referencia del ratón
+        let mouse as raylib.Vector2 is calling raylib.GetMousePosition
+        calling mouse.draw_circle with 4.0, raylib.DARKGRAY
+
+        let mouse_x as int is calling raylib.GetMouseX
+        let mouse_y as int is calling raylib.GetMouseY
+        let mouse_label as string is "[{mouse_x}, {mouse_y}]"
+        defer banish mouse_label
+
+        let label_offset as raylib.Vector2 is with x is -44.0, y is -24.0
+        let label_position as raylib.Vector2 is calling mouse.get_add with label_offset
+        let font as raylib.Font is calling txt.default_font
+        calling font.draw with mouse_label, label_position, 20.0, 2.0, raylib.BLACK
+
+        calling txt.draw_text with "[1][2] Select mouse zoom mode (Wheel or Move)", 20, 20, 20, raylib.DARKGRAY
+        judge zoom_mode:
+            when Wheel -> calling txt.draw_text with "Mouse left button drag to move, mouse wheel to zoom", 20, 50, 20, raylib.DARKGRAY
+            when Move -> calling txt.draw_text with "Mouse left button drag to move, mouse press and move to zoom", 20, 50, 20, raylib.DARKGRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

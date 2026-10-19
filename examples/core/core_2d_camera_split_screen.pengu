@@ -1,0 +1,218 @@
+## examples/core/core_2d_camera_split_screen.pengu
+## raylib [core] example - 2d camera split screen
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Addapted from the core_3d_camera_split_screen example:
+##     https://github.com/raysan5/raylib/blob/master/examples/core/core_3d_camera_split_screen.c
+##
+## Example originally created with raylib 4.5, last time updated with raylib 4.5
+##
+## Example contributed by Gabriel dos Santos Sanches (@gabrielssanches) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2023-2025 Gabriel dos Santos Sanches (@gabrielssanches)
+##
+## ## Port a PenguScript
+## Traducción 1:1 de `examples/core/core_2d_camera_split_screen.c` sobre la
+## capa de wrappers `raylibx`. Las dos vistas idénticas del original se
+## factorizan en `draw_player_view`, que recibe la cámara, los dos jugadores y la
+## etiqueta de cada mitad. `load_render_texture` devuelve `maybe`; el ejemplo se
+## apoya en `or return` para salir con código `1` si la GPU no puede crear el
+## objetivo de render, y libera ambos con `defer`.
+##
+## ## Ejemplo
+## ```bash
+## pengu run examples/core/core_2d_camera_split_screen.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymathx
+
+# --- Constantes ---------------------------------------------------------
+## Ancho de la ventana, en píxeles.
+const SCREEN_WIDTH as int is 800
+
+## Alto de la ventana, en píxeles.
+const SCREEN_HEIGHT as int is 440
+
+## Fotogramas por segundo a los que corre el bucle principal.
+const TARGET_FPS as int is 60
+
+## Lado del cuadrado que representa a cada jugador, en píxeles.
+const PLAYER_SIZE as int is 40
+
+## Velocidad de cada jugador, en píxeles por fotograma.
+const PLAYER_SPEED as f32 is 3.0
+
+# --- Helpers ------------------------------------------------------------
+## Dibuja la escena completa (rejilla, etiquetas y jugadores) desde una cámara.
+##
+## ## Parámetros
+## - `camera`: cámara 2D de esta mitad de la pantalla.
+## - `player1`, `player2`: los dos rectángulos que se dibujan.
+## - `label`: texto de la barra superior de esta mitad.
+## - `label_color`: color de ese texto.
+## - `world_width`, `world_height`: extensión de la rejilla en píxeles de mundo.
+##
+## ## Notas
+## Se llama dentro de un `begin_texture_mode`; por eso la barra superior usa
+## `GetScreenWidth`/`GetScreenHeight` en runtime, que dentro de un objetivo de
+## render devuelven las dimensiones del objetivo y no las de la ventana.
+##
+## ## Memoria
+## No asigna memoria. `label` se toma prestado y no se libera.
+weave draw_player_view with camera as raylib.Camera2D, player1 as raylib.Rectangle, player2 as raylib.Rectangle, label as string, label_color as raylib.Color, world_width as int, world_height as int into void:
+    calling drawing.clear_background with raylib.RAYWHITE
+    calling drawing.begin_mode_2d with camera
+
+    # Rejilla vertical
+    for i from 0 to ((world_width / PLAYER_SIZE) + 1):
+        let x as f32 is ((PLAYER_SIZE * i) to f32)
+        let top as raylib.Vector2 is with x is x, y is 0.0
+        let bottom as raylib.Vector2 is with x is x, y is (world_height to f32)
+        calling top.draw_line_to with bottom, raylib.LIGHTGRAY
+
+    # Rejilla horizontal
+    for i from 0 to ((world_height / PLAYER_SIZE) + 1):
+        let y as f32 is ((PLAYER_SIZE * i) to f32)
+        let left as raylib.Vector2 is with x is 0.0, y is y
+        let right as raylib.Vector2 is with x is (world_width to f32), y is y
+        calling left.draw_line_to with right, raylib.LIGHTGRAY
+
+    # Coordenadas de cada celda
+    for i from 0 to (world_width / PLAYER_SIZE):
+        for j from 0 to (world_height / PLAYER_SIZE):
+            let cell as string is "[{i},{j}]"
+            calling txt.draw_text with cell, 10 + (PLAYER_SIZE * i), 15 + (PLAYER_SIZE * j), 10, raylib.LIGHTGRAY
+            banish cell
+
+    calling player1.draw with raylib.RED
+    calling player2.draw with raylib.BLUE
+
+    calling drawing.end_mode_2d
+
+    let bar_color as raylib.Color is calling colors.fade with raylib.RAYWHITE, 0.6
+    calling shapes.draw_rectangle with 0, 0, ((calling raylib.GetScreenWidth) / 2), 30, bar_color
+    calling txt.draw_text with label, 10, 10, 10, label_color
+
+# --- Helpers (continuación) ---------------------------------------------
+## Dibuja dos vistas del mismo mundo, cada una con su propia cámara.
+##
+## ## Parámetros
+## - `screen1`, `screen2`: objetivos de render de cada mitad.
+## - `camera1`, `camera2`: cámaras 2D que siguen a cada jugador.
+## - `player1`, `player2`: rectángulos que se mueven con el teclado.
+##
+## ## Notas
+## El bucle termina cuando el usuario cierra la ventana; los objetivos de
+## render los libera `main` con `defer`, no esta función.
+##
+## ## Memoria
+## Toma prestados los dos objetivos de render y los rectángulos; no los libera.
+weave run_demo with screen1 as raylib.RenderTexture, screen2 as raylib.RenderTexture, camera1 as ref to raylib.Camera2D, camera2 as ref to raylib.Camera2D, player1 as ref to raylib.Rectangle, player2 as ref to raylib.Rectangle into void:
+    # Rectángulo volteado del tamaño de cada mitad
+    let split_screen_rect as raylib.Rectangle is with x is 0.0, y is 0.0, width is (screen1.texture.width to f32), height is (-(screen1.texture.height to f32))
+
+    while not calling raylib.WindowShouldClose:
+        # Actualización
+        # -----------------------------------------------------------------
+        if calling input.is_key_down with raylib.KEY_S:
+            set player1->y += PLAYER_SPEED
+        else if calling input.is_key_down with raylib.KEY_W:
+            set player1->y -= PLAYER_SPEED
+
+        if calling input.is_key_down with raylib.KEY_D:
+            set player1->x += PLAYER_SPEED
+        else if calling input.is_key_down with raylib.KEY_A:
+            set player1->x -= PLAYER_SPEED
+
+        if calling input.is_key_down with raylib.KEY_UP:
+            set player2->y -= PLAYER_SPEED
+        else if calling input.is_key_down with raylib.KEY_DOWN:
+            set player2->y += PLAYER_SPEED
+
+        if calling input.is_key_down with raylib.KEY_RIGHT:
+            set player2->x += PLAYER_SPEED
+        else if calling input.is_key_down with raylib.KEY_LEFT:
+            set player2->x -= PLAYER_SPEED
+
+        set camera1->target is with x is player1->x, y is player1->y
+        set camera2->target is with x is player2->x, y is player2->y
+        # -----------------------------------------------------------------
+
+        # Dibujo
+        # -----------------------------------------------------------------
+        calling drawing.begin_texture_mode with screen1
+        calling draw_player_view with (essence of camera1), (essence of player1), (essence of player2), "PLAYER1: W/S/A/D to move", raylib.MAROON, SCREEN_WIDTH, SCREEN_HEIGHT
+        calling drawing.end_texture_mode
+
+        calling drawing.begin_texture_mode with screen2
+        calling draw_player_view with (essence of camera2), (essence of player1), (essence of player2), "PLAYER2: UP/DOWN/LEFT/RIGHT to move", raylib.DARKBLUE, SCREEN_WIDTH, SCREEN_HEIGHT
+        calling drawing.end_texture_mode
+
+        # Ambas vistas, lado a lado
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.BLACK
+
+        calling screen1.texture.draw_rec with split_screen_rect, (with x is 0.0, y is 0.0), raylib.WHITE
+        calling screen2.texture.draw_rec with split_screen_rect, (with x is (SCREEN_WIDTH / 2.0), y is 0.0), raylib.WHITE
+
+        calling shapes.draw_rectangle with (((calling raylib.GetScreenWidth) / 2) - 2), 0, 4, (calling raylib.GetScreenHeight), raylib.LIGHTGRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+# --- Punto de entrada ---------------------------------------------------
+## Crea los dos objetivos de render y entrega el control a `run_demo`.
+##
+## ## Retorno
+## `0` cuando la ventana se cierra con normalidad; `1` si no se puede crear
+## alguno de los objetivos de render.
+weave main into int:
+    # Inicialización
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - 2d camera split screen"
+    defer calling raylib.CloseWindow
+
+    var player1 as raylib.Rectangle is with x is 200.0, y is 200.0, width is (PLAYER_SIZE to f32), height is (PLAYER_SIZE to f32)
+    var player2 as raylib.Rectangle is with x is 250.0, y is 200.0, width is (PLAYER_SIZE to f32), height is (PLAYER_SIZE to f32)
+
+    let dpi as raylib.Vector2 is calling raylib.GetWindowScaleDPI
+    let base_offset as raylib.Vector2 is with x is 200.0, y is 200.0
+    let scaled_offset as raylib.Vector2 is calling base_offset.get_multiply with dpi
+
+    var camera1 as raylib.Camera2D with:
+        set .target is with x is player1.x, y is player1.y
+        set .offset is scaled_offset
+        set .rotation is 0.0
+        set .zoom is 1.0
+
+    var camera2 as raylib.Camera2D with:
+        set .target is with x is player2.x, y is player2.y
+        set .offset is scaled_offset
+        set .rotation is 0.0
+        set .zoom is 1.0
+
+    let first_target as maybe raylib.RenderTexture is calling textures.load_render_texture with (SCREEN_WIDTH / 2), SCREEN_HEIGHT
+    if screen1 as raylib.RenderTexture is first_target:
+        defer calling textures.unload_render_texture with screen1
+
+        let second_target as maybe raylib.RenderTexture is calling textures.load_render_texture with (SCREEN_WIDTH / 2), SCREEN_HEIGHT
+        if screen2 as raylib.RenderTexture is second_target:
+            defer calling textures.unload_render_texture with screen2
+
+            calling raylib.SetTargetFPS with TARGET_FPS
+            calling run_demo with screen1, screen2, (sigil of camera1), (sigil of camera2), (sigil of player1), (sigil of player2)
+            return 0
+
+    return 1

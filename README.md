@@ -134,13 +134,24 @@ wrong `#ifdef` branch:
 ## Examples
 
 `examples/` ports the upstream raylib examples one file at a time, keeping each
-original's documentation in the comments. The PenguScript translation of
-`examples/core/core_basic_window.c` is
-[`examples/core/core_basic_window.pengu`](examples/core/core_basic_window.pengu):
+original's documentation in the comments. Every port lives next to its `.c`
+source and uses the layer-2 wrappers (`raylibx.*`, `raymathx`, `rcamerax`)
+wherever one exists; `InitWindow`/`CloseWindow` and other functions the
+wrappers deliberately skip stay on the binding.
 
-```bash
-pengu run examples/core/core_basic_window.pengu
-```
+| Example | Run |
+| --- | --- |
+| `core_2d_camera` | `pengu run examples/core/core_2d_camera.pengu` |
+| `core_2d_camera_mouse_zoom` | `pengu run examples/core/core_2d_camera_mouse_zoom.pengu` |
+| `core_2d_camera_platformer` | `pengu run examples/core/core_2d_camera_platformer.pengu` |
+| `core_2d_camera_split_screen` | `pengu run examples/core/core_2d_camera_split_screen.pengu` |
+| `core_3d_camera_first_person` | `pengu run examples/core/core_3d_camera_first_person.pengu` |
+| `core_3d_camera_fps` | `pengu run examples/core/core_3d_camera_fps.pengu` |
+| `core_3d_camera_free` | `pengu run examples/core/core_3d_camera_free.pengu` |
+
+The `raylibx.text` family is imported as `txt`, not `text`: with `pengu 2.9.0`
+an alias identical to the module name makes the C backend emit
+`text.draw_text(...)` instead of `text_draw_text(...)`, which does not compile.
 
 ### Why `src -> pengu` exists
 

@@ -1,0 +1,419 @@
+## examples/core/core_3d_camera_fps.pengu
+## raylib [core] example - 3d camera fps
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.5
+##
+## Example contributed by Agnis Aldiņš (@nezvers) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Agnis Aldiņš (@nezvers)
+##
+## ## Port a PenguScript
+## Traducción 1:1 de `examples/core/core_3d_camera_fps.c` sobre la capa de
+## wrappers `raylibx` + `rcamerax` + `raymathx`.
+##
+## Las variables globales de C (`player`, `lookRotation`, `headTimer`,
+## `walkLerp`, `headLerp`, `lean`) se agrupan en el `rune FpsState`, que se pasa
+## como `ref to FpsState` a cada weave: es el patrón de estado de módulo que la
+## guía recomienda cuando el estado lo comparten varias funciones. `UpdateBody`
+## y `UpdateCameraFPS` reciben ese contexto en lugar de leer globales.
+##
+## La normalización diagonal de C está compilada fuera (`NORMALIZE_INPUT 0`), así
+## que el port conserva exactamente ese comportamiento.
+##
+## ## Ejemplo
+## ```bash
+## pengu run examples/core/core_3d_camera_fps.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raymathx
+import rcamerax
+import std.fractio
+import std.numerus
+
+# --- Constantes ---------------------------------------------------------
+## Ancho de la ventana, en píxeles.
+const SCREEN_WIDTH as int is 800
+
+## Alto de la ventana, en píxeles.
+const SCREEN_HEIGHT as int is 450
+
+## Fotogramas por segundo a los que corre el bucle principal.
+const TARGET_FPS as int is 60
+
+## Gravedad aplicada al cuerpo.
+const GRAVITY as f32 is 32.0
+
+## Velocidad horizontal máxima de pie.
+const MAX_SPEED as f32 is 20.0
+
+## Velocidad horizontal máxima agachado.
+const CROUCH_SPEED as f32 is 5.0
+
+## Impulso vertical del salto.
+const JUMP_FORCE as f32 is 12.0
+
+## Aceleración máxima aplicada por fotograma.
+const MAX_ACCEL as f32 is 150.0
+
+## Rozamiento en el suelo.
+const FRICTION as f32 is 0.86
+
+## Rozamiento en el aire; aumenta la velocidad al hacer strafe.
+const AIR_DRAG as f32 is 0.98
+
+## Respuesta del giro hacia la dirección mirada.
+const CONTROL as f32 is 15.0
+
+## Altura de la cabeza agachado.
+const CROUCH_HEIGHT as f32 is 0.0
+
+## Altura de la cabeza de pie.
+const STAND_HEIGHT as f32 is 1.0
+
+## Altura de los ojos sobre la posición del cuerpo.
+const BOTTOM_HEIGHT as f32 is 0.5
+
+## Sensibilidad del ratón, en radianes por píxel.
+const SENSITIVITY as raylib.Vector2 is with x is 0.001, y is 0.001
+
+# --- Tipos --------------------------------------------------------------
+## Cuerpo del jugador: posición, velocidad, dirección deseada y contacto con el suelo.
+rune Body:
+    position as raylib.Vector3
+    velocity as raylib.Vector3
+    direction as raylib.Vector3
+    is_grounded as bool
+
+## Estado completo del controlador en primera persona.
+rune FpsState:
+    player as Body
+    look_rotation as raylib.Vector2
+    head_timer as f32
+    walk_lerp as f32
+    head_lerp as f32
+    lean as raylib.Vector2
+
+# --- Helpers ------------------------------------------------------------
+## Devuelve `-1`, `0` o `1` según qué tecla de un eje está pulsada.
+##
+## ## Parámetros
+## - `positive`: tecla que suma uno.
+## - `negative`: tecla que resta uno.
+##
+## ## Retorno
+## El eje como `f32`; las dos teclas a la vez dan `0`.
+weave read_axis with positive as raylib.KeyboardKey, negative as raylib.KeyboardKey into f32:
+    let plus as int is if calling input.is_key_down with positive then 1 else 0
+    let minus as int is if calling input.is_key_down with negative then 1 else 0
+    return ((plus - minus) to f32)
+
+## Construye un cuerpo en reposo sobre el origen.
+##
+## ## Retorno
+## Un `Body` nuevo; no asigna memoria.
+weave new_body into Body:
+    return with:
+        set .position is with x is 0.0, y is 0.0, z is 0.0
+        set .velocity is with x is 0.0, y is 0.0, z is 0.0
+        set .direction is with x is 0.0, y is 0.0, z is 0.0
+        set .is_grounded is false
+
+## Construye el estado inicial del controlador.
+##
+## ## Retorno
+## Un `FpsState` nuevo; no asigna memoria.
+weave new_state into FpsState:
+    return with:
+        set .player is calling new_body
+        set .look_rotation is with x is 0.0, y is 0.0
+        set .head_timer is 0.0
+        set .walk_lerp is 0.0
+        set .head_lerp is STAND_HEIGHT
+        set .lean is with x is 0.0, y is 0.0
+
+## Integra la física del cuerpo para este fotograma.
+##
+## ## Parámetros
+## - `state`: estado completo que se muta en el sitio.
+## - `rot`: ángulo de giro actual (yaw), en radianes.
+## - `side`: eje lateral, de `-1` a `1`.
+## - `forward`: eje frontal, de `-1` a `1`.
+## - `jump_pressed`: `true` en el fotograma en que se pulsa saltar.
+## - `crouch_hold`: `true` mientras se mantiene agachado.
+##
+## ## Memoria
+## No asigna memoria; solo escribe los campos de `state`.
+weave update_body with state as ref to FpsState, rot as f32, side as f32, forward as f32, jump_pressed as bool, crouch_hold as bool into void:
+    let axis as raylib.Vector2 is with x is side, y is -forward
+    let delta as f32 is calling raylib.GetFrameTime
+
+    if not state->player.is_grounded:
+        set state->player.velocity.y -= GRAVITY * delta
+
+    if state->player.is_grounded and jump_pressed:
+        set state->player.velocity.y is JUMP_FORCE
+        set state->player.is_grounded is false
+
+    let sin_rot as f32 is calling rot.get_sin
+    let cos_rot as f32 is calling rot.get_cos
+    let neg_rot as f32 is -rot
+    let cos_neg_rot as f32 is calling neg_rot.get_cos
+    let sin_neg_rot as f32 is calling neg_rot.get_sin
+
+    let front as raylib.Vector3 is with x is sin_rot, y is 0.0, z is cos_rot
+    let right as raylib.Vector3 is with x is cos_neg_rot, y is 0.0, z is sin_neg_rot
+    let desired_direction as raylib.Vector3 is with:
+        set .x is (axis.x * right.x) + (axis.y * front.x)
+        set .y is 0.0
+        set .z is (axis.x * right.z) + (axis.y * front.z)
+
+    let current_direction as raylib.Vector3 is state->player.direction
+    set state->player.direction is (calling current_direction.get_lerp_to with desired_direction, CONTROL * delta)
+
+    let decel as f32 is if state->player.is_grounded then FRICTION else AIR_DRAG
+    let velocity as raylib.Vector3 is state->player.velocity
+    var horizontal_velocity as raylib.Vector3 is with x is velocity.x * decel, y is 0.0, z is velocity.z * decel
+
+    let horizontal_length as f32 is calling horizontal_velocity.length
+    if horizontal_length < (MAX_SPEED * 0.01):
+        set horizontal_velocity is with x is 0.0, y is 0.0, z is 0.0
+
+    # Esto es lo que produce el strafe
+    let direction as raylib.Vector3 is state->player.direction
+    let speed as f32 is calling horizontal_velocity.dot with direction
+
+    let max_speed as f32 is if crouch_hold then CROUCH_SPEED else MAX_SPEED
+    let accel as f32 is (calling raymathx.clamp with (max_speed - speed), 0.0, MAX_ACCEL * delta)
+    set horizontal_velocity.x += direction.x * accel
+    set horizontal_velocity.z += direction.z * accel
+
+    set state->player.velocity.x is horizontal_velocity.x
+    set state->player.velocity.z is horizontal_velocity.z
+
+    set state->player.position.x += state->player.velocity.x * delta
+    set state->player.position.y += state->player.velocity.y * delta
+    set state->player.position.z += state->player.velocity.z * delta
+
+    # Colisión con el suelo
+    if state->player.position.y <= 0.0:
+        set state->player.position.y is 0.0
+        set state->player.velocity.y is 0.0
+        set state->player.is_grounded is true
+
+## Actualiza la cámara para el comportamiento en primera persona.
+##
+## ## Parámetros
+## - `state`: estado que aporta la mirada, el balanceo y la animación de cabeza.
+## - `camera`: cámara que se muta en el sitio.
+##
+## ## Memoria
+## No asigna memoria; solo escribe los campos de `camera`.
+weave update_camera_fps with state as ref to FpsState, camera as ref to raylib.Camera3D into void:
+    let up as raylib.Vector3 is with x is 0.0, y is 1.0, z is 0.0
+    let target_offset as raylib.Vector3 is with x is 0.0, y is 0.0, z is -1.0
+    let look as raylib.Vector2 is state->look_rotation
+
+    # Izquierda y derecha
+    let yaw as raylib.Vector3 is calling target_offset.rotate_by_axis with up, look.x
+
+    # Límite superior de la vista
+    let max_angle_up_raw as f32 is calling up.angle_to with yaw
+    let max_angle_up as f32 is max_angle_up_raw - 0.001
+    if (-look.y) > max_angle_up:
+        set state->look_rotation.y is -max_angle_up
+
+    # Límite inferior de la vista
+    let down_up as raylib.Vector3 is calling up.get_negate
+    let max_angle_down_raw as f32 is calling down_up.angle_to with yaw
+    let max_angle_down as f32 is (max_angle_down_raw * -1.0) + 0.001
+    if (-look.y) < max_angle_down:
+        set state->look_rotation.y is -max_angle_down
+
+    # Arriba y abajo
+    let cross as raylib.Vector3 is calling yaw.get_cross_with with up
+    let right as raylib.Vector3 is calling cross.get_normalize
+
+    let half_pi as f32 is (raylib.PI to f32) / 2.0
+    var pitch_angle as f32 is (-look.y) - state->lean.y
+    set pitch_angle is (calling raymathx.clamp with pitch_angle, (-half_pi + 0.0001), (half_pi - 0.0001))
+    let pitch as raylib.Vector3 is calling yaw.rotate_by_axis with right, pitch_angle
+
+    # Animación de cabeza: gira el vector «arriba» sobre el eje frontal
+    let head_angle as f32 is state->head_timer * (raylib.PI to f32)
+    let head_sin as f32 is calling head_angle.get_sin
+    let head_cos as f32 is calling head_angle.get_cos
+    let step_rotation as f32 is 0.01
+    let up_rotation as f32 is (head_sin * step_rotation) + state->lean.x
+    let rotated_up as raylib.Vector3 is calling up.rotate_by_axis with pitch, up_rotation
+    set camera->up is rotated_up
+
+    # Balanceo de la cámara
+    let bob_side as f32 is 0.1
+    let bob_up as f32 is 0.15
+    let side_bob as raylib.Vector3 is calling right.get_scale with (head_sin * bob_side)
+    let up_bob as f32 is head_cos * bob_up
+    let abs_up_bob as f32 is calling up_bob.get_abs
+    let bobbing as raylib.Vector3 is with x is side_bob.x, y is abs_up_bob, z is side_bob.z
+
+    let walked as raylib.Vector3 is calling bobbing.get_scale with state->walk_lerp
+    let camera_position as raylib.Vector3 is camera->position
+    let new_position as raylib.Vector3 is calling camera_position.get_add with walked
+    set camera->position is new_position
+    set camera->target is (calling new_position.get_add with pitch)
+
+## Dibuja el nivel: suelo de baldosas, cuatro torres y un sol rojo.
+##
+## ## Notas
+## Requiere un `begin_mode_3d` activo.
+##
+## ## Memoria
+## No asigna memoria.
+weave draw_level into void:
+    let floor_extent as int is 25
+    let tile_size as f32 is 5.0
+    let tile_color as raylib.Color is with r is 150, g is 200, b is 200, a is 255
+    let tile_extent as raylib.Vector2 is with x is tile_size, y is tile_size
+
+    # Baldosas del suelo
+    for y from -floor_extent to floor_extent:
+        for x from -floor_extent to floor_extent:
+            let tile_x as f32 is (x to f32) * tile_size
+            let tile_z as f32 is (y to f32) * tile_size
+
+            if ((y & 1) != 0) and ((x & 1) != 0):
+                let tile_position as raylib.Vector3 is with x is tile_x, y is 0.0, z is tile_z
+                calling tile_position.draw_plane with tile_extent, tile_color
+            else if ((y & 1) == 0) and ((x & 1) == 0):
+                let tile_position as raylib.Vector3 is with x is tile_x, y is 0.0, z is tile_z
+                calling tile_position.draw_plane with tile_extent, raylib.LIGHTGRAY
+
+    let tower_size as raylib.Vector3 is with x is 16.0, y is 32.0, z is 16.0
+    let tower_color as raylib.Color is with r is 150, g is 200, b is 200, a is 255
+
+    var tower_position as raylib.Vector3 is with x is 16.0, y is 16.0, z is 16.0
+    calling tower_position.draw_cube with tower_size, tower_color
+    calling tower_position.draw_cube_wires with tower_size, raylib.DARKBLUE
+
+    set tower_position.x *= -1.0
+    calling tower_position.draw_cube with tower_size, tower_color
+    calling tower_position.draw_cube_wires with tower_size, raylib.DARKBLUE
+
+    set tower_position.z *= -1.0
+    calling tower_position.draw_cube with tower_size, tower_color
+    calling tower_position.draw_cube_wires with tower_size, raylib.DARKBLUE
+
+    set tower_position.x *= -1.0
+    calling tower_position.draw_cube with tower_size, tower_color
+    calling tower_position.draw_cube_wires with tower_size, raylib.DARKBLUE
+
+    # Sol rojo
+    calling shapes3d.draw_sphere with (with x is 300.0, y is 300.0, z is 0.0), 100.0, (with r is 255, g is 0, b is 0, a is 255)
+
+# --- Punto de entrada ---------------------------------------------------
+## Controla un cuerpo en primera persona con gravedad, salto, agacharse y
+## balanceo de cabeza dentro de un nivel de baldosas.
+##
+## ## Retorno
+## Código de salida del proceso: `0` cuando la ventana se cierra con normalidad.
+weave main into int:
+    # Inicialización
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - 3d camera fps"
+    defer calling raylib.CloseWindow
+
+    var state as FpsState is calling new_state
+
+    var camera as raylib.Camera3D with:
+        set .fovy is 60.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+        set .position is with:
+            set .x is state.player.position.x
+            set .y is state.player.position.y + (BOTTOM_HEIGHT + state.head_lerp)
+            set .z is state.player.position.z
+
+    calling update_camera_fps with (sigil of state), (sigil of camera)
+
+    calling raylib.DisableCursor          # Limita el cursor al movimiento relativo
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Bucle principal
+    while not calling raylib.WindowShouldClose:
+        # Actualización
+        # -----------------------------------------------------------------
+        let mouse_delta as raylib.Vector2 is calling raylib.GetMouseDelta
+        set state.look_rotation.x -= mouse_delta.x * SENSITIVITY.x
+        set state.look_rotation.y += mouse_delta.y * SENSITIVITY.y
+
+        let sideway as f32 is calling read_axis with raylib.KEY_D, raylib.KEY_A
+        let forward as f32 is calling read_axis with raylib.KEY_W, raylib.KEY_S
+        let crouching as bool is calling input.is_key_down with raylib.KEY_LEFT_CONTROL
+        let jump_pressed as bool is calling input.is_key_pressed with raylib.KEY_SPACE
+
+        calling update_body with (sigil of state), state.look_rotation.x, sideway, forward, jump_pressed, crouching
+
+        let delta as f32 is calling raylib.GetFrameTime
+        let head_target as f32 is if crouching then CROUCH_HEIGHT else STAND_HEIGHT
+        set state.head_lerp is (calling raymathx.lerp with state.head_lerp, head_target, 20.0 * delta)
+
+        set camera.position is with:
+            set .x is state.player.position.x
+            set .y is state.player.position.y + (BOTTOM_HEIGHT + state.head_lerp)
+            set .z is state.player.position.z
+
+        if state.player.is_grounded and ((forward != 0.0) or (sideway != 0.0)):
+            set state.head_timer += delta * 3.0
+            set state.walk_lerp is (calling raymathx.lerp with state.walk_lerp, 1.0, 10.0 * delta)
+            set camera.fovy is (calling raymathx.lerp with camera.fovy, 55.0, 5.0 * delta)
+        else:
+            set state.walk_lerp is (calling raymathx.lerp with state.walk_lerp, 0.0, 10.0 * delta)
+            set camera.fovy is (calling raymathx.lerp with camera.fovy, 60.0, 5.0 * delta)
+
+        set state.lean.x is (calling raymathx.lerp with state.lean.x, sideway * 0.02, 10.0 * delta)
+        set state.lean.y is (calling raymathx.lerp with state.lean.y, forward * 0.015, 10.0 * delta)
+
+        calling update_camera_fps with (sigil of state), (sigil of camera)
+        # -----------------------------------------------------------------
+
+        # Dibujo
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        calling draw_level
+        calling drawing.end_mode_3d
+
+        # Panel de información
+        let panel_color as raylib.Color is calling colors.fade with raylib.SKYBLUE, 0.5
+        calling shapes.draw_rectangle with 5, 5, 330, 75, panel_color
+        calling shapes.draw_rectangle_lines with 5, 5, 330, 75, raylib.BLUE
+
+        calling txt.draw_text with "Camera controls:", 15, 15, 10, raylib.BLACK
+        calling txt.draw_text with "- Move keys: W, A, S, D, Space, Left-Ctrl", 15, 30, 10, raylib.BLACK
+        calling txt.draw_text with "- Look around: arrow keys or mouse", 15, 45, 10, raylib.BLACK
+
+        let velocity as raylib.Vector3 is state.player.velocity
+        let horizontal as raylib.Vector2 is with x is velocity.x, y is velocity.z
+        let velocity_length as f32 is calling horizontal.length
+        let velocity_text as string is "- Velocity Len: ({velocity_length})"
+        defer banish velocity_text
+        calling txt.draw_text with velocity_text, 15, 60, 10, raylib.BLACK
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0
