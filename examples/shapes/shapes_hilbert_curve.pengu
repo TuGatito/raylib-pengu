@@ -84,7 +84,7 @@ weave load_hilbert_path with order as int, size as f32 into list of raylib.Vecto
     let cell_len as f32 is size / (n to f32)
     let half_len as f32 is cell_len / 2.0
 
-    var path as list of raylib.Vector2 is []
+    var path as list of raylib.Vector2 is list of raylib.Vector2
     for i from 0 to total_strokes - 1:
         var step_pos as raylib.Vector2 is calling compute_hilbert_step with order, i
         set step_pos.x is (step_pos.x * cell_len) + half_len
@@ -95,7 +95,7 @@ weave load_hilbert_path with order as int, size as f32 into list of raylib.Vecto
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - hilbert curve"
     defer calling raylib.CloseWindow
@@ -185,3 +185,4 @@ weave entry into void:
         calling drawing.end_drawing
 
     banish hilbert_path
+    return 0

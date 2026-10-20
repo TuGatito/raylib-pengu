@@ -235,7 +235,7 @@ weave main into int:
         set .projection is (raylib.CAMERA_PERSPECTIVE to int)
 
     # Load texture to be applied to the cube sides
-    var texture_opt as maybe raylib.Texture2D is calling textures.load_texture with "resources/cubicmap_atlas.png"
+    var texture_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/models/resources/cubicmap_atlas.png"
     var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
     if loaded_tex as raylib.Texture2D is texture_opt:
         set texture is loaded_tex

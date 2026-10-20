@@ -61,14 +61,14 @@ weave main into int:
         set .direction is (with x is 0.0, y is 0.0, z is 0.0)
 
     # Load OBJ model
-    var tower_opt as maybe raylib.Model is calling models.load_model with "resources/models/obj/turret.obj"
+    var tower_opt as maybe raylib.Model is calling models.load_model with "examples/models/resources/models/obj/turret.obj"
     var tower as raylib.Model is with meshCount is 0
     if loaded_m as raylib.Model is tower_opt:
         set tower is loaded_m
     defer calling models.unload_model with tower
 
     # Load model texture
-    var texture_opt as maybe raylib.Texture2D is calling textures.load_texture with "resources/models/obj/turret_diffuse.png"
+    var texture_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/models/resources/models/obj/turret_diffuse.png"
     var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
     if loaded_t as raylib.Texture2D is texture_opt:
         set texture is loaded_t

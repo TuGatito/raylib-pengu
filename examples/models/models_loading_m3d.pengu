@@ -76,7 +76,7 @@ weave main into int:
         set .projection is (raylib.CAMERA_PERSPECTIVE to int)
 
     var model as raylib.Model is with meshCount is 0
-    if loaded_m as raylib.Model is calling models.load_model with "resources/models/m3d/cesium_man.m3d":
+    if loaded_m as raylib.Model is calling models.load_model with "examples/models/resources/models/m3d/cesium_man.m3d":
         set model is loaded_m
     defer calling models.unload_model with model
 
@@ -87,7 +87,7 @@ weave main into int:
     var anims as slice of raylib.ModelAnimation is anim_holder at 0 to 0
     var anim_count as int is 0
 
-    if loaded_anims as slice of raylib.ModelAnimation is calling models.load_animations with "resources/models/m3d/cesium_man.m3d":
+    if loaded_anims as slice of raylib.ModelAnimation is calling models.load_animations with "examples/models/resources/models/m3d/cesium_man.m3d":
         set anims is loaded_anims
         set anim_count is anims.length
     defer calling models.unload_animations with anims

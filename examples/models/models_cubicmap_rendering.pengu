@@ -58,7 +58,7 @@ weave main into int:
 
     var image as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
 
-    if loaded_img as raylib.Image is calling images.load_image with "resources/cubicmap.png":
+    if loaded_img as raylib.Image is calling images.load_image with "examples/models/resources/cubicmap.png":
         set image is loaded_img
 
     var cubicmap as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
@@ -75,7 +75,7 @@ weave main into int:
     calling images.unload_image with image
 
     var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
-    if loaded_atlas as raylib.Texture is calling textures.load_texture with "resources/cubicmap_atlas.png":
+    if loaded_atlas as raylib.Texture is calling textures.load_texture with "examples/models/resources/cubicmap_atlas.png":
         set texture is loaded_atlas
     defer calling textures.unload_texture with texture
 

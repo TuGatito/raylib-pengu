@@ -103,7 +103,7 @@ weave main into int:
     if loc as int is calling light_shader.location with "viewPos":
         set view_pos_loc is loc
 
-    var light_positions as list of raylib.Vector3 is []
+    var light_positions as list of raylib.Vector3 is list of raylib.Vector3
     defer banish light_positions
     for i from 0 to MAX_LIGHTS:
         calling light_positions.append with (with x is 0.0, y is 0.0, z is 0.0)

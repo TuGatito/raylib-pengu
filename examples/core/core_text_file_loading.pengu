@@ -44,7 +44,7 @@ const SCREEN_HEIGHT as int is 450
 const TARGET_FPS as int is 60
 
 ## Path to the text file rendered in the viewer.
-const FILE_NAME as string is "resources/text_file.txt"
+const FILE_NAME as string is "examples/core/resources/text_file.txt"
 
 ## Font size in pixels used for body text and header.
 const FONT_SIZE as int is 20

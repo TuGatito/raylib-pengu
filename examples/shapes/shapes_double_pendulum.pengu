@@ -53,7 +53,7 @@ weave calculate_double_pendulum_end_point with l1 as f32, theta1 as f32, l2 as f
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.SetConfigFlags with raylib.FLAG_WINDOW_HIGHDPI
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - double pendulum"
@@ -193,3 +193,4 @@ weave entry into void:
         calling rec2.draw_pro with origin2, 90.0 - (RAD2DEG * theta2), colors.RAYWHITE
 
         calling drawing.end_drawing
+    return 0

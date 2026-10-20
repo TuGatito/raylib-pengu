@@ -31,7 +31,7 @@ const SCREEN_HEIGHT as int is 450
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - easings box"
     defer calling raylib.CloseWindow
@@ -122,3 +122,4 @@ weave entry into void:
         calling txt.draw_text with "PRESS [SPACE] TO RESET BOX ANIMATION!", 10, SCREEN_HEIGHT - 25, 20, colors.LIGHTGRAY
 
         calling drawing.end_drawing
+    return 0

@@ -47,13 +47,13 @@ const SCREEN_HEIGHT as int is 450
 const TARGET_FPS as int is 60
 
 ## Path to the rigged 3D robot model.
-const MODEL_PATH as string is "resources/models/gltf/robot.glb"
+const MODEL_PATH as string is "examples/models/resources/models/gltf/robot.glb"
 
 ## Path to the vertex skinning shader.
-const VS_SHADER_PATH as string is "resources/shaders/glsl330/skinning.vs"
+const VS_SHADER_PATH as string is "examples/models/resources/shaders/glsl330/skinning.vs"
 
 ## Path to the fragment skinning shader.
-const FS_SHADER_PATH as string is "resources/shaders/glsl330/skinning.fs"
+const FS_SHADER_PATH as string is "examples/models/resources/shaders/glsl330/skinning.fs"
 
 ## Whether GPU skinning shader is assigned to all model materials.
 ## Note: raylib must be compiled with SUPPORT_GPU_SKINNING to use GPU skinning buffers.

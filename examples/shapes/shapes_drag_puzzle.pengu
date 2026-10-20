@@ -46,7 +46,7 @@ rune Triangle:
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - drag puzzle"
     defer calling raylib.CloseWindow
@@ -228,3 +228,4 @@ weave entry into void:
         calling txt.draw_text with "Use mouse to drag and drop the objects into the right spot!", 10, 10, 20, colors.GRAY
 
         calling drawing.end_drawing
+    return 0

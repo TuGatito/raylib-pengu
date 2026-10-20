@@ -33,7 +33,7 @@ const DEG2RAD as f32 is 0.017453292519943295
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - math angle rotation"
     defer calling raylib.CloseWindow
@@ -94,3 +94,4 @@ weave entry into void:
         calling center.draw_line_ex with anim_end, 5.0, anim_col
 
         calling drawing.end_drawing
+    return 0

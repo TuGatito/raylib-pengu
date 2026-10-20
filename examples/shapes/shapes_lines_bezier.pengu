@@ -30,7 +30,7 @@ const SCREEN_HEIGHT as int is 450
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - lines bezier"
@@ -90,3 +90,4 @@ weave entry into void:
         calling end_point.draw_circle with end_radius, end_color
 
         calling drawing.end_drawing
+    return 0

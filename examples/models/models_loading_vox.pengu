@@ -203,7 +203,7 @@ weave main into int:
     var camera_rot as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
 
     # Load voxel shader
-    var shader_opt as maybe raylib.Shader is calling shaders.load_shader with "examples/models/resources/shaders/glsl330/voxel_lighting.vs", "resources/shaders/glsl330/voxel_lighting.fs"
+    var shader_opt as maybe raylib.Shader is calling shaders.load_shader with "examples/models/resources/shaders/glsl330/voxel_lighting.vs", "examples/models/resources/shaders/glsl330/voxel_lighting.fs"
     var shader as raylib.Shader is with id is 0
     if loaded_sh as raylib.Shader is shader_opt:
         set shader is loaded_sh

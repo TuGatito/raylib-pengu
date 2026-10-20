@@ -202,7 +202,7 @@ weave main into int:
                     set outline_thickness_loc is loc
 
                 # Single directional white light
-                var lights as list of Light is []
+                var lights as list of Light is list of Light
                 defer banish lights
 
                 let zero as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0

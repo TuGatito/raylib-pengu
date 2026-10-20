@@ -32,7 +32,7 @@ const SCREEN_HEIGHT as int is 450
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - polygon lines"
     defer calling raylib.CloseWindow
@@ -152,3 +152,4 @@ weave entry into void:
         calling pos_h.draw_poly_lines_ex with 10, 60.0, rotation, f_thick, colors.BLUE
 
         calling drawing.end_drawing
+    return 0

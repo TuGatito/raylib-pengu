@@ -37,12 +37,12 @@ const PLAY_TIME_IN_FRAMES as f32 is 240.0
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - easings rectangles"
     defer calling raylib.CloseWindow
 
-    var recs as list of raylib.Rectangle is []
+    var recs as list of raylib.Rectangle is list of raylib.Rectangle
     defer banish recs
 
     for y from 0 to MAX_RECS_Y - 1:
@@ -109,3 +109,4 @@ weave entry into void:
             calling txt.draw_text with "PRESS [SPACE] TO PLAY AGAIN!", 240, 200, 20, colors.GRAY
 
         calling drawing.end_drawing
+    return 0

@@ -131,7 +131,7 @@ weave main into int:
     let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
 
     # Load all 12 post-processing shaders
-    var shaders_list as list of raylib.Shader is []
+    var shaders_list as list of raylib.Shader is list of raylib.Shader
     defer banish shaders_list
 
     for i from 0 to MAX_POSTPRO_SHADERS:

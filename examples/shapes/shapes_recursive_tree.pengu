@@ -120,11 +120,12 @@ weave main into int:
             set .x is start_pos.x + (branch_len * (calling zero_f.get_sin))
             set .y is start_pos.y - (branch_len * (calling zero_f.get_cos))
 
-        calling branches.push with with:
+        var root_branch as Branch is with:
             set .start is start_pos
             set .end is initial_end
             set .angle is 0.0
             set .length is branch_len
+        calling branches.push with root_branch
 
         var i as int is 0
         while i < branches.length:
@@ -138,21 +139,23 @@ weave main into int:
                     let branch_end1 as raylib.Vector2 is with:
                         set .x is branch_start.x + (next_length * (calling angle1.get_sin))
                         set .y is branch_start.y - (next_length * (calling angle1.get_cos))
-                    calling branches.push with with:
+                    var branch_left as Branch is with:
                         set .start is branch_start
                         set .end is branch_end1
                         set .angle is angle1
                         set .length is next_length
+                    calling branches.push with branch_left
 
                     let angle2 as f32 is branch.angle - theta
                     let branch_end2 as raylib.Vector2 is with:
                         set .x is branch_start.x + (next_length * (calling angle2.get_sin))
                         set .y is branch_start.y - (next_length * (calling angle2.get_cos))
-                    calling branches.push with with:
+                    var branch_right as Branch is with:
                         set .start is branch_start
                         set .end is branch_end2
                         set .angle is angle2
                         set .length is next_length
+                    calling branches.push with branch_right
 
             set i is i + 1
         # ----------------------------------------------------------------------------------

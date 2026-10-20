@@ -32,13 +32,13 @@ const MAX_TRAIL_LENGTH as int is 30
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - mouse trail"
     defer calling raylib.CloseWindow
 
     # Array to store the history of mouse positions
-    var trail_positions as list of raylib.Vector2 is []
+    var trail_positions as list of raylib.Vector2 is list of raylib.Vector2
     defer banish trail_positions
 
     for _i from 0 to MAX_TRAIL_LENGTH - 1:
@@ -86,3 +86,4 @@ weave entry into void:
         calling txt.draw_text with "Move the mouse to see the trail effect!", 10, SCREEN_HEIGHT - 30, 20, colors.LIGHTGRAY
 
         calling drawing.end_drawing
+    return 0

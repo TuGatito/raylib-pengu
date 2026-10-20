@@ -275,7 +275,7 @@ weave main into int:
             set cube_mat->shader is gbuffer_shader
 
             # Create lights
-            var lights as list of Light is []
+            var lights as list of Light is list of Light
             defer banish lights
 
             let zero as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
@@ -285,7 +285,7 @@ weave main into int:
             calling lights.append with (calling create_light with 3, (LightType.Point to int), (with x is 2.0, y is 1.0, z is -2.0), zero, raylib.BLUE, deferred_shader)
 
             # Generate cubes
-            var cubes as list of CubeInstance is []
+            var cubes as list of CubeInstance is list of CubeInstance
             defer banish cubes
 
             for i from 0 to MAX_CUBES:

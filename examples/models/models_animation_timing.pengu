@@ -38,7 +38,7 @@ const SCREEN_WIDTH as int is 800
 const SCREEN_HEIGHT as int is 450
 
 ## Path to the 3D model asset.
-const MODEL_PATH as string is "resources/models/gltf/robot.glb"
+const MODEL_PATH as string is "examples/models/resources/models/gltf/robot.glb"
 
 # --- Entry point ---
 

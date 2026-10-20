@@ -56,14 +56,14 @@ weave main into int:
         set .projection is (raylib.CAMERA_PERSPECTIVE to int)
 
     # Load 3D model
-    var model_opt as maybe raylib.Model is calling models.load_model with "resources/models/obj/plane.obj"
+    var model_opt as maybe raylib.Model is calling models.load_model with "examples/models/resources/models/obj/plane.obj"
     var model as raylib.Model is with meshCount is 0
     if loaded_m as raylib.Model is model_opt:
         set model is loaded_m
     defer calling models.unload_model with model
 
     # Load texture
-    var texture_opt as maybe raylib.Texture2D is calling textures.load_texture with "resources/models/obj/plane_diffuse.png"
+    var texture_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/models/resources/models/obj/plane_diffuse.png"
     var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
     if loaded_t as raylib.Texture2D is texture_opt:
         set texture is loaded_t

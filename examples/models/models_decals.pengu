@@ -331,14 +331,14 @@ weave main into int:
         set .projection is (raylib.CAMERA_PERSPECTIVE to int)
 
     # Load character model
-    var model_opt as maybe raylib.Model is calling models.load_model with "resources/models/obj/character.obj"
+    var model_opt as maybe raylib.Model is calling models.load_model with "examples/models/resources/models/obj/character.obj"
     var model as raylib.Model is with meshCount is 0
     if loaded_m as raylib.Model is model_opt:
         set model is loaded_m
     defer calling models.unload_model with model
 
     # Apply character skin
-    var skin_opt as maybe raylib.Texture2D is calling textures.load_texture with "resources/models/obj/character_diffuse.png"
+    var skin_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/models/resources/models/obj/character_diffuse.png"
     var model_texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
     if loaded_t as raylib.Texture2D is skin_opt:
         set model_texture is loaded_t
@@ -374,7 +374,7 @@ weave main into int:
     var cube_map as ref to raylib.MaterialMap is sigil of (cube_mat->maps at 0)
     set cube_map->color is raylib.LIME
 
-    var decal_image_opt as maybe raylib.Image is calling images.load_image with "resources/raylib_logo.png"
+    var decal_image_opt as maybe raylib.Image is calling images.load_image with "examples/models/resources/raylib_logo.png"
     var decal_image as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
     if loaded_img as raylib.Image is decal_image_opt:
         set decal_image is loaded_img

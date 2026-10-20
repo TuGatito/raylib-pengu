@@ -135,11 +135,12 @@ weave draw_penrose_l_system with ls as ref to PenroseLSystem into void:
     var turtle_stack as list of TurtleState is list of TurtleState
     defer banish turtle_stack
     for k from 0 to TURTLE_STACK_MAX_SIZE - 1:
-        calling turtle_stack.push with with:
+        var turtle_init as TurtleState is with:
             set .origin is with:
                 set .x is 0.0
                 set .y is 0.0
             set .angle is 0.0
+        calling turtle_stack.push with turtle_init
 
     var turtle_top as int is -1
 

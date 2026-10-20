@@ -51,7 +51,7 @@ const TARGET_FPS as int is 60
 const CAMERA_FOVY as f32 is 45.0
 
 ## Path to the glTF binary model and animations resource.
-const MODEL_PATH as string is "resources/models/gltf/robot.glb"
+const MODEL_PATH as string is "examples/models/resources/models/gltf/robot.glb"
 
 # --- Entry point --------------------------------------------------------
 ## Loads a glTF 3D model and its animations, then plays the selected animation

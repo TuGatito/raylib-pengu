@@ -314,7 +314,7 @@ weave main into int:
                                             let floor_tiling as raylib.Vector2 is with x is 0.5, y is 0.5
 
                                             # Create lights
-                                            var lights as list of PbrLight is []
+                                            var lights as list of PbrLight is list of PbrLight
                                             defer banish lights
 
                                             let zero as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0

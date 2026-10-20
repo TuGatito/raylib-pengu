@@ -102,7 +102,7 @@ weave get_digit_angle with digit as int, cell as int into raylib.Vector2:
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - clock of clocks"
@@ -118,11 +118,11 @@ weave entry into void:
 
     var prev_seconds as int is -1
 
-    var current_angles as list of raylib.Vector2 is []
+    var current_angles as list of raylib.Vector2 is list of raylib.Vector2
     defer banish current_angles
-    var src_angles as list of raylib.Vector2 is []
+    var src_angles as list of raylib.Vector2 is list of raylib.Vector2
     defer banish src_angles
-    var dst_angles as list of raylib.Vector2 is []
+    var dst_angles as list of raylib.Vector2 is list of raylib.Vector2
     defer banish dst_angles
 
     for _i from 0 to 143:
@@ -263,3 +263,4 @@ weave entry into void:
         calling txt.draw_fps with 10, 10
 
         calling drawing.end_drawing
+    return 0

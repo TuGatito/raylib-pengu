@@ -146,7 +146,7 @@ weave main into int:
     defer calling raylib.UnloadVrStereoConfig with config
 
     # Distortion shader (uses device lens distortion and chroma)
-    let fs_path as string is "resources/shaders/glsl{GLSL_VERSION}/distortion.fs"
+    let fs_path as string is "examples/core/resources/shaders/glsl{GLSL_VERSION}/distortion.fs"
     defer banish fs_path
     let c_fs_path as ref to frozen char is calling ffi.cstr_from_string with fs_path
     let null_vs as ref to frozen char is calling ffi.null_char

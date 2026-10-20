@@ -147,7 +147,7 @@ weave main into int:
     defer calling raylib.UnloadMesh with cube
 
     # Generate random transforms for instances
-    var transforms as list of raylib.Matrix is []
+    var transforms as list of raylib.Matrix is list of raylib.Matrix
     defer banish transforms
 
     for i from 0 to MAX_INSTANCES:

@@ -74,7 +74,7 @@ weave main into int:
         set .height is 0
         set .mipmaps is 0
         set .format is 0
-    if loaded_bill as raylib.Texture is (calling textures.load_texture with "resources/billboard.png"):
+    if loaded_bill as raylib.Texture is (calling textures.load_texture with "examples/models/resources/billboard.png"):
         set bill is loaded_bill
     defer calling textures.unload_texture with bill
 

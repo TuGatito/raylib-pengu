@@ -31,7 +31,7 @@ const SCREEN_HEIGHT as int is 450
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - easings ball"
     defer calling raylib.CloseWindow
@@ -100,3 +100,4 @@ weave entry into void:
             calling txt.draw_text with "PRESS [ENTER] TO PLAY AGAIN!", 240, 200, 20, colors.BLACK
 
         calling drawing.end_drawing
+    return 0

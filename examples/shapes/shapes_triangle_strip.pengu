@@ -47,9 +47,10 @@ weave main into int:
     var points as list of raylib.Vector2 is list of raylib.Vector2
     defer banish points
     for k from 0 to MAX_STRIP_POINTS - 1:
-        calling points.push with with:
+        var point as raylib.Vector2 is with:
             set .x is 0.0
             set .y is 0.0
+        calling points.push with point
 
     let center as raylib.Vector2 is with:
         set .x is (((screen_width to f32) / 2.0) - 125.0)

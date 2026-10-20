@@ -66,7 +66,7 @@ weave main into int:
     var particles as list of Particle is list of Particle
     defer banish particles
     for k from 0 to MAX_PARTICLES - 1:
-        calling particles.push with with:
+        var particle as Particle is with:
             set .ptype is ParticleType.Water
             set .position is with:
                 set .x is 0.0
@@ -78,6 +78,7 @@ weave main into int:
             set .color is raylib.BLANK
             set .life_time is 0.0
             set .alive is false
+        calling particles.push with particle
 
     var head as int is 0
     var tail as int is 0

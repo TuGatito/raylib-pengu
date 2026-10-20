@@ -305,9 +305,9 @@ weave main into int:
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - input gamepad"
     defer calling raylib.CloseWindow
 
-    var tex_ps3_pad as raylib.Texture2D is calling load_texture_or_empty with "resources/ps3.png"
+    var tex_ps3_pad as raylib.Texture2D is calling load_texture_or_empty with "examples/core/resources/ps3.png"
     defer calling textures.unload_texture with tex_ps3_pad
-    var tex_xbox_pad as raylib.Texture2D is calling load_texture_or_empty with "resources/xbox.png"
+    var tex_xbox_pad as raylib.Texture2D is calling load_texture_or_empty with "examples/core/resources/xbox.png"
     defer calling textures.unload_texture with tex_xbox_pad
 
     var vibrate_button as raylib.Rectangle is with x is 0.0, y is 0.0, width is 0.0, height is 0.0

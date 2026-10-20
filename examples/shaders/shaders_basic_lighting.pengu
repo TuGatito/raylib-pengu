@@ -181,7 +181,7 @@ weave main into int:
             calling shader.set_vec4 with ambient_loc, amb_vec
 
         # Create lights
-        var lights as list of Light is []
+        var lights as list of Light is list of Light
         defer banish lights
 
         var zero as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0

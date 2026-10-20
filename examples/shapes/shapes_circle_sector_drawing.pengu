@@ -43,7 +43,7 @@ weave ceil_div90 with diff as f32 into f32:
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - circle sector drawing"
     defer calling raylib.CloseWindow
@@ -127,3 +127,4 @@ weave entry into void:
         calling txt.draw_fps with 10, 10
 
         calling drawing.end_drawing
+    return 0

@@ -71,23 +71,23 @@ weave main into int:
 
     # Load character model
     var character_model as raylib.Model is with meshCount is 0
-    if loaded_char as raylib.Model is calling models.load_model with "resources/models/gltf/greenman.glb":
+    if loaded_char as raylib.Model is calling models.load_model with "examples/models/resources/models/gltf/greenman.glb":
         set character_model is loaded_char
     defer calling models.unload_model with character_model
 
     # Load equipment models
     var hat_model as raylib.Model is with meshCount is 0
-    if loaded_hat as raylib.Model is calling models.load_model with "resources/models/gltf/greenman_hat.glb":
+    if loaded_hat as raylib.Model is calling models.load_model with "examples/models/resources/models/gltf/greenman_hat.glb":
         set hat_model is loaded_hat
     defer calling models.unload_model with hat_model
 
     var sword_model as raylib.Model is with meshCount is 0
-    if loaded_sword as raylib.Model is calling models.load_model with "resources/models/gltf/greenman_sword.glb":
+    if loaded_sword as raylib.Model is calling models.load_model with "examples/models/resources/models/gltf/greenman_sword.glb":
         set sword_model is loaded_sword
     defer calling models.unload_model with sword_model
 
     var shield_model as raylib.Model is with meshCount is 0
-    if loaded_shield as raylib.Model is calling models.load_model with "resources/models/gltf/greenman_shield.glb":
+    if loaded_shield as raylib.Model is calling models.load_model with "examples/models/resources/models/gltf/greenman_shield.glb":
         set shield_model is loaded_shield
     defer calling models.unload_model with shield_model
 
@@ -100,7 +100,7 @@ weave main into int:
     var anim_holder as list of raylib.ModelAnimation is list of raylib.ModelAnimation
     defer banish anim_holder
     var raw_anims as slice of raylib.ModelAnimation is anim_holder at 0 to 0
-    if loaded_anims as slice of raylib.ModelAnimation is calling models.load_animations with "resources/models/gltf/greenman.glb":
+    if loaded_anims as slice of raylib.ModelAnimation is calling models.load_animations with "examples/models/resources/models/gltf/greenman.glb":
         set raw_anims is loaded_anims
         set anims_count is raw_anims.length
     defer calling models.unload_animations with raw_anims

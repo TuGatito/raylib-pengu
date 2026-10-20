@@ -49,12 +49,12 @@ rune Ball:
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - ball physics"
     defer calling raylib.CloseWindow
 
-    var balls as list of Ball is []
+    var balls as list of Ball is list of Ball
     defer banish balls
 
     # Init first ball in the list
@@ -247,3 +247,4 @@ weave entry into void:
         banish grav_str
 
         calling drawing.end_drawing
+    return 0

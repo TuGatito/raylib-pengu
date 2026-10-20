@@ -162,7 +162,7 @@ weave compute_easing with easing_type as int, t as f32, b as f32, c as f32, d as
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - easings testbed"
     defer calling raylib.CloseWindow
@@ -273,3 +273,4 @@ weave entry into void:
         calling ball_pos.draw_circle with 16.0, colors.MAROON
 
         calling drawing.end_drawing
+    return 0

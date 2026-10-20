@@ -335,7 +335,7 @@ weave draw_clock_analog with clk as Clock, position as raylib.Vector2 into void:
 
 # --- Entry point ---
 
-weave entry into void:
+weave main into int:
     # Initialization
     calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - digital clock"
@@ -422,3 +422,4 @@ weave entry into void:
         banish label_str
 
         calling drawing.end_drawing
+    return 0
