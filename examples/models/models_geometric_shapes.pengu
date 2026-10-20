@@ -1,0 +1,112 @@
+## raylib [models] example - geometric shapes
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.0, last time updated with raylib 3.5
+## Example licensed under an unmodified zlib/libpng license.
+##
+## ## PenguScript Port
+## - Uses `raylibx.drawing` for frame and 3D mode scopes
+## - Uses `raylibx.shapes3d` for rendering various 3D primitives (cubes, spheres, cylinders, capsules, grid)
+## - Uses `raylibx.text` for FPS counter
+##
+## ## Example
+## ```pengu
+## pengu run examples/models/models_geometric_shapes.pengu
+## ```
+
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+
+# --- Constants ---
+
+## Target window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Target window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## ## Returns
+## Exit status code (0 for success).
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - geometric shapes"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D with:
+        set .position is (with x is 0.0, y is 10.0, z is 10.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        # No logic updates required for static shapes demo
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        # Cubes
+        let cube_pos1 as raylib.Vector3 is with x is -4.0, y is 0.0, z is 2.0
+        calling shapes3d.draw_cube with cube_pos1, 2.0, 5.0, 2.0, raylib.RED
+        calling shapes3d.draw_cube_wires with cube_pos1, 2.0, 5.0, 2.0, raylib.GOLD
+
+        let cube_pos2 as raylib.Vector3 is with x is -4.0, y is 0.0, z is -2.0
+        calling shapes3d.draw_cube_wires with cube_pos2, 3.0, 6.0, 2.0, raylib.MAROON
+
+        # Spheres
+        let sphere_pos1 as raylib.Vector3 is with x is -1.0, y is 0.0, z is -2.0
+        calling shapes3d.draw_sphere with sphere_pos1, 1.0, raylib.GREEN
+
+        let sphere_pos2 as raylib.Vector3 is with x is 1.0, y is 0.0, z is 2.0
+        calling shapes3d.draw_sphere_wires with sphere_pos2, 2.0, 16, 16, raylib.LIME
+
+        # Cylinders
+        let cyl_pos1 as raylib.Vector3 is with x is 4.0, y is 0.0, z is -2.0
+        calling shapes3d.draw_cylinder with cyl_pos1, 1.0, 2.0, 3.0, 4, raylib.SKYBLUE
+        calling shapes3d.draw_cylinder_wires with cyl_pos1, 1.0, 2.0, 3.0, 4, raylib.DARKBLUE
+
+        let cyl_pos2 as raylib.Vector3 is with x is 4.5, y is -1.0, z is 2.0
+        calling shapes3d.draw_cylinder_wires with cyl_pos2, 1.0, 1.0, 2.0, 6, raylib.BROWN
+
+        let cyl_pos3 as raylib.Vector3 is with x is 1.0, y is 0.0, z is -4.0
+        calling shapes3d.draw_cylinder with cyl_pos3, 0.0, 1.5, 3.0, 8, raylib.GOLD
+        calling shapes3d.draw_cylinder_wires with cyl_pos3, 0.0, 1.5, 3.0, 8, raylib.PINK
+
+        # Capsules
+        let cap_start as raylib.Vector3 is with x is -3.0, y is 1.5, z is -4.0
+        let cap_end as raylib.Vector3 is with x is -4.0, y is -1.0, z is -4.0
+        calling shapes3d.draw_capsule with cap_start, cap_end, 1.2, 8, 8, raylib.VIOLET
+        calling shapes3d.draw_capsule_wires with cap_start, cap_end, 1.2, 8, 8, raylib.PURPLE
+
+        calling shapes3d.draw_grid with 10, 1.0
+
+        calling drawing.end_mode_3d
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

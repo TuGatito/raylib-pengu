@@ -1,0 +1,305 @@
+## examples/core/core_screen_recording.pengu
+## raylib [core] example - screen recording
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_screen_recording.c` built on top of the
+## `raylibx` wrapper layer. The sine-wave point array becomes an owned
+## `list of raylib.Vector2` released with `defer banish`. Screen capture uses
+## `images.load_image_from_screen` / `images.unload_image`, and saving the final
+## GIF buffer uses `files.application_directory` and `files.save_file_bytes`.
+## The header-only `msf_gif.h` encoder state is bridged through four minimal
+## `antiquus` FFI glue functions, while recording state transitions are modeled
+## with an `omen` (`RecordingState`) and dispatched via `judge`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_screen_recording.pengu
+## ```
+
+# --- Module directives --------------------------------------------------
+include "../examples/core/msf_gif.h"
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.files as files
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import std.ffi
+import std.fractio
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Number of frames between captured GIF frames.
+const GIF_RECORD_FRAMERATE as int is 5
+
+## Number of sample points used to draw the background sine wave.
+const MAX_SINEWAVE_POINTS as int is 256
+
+## Mathematical constant pi in single precision.
+const PI_F32 as f32 is 3.14159265
+
+## Maximum bit depth passed to `msf_gif_frame`.
+const GIF_MAX_BIT_DEPTH as int is 16
+
+# --- Types --------------------------------------------------------------
+## Represents whether the application is currently recording frames into a GIF.
+omen RecordingState:
+    Idle
+    Recording
+
+# --- Helpers ------------------------------------------------------------
+## Allocates and starts a new `MsfGifState` session for the given dimensions.
+##
+## ## Reason
+## `MsfGifState` in `msf_gif.h` holds internal C linked-list buffers and a
+## custom allocator callback typedef that are opaque to PenguScript.
+##
+## ## Preconditions
+## - `width` and `height` must be positive pixel dimensions.
+##
+## ## Memory
+## Allocates one `MsfGifState` on the C heap; must be released via
+## `_gif_end_to_bytes` or `_gif_discard`.
+antiquus _gif_begin with width as int, height as int into ref to void:
+    """
+MsfGifState *state = (MsfGifState *)calloc(1, sizeof(MsfGifState));
+if (state != NULL) {
+    msf_gif_begin(state, width, height);
+}
+return (void *)state;
+"""
+
+## Appends one RGBA8 frame to an active `MsfGifState` session.
+##
+## ## Reason
+## Bridges the opaque `MsfGifState` pointer to `msf_gif_frame` from `msf_gif.h`.
+##
+## ## Preconditions
+## - `state` must be a valid pointer returned by `_gif_begin`.
+## - `pixels` must point to `width * height * 4` RGBA bytes.
+##
+## ## Memory
+## Does not take ownership of `pixels`.
+antiquus _gif_frame with state as ref to void, pixels as ref to void, centiseconds as int, bit_depth as int, pitch as int into void:
+    """
+if (state != NULL && pixels != NULL) {
+    msf_gif_frame((MsfGifState *)state, (uint8_t *)pixels, centiseconds, bit_depth, pitch);
+}
+"""
+
+## Finalizes an active `MsfGifState` session and returns a newly allocated byte buffer.
+##
+## ## Reason
+## Extracts `MsfGifResult` from `msf_gif_end`, copies the encoded GIF bytes into
+## a standalone buffer, and frees both `MsfGifResult` and `MsfGifState`.
+##
+## ## Preconditions
+## - `state` must be a valid pointer returned by `_gif_begin`.
+## - `out_len` must be a valid pointer to `int`.
+##
+## ## Memory
+## Frees `state` and the `MsfGifResult`. Returns a heap buffer owned by the
+## caller (or `NULL` on failure) that must be freed with `free`.
+antiquus _gif_end_to_bytes with state as ref to void, out_len as ref to int into ref to void:
+    """
+*out_len = 0;
+if (state == NULL) {
+    return NULL;
+}
+MsfGifState *gif_state = (MsfGifState *)state;
+MsfGifResult result = msf_gif_end(gif_state);
+void *copy = NULL;
+if (result.data != NULL && result.dataSize > 0) {
+    copy = malloc(result.dataSize);
+    if (copy != NULL) {
+        memcpy(copy, result.data, result.dataSize);
+        *out_len = (int)result.dataSize;
+    }
+}
+msf_gif_free(result);
+free(gif_state);
+return copy;
+"""
+
+## Aborts an active `MsfGifState` session and frees all associated resources.
+##
+## ## Reason
+## Ensures clean teardown when the window closes while a GIF recording is still
+## in progress.
+##
+## ## Preconditions
+## - `state` may be `NULL` or a valid pointer returned by `_gif_begin`.
+##
+## ## Memory
+## Frees both the `MsfGifResult` and the `MsfGifState` allocation.
+antiquus _gif_discard with state as ref to void into void:
+    """
+if (state != NULL) {
+    MsfGifState *gif_state = (MsfGifState *)state;
+    MsfGifResult result = msf_gif_end(gif_state);
+    msf_gif_free(result);
+    free(gif_state);
+}
+"""
+
+## Finalizes the GIF recording state and copies the encoded GIF into an owned PenguScript list.
+##
+## ## Parameters
+## - `gif_state`: opaque pointer to the active `MsfGifState`.
+##
+## ## Returns
+## An owned `list of byte` holding the encoded GIF bytes.
+##
+## ## Memory
+## Releases the underlying C `MsfGifState` and temporary buffer; the caller owns
+## the returned `list of byte` and must `banish` it.
+weave finish_gif_recording with gif_state as ref to void into list of byte:
+    var byte_len as int is 0
+    let raw_buf as ref to void is calling _gif_end_to_bytes with gif_state, (sigil of byte_len)
+    if calling ffi.is_null with raw_buf:
+        return list of byte
+    var owned as list of byte is calling ffi.list_of_bytes_from_ptr with raw_buf, byte_len
+    banish raw_buf
+    return owned
+
+# --- Entry point --------------------------------------------------------
+## Animates a circle tracing a sine wave and allows the user to toggle GIF
+## screen recording with `Ctrl+R`.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - screen recording"
+    defer calling raylib.CloseWindow
+
+    var recording_state as RecordingState is RecordingState.Idle
+    var gif_frame_counter as int is 0
+    var gif_state as ref to void is calling ffi.null_void
+
+    let half_height as f32 is (SCREEN_HEIGHT to f32) / 2.0
+    var circle_position as raylib.Vector2 is with x is 0.0, y is half_height
+    var time_counter as f32 is 0.0
+
+    # Compute sine wave points for line drawing
+    let angular_freq as f32 is (2.0 * PI_F32) / 1.5
+    let screen_step as f32 is ((calling raylib.GetScreenWidth) to f32) / 180.0
+
+    var sine_points as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish sine_points
+
+    for i from 0 to MAX_SINEWAVE_POINTS:
+        let angle as f32 is angular_freq * (1.0 / 60.0) * (i to f32)
+        let pt as raylib.Vector2 is with:
+            set .x is (i to f32) * screen_step
+            set .y is half_height + (150.0 * (calling angle.get_sin))
+        calling sine_points.push with pt
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        # Update circle sinusoidal movement
+        set time_counter += (calling raylib.GetFrameTime)
+        set circle_position.x += ((calling raylib.GetScreenWidth) to f32) / 180.0
+        let current_angle as f32 is angular_freq * time_counter
+        set circle_position.y is half_height + (150.0 * (calling current_angle.get_sin))
+
+        if circle_position.x > (SCREEN_WIDTH to f32):
+            set circle_position.x is 0.0
+            set circle_position.y is half_height
+            set time_counter is 0.0
+
+        # Start-Stop GIF recording on CTRL+R
+        if (calling input.is_key_down with raylib.KEY_LEFT_CONTROL) and (calling input.is_key_pressed with raylib.KEY_R):
+            judge recording_state:
+                when RecordingState.Recording ->
+                    # Stop current recording and save file
+                    set recording_state is RecordingState.Idle
+                    let gif_data as list of byte is calling finish_gif_recording with gif_state
+                    set gif_state is calling ffi.null_void
+
+                    let app_dir as string is calling files.application_directory
+                    let out_path as string is "{app_dir}/screenrecording.gif"
+                    let _ as bool is calling files.save_file_bytes with out_path, (gif_data at 0 to (gif_data.length))
+                    banish out_path
+                    banish app_dir
+                    banish gif_data
+
+                    let log_msg as ref to frozen char is calling ffi.cstr_from_string with "Finish animated GIF recording"
+                    calling raylib.TraceLog with (raylib.LOG_INFO to int), log_msg
+                when RecordingState.Idle ->
+                    # Start a new recording
+                    set recording_state is RecordingState.Recording
+                    set gif_frame_counter is 0
+                    set gif_state is calling _gif_begin with (calling raylib.GetRenderWidth), (calling raylib.GetRenderHeight)
+
+                    let log_msg as ref to frozen char is calling ffi.cstr_from_string with "Start animated GIF recording"
+                    calling raylib.TraceLog with (raylib.LOG_INFO to int), log_msg
+
+        if recording_state == RecordingState.Recording:
+            set gif_frame_counter += 1
+
+            # Note: We record one GIF frame depending on the desired GIF framerate
+            if gif_frame_counter > GIF_RECORD_FRAMERATE:
+                # Get image data for the current frame (from backbuffer)
+                # Warning: This process is quite slow, it can generate stuttering
+                let maybe_screen as maybe raylib.Image is calling images.load_image_from_screen
+                if im_screen as raylib.Image is maybe_screen:
+                    let centiseconds as int is ((((1.0 / 60.0) * (GIF_RECORD_FRAMERATE to f32)) to int) / 10)
+                    calling _gif_frame with gif_state, im_screen.data, centiseconds, GIF_MAX_BIT_DEPTH, (im_screen.width * 4)
+                    set gif_frame_counter is 0
+                    calling images.unload_image with im_screen
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        for i from 0 to (MAX_SINEWAVE_POINTS - 1):
+            let current_pt as raylib.Vector2 is sine_points at i
+            let next_pt as raylib.Vector2 is sine_points at (i + 1)
+            calling current_pt.draw_line_to with next_pt, raylib.MAROON
+            calling current_pt.draw_circle with 3.0, raylib.MAROON
+
+        calling circle_position.draw_circle with 30.0, raylib.RED
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    # De-Initialization
+    # ---------------------------------------------------------------------
+    # If still recording a GIF on close window, just finish and free
+    if recording_state == RecordingState.Recording:
+        calling _gif_discard with gif_state
+        set gif_state is calling ffi.null_void
+        set recording_state is RecordingState.Idle
+
+    return 0

@@ -1,0 +1,230 @@
+## examples/core/core_smooth_pixelperfect.pengu
+## raylib [core] example - smooth pixelperfect
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 3.7, last time updated with raylib 4.0
+##
+## Example contributed by Giancamillo Alessandroni (@NotManyIdeasDev) and
+## reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2021-2025 Giancamillo Alessandroni (@NotManyIdeasDev) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_smooth_pixelperfect.c` built on top of
+## the `raylibx` wrapper layer. `load_render_texture` returns `maybe raylib.RenderTexture`
+## and is released via `defer calling textures.unload_render_texture with target`.
+## Rotating rectangles use `rec.draw_pro`, texture blitting uses
+## `target.texture.draw_pro`, and trigonometric camera motion uses `std.fractio`
+## (`get_sin`, `get_cos`).
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_smooth_pixelperfect.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+import std.fractio
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Low-resolution virtual canvas width in pixels.
+const VIRTUAL_SCREEN_WIDTH as int is 160
+
+## Low-resolution virtual canvas height in pixels.
+const VIRTUAL_SCREEN_HEIGHT as int is 90
+
+## Scale ratio from virtual canvas pixels to window pixels.
+const VIRTUAL_RATIO as f32 is 5.0
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+# --- Helpers ------------------------------------------------------------
+## Truncates the fractional part of a floating-point coordinate toward zero.
+##
+## ## Parameters
+## - `value`: coordinate to truncate.
+##
+## ## Returns
+## The integer part of `value` as `f32`.
+##
+## ## Memory
+## No allocation.
+weave truncate_coord with value as f32 into f32:
+    return (value to int) to f32
+
+## Builds the destination rectangle on screen according to the overscan toggle.
+##
+## ## Parameters
+## - `is_overscan`: `true` when overscan fills and slightly exceeds the window,
+##   `false` for the inset preview area.
+##
+## ## Returns
+## A `raylib.Rectangle` in screen coordinates.
+##
+## ## Memory
+## No allocation.
+weave make_dest_rect with is_overscan as bool into raylib.Rectangle:
+    let screen_w as f32 is SCREEN_WIDTH to f32
+    let screen_h as f32 is SCREEN_HEIGHT to f32
+    if is_overscan:
+        return with:
+            set .x is (-VIRTUAL_RATIO)
+            set .y is (-VIRTUAL_RATIO)
+            set .width is screen_w + (VIRTUAL_RATIO * 2.0)
+            set .height is screen_h + (VIRTUAL_RATIO * 2.0)
+    let inset_w as f32 is screen_w / 1.25
+    let inset_h as f32 is screen_h / 1.25
+    return with:
+        set .x is (screen_w - inset_w) / 2.0
+        set .y is (screen_h - inset_h) / 2.0
+        set .width is inset_w
+        set .height is inset_h
+
+# --- Entry point --------------------------------------------------------
+## Renders three rotating rectangles into a low-resolution render texture and
+## scales it up with sub-pixel camera smoothing.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally, or `1` if the GPU
+## cannot create the render texture.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - smooth pixelperfect"
+    defer calling raylib.CloseWindow
+
+    # Game world camera
+    var world_space_camera as raylib.Camera2D with:
+        set .offset is with x is 0.0, y is 0.0
+        set .target is with x is 0.0, y is 0.0
+        set .rotation is 0.0
+        set .zoom is 1.0
+
+    # Smoothing camera
+    var screen_space_camera as raylib.Camera2D with:
+        set .offset is with x is 0.0, y is 0.0
+        set .target is with x is 0.0, y is 0.0
+        set .rotation is 0.0
+        set .zoom is 1.0
+
+    # Load render texture to draw all our objects
+    let maybe_target as maybe raylib.RenderTexture is calling textures.load_render_texture with VIRTUAL_SCREEN_WIDTH, VIRTUAL_SCREEN_HEIGHT
+    if target as raylib.RenderTexture is maybe_target:
+        defer calling textures.unload_render_texture with target
+
+        let rec01 as raylib.Rectangle is with x is 70.0, y is 35.0, width is 20.0, height is 20.0
+        let rec02 as raylib.Rectangle is with x is 90.0, y is 55.0, width is 30.0, height is 10.0
+        let rec03 as raylib.Rectangle is with x is 80.0, y is 65.0, width is 15.0, height is 25.0
+
+        # The target's height is flipped (in the source Rectangle), due to OpenGL conventions
+        let source_rec as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is target.texture.width to f32
+            set .height is -(target.texture.height to f32)
+
+        var dest_rec as raylib.Rectangle is calling make_dest_rect with false
+        let origin as raylib.Vector2 is with x is 0.0, y is 0.0
+
+        var rotation as f32 is 0.0
+        var smooth_on as bool is true
+        var overscan as bool is false
+
+        let screen_res_label as string is "Screen resolution: {SCREEN_WIDTH}x{SCREEN_HEIGHT}"
+        defer banish screen_res_label
+        let world_res_label as string is "World resolution: {VIRTUAL_SCREEN_WIDTH}x{VIRTUAL_SCREEN_HEIGHT}"
+        defer banish world_res_label
+
+        calling raylib.SetTargetFPS with TARGET_FPS
+        # -----------------------------------------------------------------
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            # -------------------------------------------------------------
+            set rotation += 60.0 * (calling raylib.GetFrameTime) # Rotate the rectangles, 60 degrees per second
+
+            # Make the camera move to demonstrate the effect
+            let elapsed as f32 is (calling raylib.GetTime) to f32
+            let camera_x as f32 is ((calling elapsed.get_sin) * 50.0) - 10.0
+            let camera_y as f32 is (calling elapsed.get_cos) * 30.0
+
+            # Set the camera's target to the values computed above
+            set screen_space_camera.target is with x is camera_x, y is camera_y
+
+            # Round worldSpace coordinates, keep decimals into screenSpace coordinates
+            set world_space_camera.target.x is calling truncate_coord with screen_space_camera.target.x
+            set screen_space_camera.target.x -= world_space_camera.target.x
+            set screen_space_camera.target.x *= VIRTUAL_RATIO
+
+            set world_space_camera.target.y is calling truncate_coord with screen_space_camera.target.y
+            set screen_space_camera.target.y -= world_space_camera.target.y
+            set screen_space_camera.target.y *= VIRTUAL_RATIO
+
+            if calling input.is_key_pressed with raylib.KEY_S:
+                set smooth_on is not smooth_on
+            if calling input.is_key_pressed with raylib.KEY_O:
+                set overscan is not overscan
+
+            set dest_rec is calling make_dest_rect with overscan
+            # -------------------------------------------------------------
+
+            # Draw
+            # -------------------------------------------------------------
+            calling drawing.begin_texture_mode with target
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            calling drawing.begin_mode_2d with world_space_camera
+            calling rec01.draw_pro with origin, rotation, raylib.BLACK
+            calling rec02.draw_pro with origin, (-rotation), raylib.RED
+            calling rec03.draw_pro with origin, (rotation + 45.0), raylib.BLUE
+            calling drawing.end_mode_2d
+
+            calling drawing.end_texture_mode
+
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.LIGHTGRAY
+
+            if smooth_on:
+                calling drawing.begin_mode_2d with screen_space_camera
+                calling target.texture.draw_pro with source_rec, dest_rec, origin, 0.0, raylib.WHITE
+                calling drawing.end_mode_2d
+            else:
+                calling target.texture.draw_pro with source_rec, dest_rec, origin, 0.0, raylib.WHITE
+
+            calling txt.draw_text with screen_res_label, 10, 10, 20, raylib.DARKBLUE
+            calling txt.draw_text with world_res_label, 10, 40, 20, raylib.DARKGREEN
+
+            let smooth_state as string is if smooth_on then "ON" else "OFF"
+            let smooth_label as string is "Smooth: {smooth_state}"
+            calling txt.draw_text with smooth_label, 10, SCREEN_HEIGHT - 60, 20, raylib.RED
+            banish smooth_label
+
+            let overscan_state as string is if overscan then "ON" else "OFF"
+            let overscan_label as string is "Overscan: {overscan_state}"
+            calling txt.draw_text with overscan_label, 10, SCREEN_HEIGHT - 30, 20, raylib.RED
+            banish overscan_label
+
+            calling txt.draw_fps with ((calling raylib.GetScreenWidth) - 95), 10
+            calling drawing.end_drawing
+            # -------------------------------------------------------------
+
+        return 0
+
+    return 1

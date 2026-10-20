@@ -1,0 +1,195 @@
+## ## raylib [shapes] example - double pendulum
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.5
+## Example contributed by JoeCheong (@Joecheong2006) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 JoeCheong (@Joecheong2006)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and render textures.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_double_pendulum.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.textures as textures
+import std.fractio
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+const SIMULATION_STEPS as int is 30
+const G as f32 is 9.81
+const DEG2RAD as f32 is 0.017453292519943295
+const RAD2DEG as f32 is 57.29577951308232
+
+# --- Helpers ---
+
+## ## Calculates single pendulum end point relative to pivot
+weave calculate_pendulum_end_point with l as f32, theta as f32 into raylib.Vector2:
+    var angle as f32 is theta
+    return with:
+        set .x is 10.0 * l * (calling angle.get_sin)
+        set .y is 10.0 * l * (calling angle.get_cos)
+
+## ## Calculates double pendulum end point relative to pivot
+weave calculate_double_pendulum_end_point with l1 as f32, theta1 as f32, l2 as f32, theta2 as f32 into raylib.Vector2:
+    let ep1 as raylib.Vector2 is calling calculate_pendulum_end_point with l1, theta1
+    let ep2 as raylib.Vector2 is calling calculate_pendulum_end_point with l2, theta2
+    return with:
+        set .x is ep1.x + ep2.x
+        set .y is ep1.y + ep2.y
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.SetConfigFlags with raylib.FLAG_WINDOW_HIGHDPI
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - double pendulum"
+    defer calling raylib.CloseWindow
+
+    # Simulation Parameters
+    let l1 as f32 is 15.0
+    let m1 as f32 is 0.2
+    var theta1 as f32 is DEG2RAD * 170.0
+    var w1 as f32 is 0.0
+
+    let l2 as f32 is 15.0
+    let m2 as f32 is 0.1
+    var theta2 as f32 is DEG2RAD * 0.0
+    var w2 as f32 is 0.0
+
+    let length_scaler as f32 is 0.1
+    let total_m as f32 is m1 + m2
+
+    var previous_pos as raylib.Vector2 is calling calculate_double_pendulum_end_point with l1, theta1, l2, theta2
+    set previous_pos.x is previous_pos.x + ((SCREEN_WIDTH to f32) / 2.0)
+    set previous_pos.y is previous_pos.y + (((SCREEN_HEIGHT to f32) / 2.0) - 100.0)
+
+    # Scale length
+    let big_l1 as f32 is l1 * length_scaler
+    let big_l2 as f32 is l2 * length_scaler
+
+    # Draw parameters
+    let line_thick as f32 is 20.0
+    let trail_thick as f32 is 2.0
+    let fade_alpha as f32 is 0.01
+
+    # Create framebuffer
+    var target as raylib.RenderTexture2D is calling raylib.LoadRenderTexture with SCREEN_WIDTH, SCREEN_HEIGHT
+    defer calling raylib.UnloadRenderTexture with target
+
+    calling target.texture.set_filter with raylib.TEXTURE_FILTER_BILINEAR
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let dt as f32 is calling raylib.GetFrameTime
+        let step as f32 is dt / (SIMULATION_STEPS to f32)
+        let step2 as f32 is step * step
+
+        # Update Physics - larger steps = better approximation
+        for _s from 0 to SIMULATION_STEPS - 1:
+            var delta as f32 is theta1 - theta2
+            let sin_d as f32 is calling delta.get_sin
+            let cos_d as f32 is calling delta.get_cos
+            var two_delta as f32 is 2.0 * delta
+            let cos_2d as f32 is calling two_delta.get_cos
+
+            let ww1 as f32 is w1 * w1
+            let ww2 as f32 is w2 * w2
+
+            # Calculate a1
+            var t1_angle as f32 is theta1
+            var t1_diff as f32 is theta1 - (2.0 * theta2)
+
+            let term1 as f32 is -G * ((2.0 * m1) + m2) * (calling t1_angle.get_sin)
+            let term2 as f32 is m2 * G * (calling t1_diff.get_sin)
+            let term3 as f32 is 2.0 * sin_d * m2 * ((ww2 * big_l2) + (ww1 * big_l1 * cos_d))
+            let a1_num as f32 is term1 - term2 - term3
+            let a1_denom as f32 is big_l1 * (((2.0 * m1) + m2) - (m2 * cos_2d))
+            let a1 as f32 is a1_num / a1_denom
+
+            # Calculate a2
+            let term2_1 as f32 is ww1 * big_l1 * total_m
+            let term2_2 as f32 is G * total_m * (calling t1_angle.get_cos)
+            let term2_3 as f32 is ww2 * big_l2 * m2 * cos_d
+            let a2_num as f32 is 2.0 * sin_d * (term2_1 + term2_2 + term2_3)
+            let a2_denom as f32 is big_l2 * (((2.0 * m1) + m2) - (m2 * cos_2d))
+            let a2 as f32 is a2_num / a2_denom
+
+            # Update thetas
+            set theta1 is theta1 + (w1 * step) + (0.5 * a1 * step2)
+            set theta2 is theta2 + (w2 * step) + (0.5 * a2 * step2)
+
+            # Update omegas
+            set w1 is w1 + (a1 * step)
+            set w2 is w2 + (a2 * step)
+
+        # Calculate position
+        var current_pos as raylib.Vector2 is calling calculate_double_pendulum_end_point with l1, theta1, l2, theta2
+        set current_pos.x is current_pos.x + ((SCREEN_WIDTH to f32) / 2.0)
+        set current_pos.y is current_pos.y + (((SCREEN_HEIGHT to f32) / 2.0) - 100.0)
+
+        # Draw to render texture
+        calling drawing.begin_texture_mode with target
+        let fade_col as raylib.Color is calling colors.fade with colors.BLACK, fade_alpha
+        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, fade_col
+
+        calling previous_pos.draw_circle with trail_thick, colors.RED
+        calling previous_pos.draw_line_ex with current_pos, trail_thick * 2.0, colors.RED
+        calling drawing.end_texture_mode
+
+        set previous_pos is current_pos
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.BLACK
+
+        # Draw trails texture (flipped vertically as standard render textures in raylib)
+        var src_rec as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is target.texture.width to f32
+            set .height is -(target.texture.height to f32)
+        var zero_pos as raylib.Vector2 is with:
+            set .x is 0.0
+            set .y is 0.0
+        calling target.texture.draw_rec with src_rec, zero_pos, colors.WHITE
+
+        # Draw double pendulum
+        var rec1 as raylib.Rectangle is with:
+            set .x is (SCREEN_WIDTH to f32) / 2.0
+            set .y is ((SCREEN_HEIGHT to f32) / 2.0) - 100.0
+            set .width is 10.0 * l1
+            set .height is line_thick
+        var origin1 as raylib.Vector2 is with:
+            set .x is 0.0
+            set .y is line_thick * 0.5
+        calling rec1.draw_pro with origin1, 90.0 - (RAD2DEG * theta1), colors.RAYWHITE
+
+        var ep1 as raylib.Vector2 is calling calculate_pendulum_end_point with l1, theta1
+        var rec2 as raylib.Rectangle is with:
+            set .x is ((SCREEN_WIDTH to f32) / 2.0) + ep1.x
+            set .y is (((SCREEN_HEIGHT to f32) / 2.0) - 100.0) + ep1.y
+            set .width is 10.0 * l2
+            set .height is line_thick
+        var origin2 as raylib.Vector2 is with:
+            set .x is 0.0
+            set .y is line_thick * 0.5
+        calling rec2.draw_pro with origin2, 90.0 - (RAD2DEG * theta2), colors.RAYWHITE
+
+        calling drawing.end_drawing

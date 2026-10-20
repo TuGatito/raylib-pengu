@@ -1,0 +1,184 @@
+## raylib [shapes] example - rlgl triangle
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+## Example contributed by Robin (@RobinsAviary) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Robin (@RobinsAviary)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with rlgl and raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_rlgl_triangle.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.rlgl as rlgl
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32)
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - rlgl triangle"
+    defer calling raylib.CloseWindow
+
+    # Starting positions
+    let sp0 as raylib.Vector2 is with:
+        set .x is 400.0
+        set .y is 150.0
+
+    let sp1 as raylib.Vector2 is with:
+        set .x is 300.0
+        set .y is 300.0
+
+    let sp2 as raylib.Vector2 is with:
+        set .x is 500.0
+        set .y is 300.0
+
+    # Rendered triangle positions
+    var p0 as raylib.Vector2 is sp0
+    var p1 as raylib.Vector2 is sp1
+    var p2 as raylib.Vector2 is sp2
+
+    # Currently selected vertex, -1 means none
+    var triangle_index as int is -1
+    var lines_mode as bool is false
+    let handle_radius as f32 is 8.0
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set lines_mode is not lines_mode
+
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+        let is_left_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT
+
+        # Check selected vertex
+        if (calling shapes.collision_point_circle with mouse_pos, p0, handle_radius) and is_left_down:
+            set triangle_index is 0
+        else if (calling shapes.collision_point_circle with mouse_pos, p1, handle_radius) and is_left_down:
+            set triangle_index is 1
+        else if (calling shapes.collision_point_circle with mouse_pos, p2, handle_radius) and is_left_down:
+            set triangle_index is 2
+
+        # If the user has selected a vertex, offset it by the mouse's delta this frame
+        if triangle_index != -1:
+            let mouse_delta as raylib.Vector2 is calling raylib.GetMouseDelta
+            if triangle_index == 0:
+                set p0.x is p0.x + mouse_delta.x
+                set p0.y is p0.y + mouse_delta.y
+            else if triangle_index == 1:
+                set p1.x is p1.x + mouse_delta.x
+                set p1.y is p1.y + mouse_delta.y
+            else if triangle_index == 2:
+                set p2.x is p2.x + mouse_delta.x
+                set p2.y is p2.y + mouse_delta.y
+
+        # Reset index on release
+        if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+            set triangle_index is -1
+
+        # Enable/disable backface culling (2-sided triangles, slower to render)
+        if calling input.is_key_pressed with raylib.KEY_LEFT:
+            calling rlgl.rlEnableBackfaceCulling
+        if calling input.is_key_pressed with raylib.KEY_RIGHT:
+            calling rlgl.rlDisableBackfaceCulling
+
+        # Reset triangle vertices to starting positions and reset backface culling
+        if calling input.is_key_pressed with raylib.KEY_R:
+            set p0 is sp0
+            set p1 is sp1
+            set p2 is sp2
+            calling rlgl.rlEnableBackfaceCulling
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        if lines_mode:
+            # Draw triangle with lines
+            calling rlgl.rlBegin with (rlgl.RL_LINES to int)
+            # Three lines, six points
+            calling rlgl.rlColor4ub with (255 to byte), (0 to byte), (0 to byte), (255 to byte)
+            calling rlgl.rlVertex2f with p0.x, p0.y
+            calling rlgl.rlColor4ub with (0 to byte), (255 to byte), (0 to byte), (255 to byte)
+            calling rlgl.rlVertex2f with p1.x, p1.y
+
+            calling rlgl.rlColor4ub with (0 to byte), (255 to byte), (0 to byte), (255 to byte)
+            calling rlgl.rlVertex2f with p1.x, p1.y
+            calling rlgl.rlColor4ub with (0 to byte), (0 to byte), (255 to byte), (255 to byte)
+            calling rlgl.rlVertex2f with p2.x, p2.y
+
+            calling rlgl.rlColor4ub with (0 to byte), (0 to byte), (255 to byte), (255 to byte)
+            calling rlgl.rlVertex2f with p2.x, p2.y
+            calling rlgl.rlColor4ub with (255 to byte), (0 to byte), (0 to byte), (255 to byte)
+            calling rlgl.rlVertex2f with p0.x, p0.y
+            calling rlgl.rlEnd
+        else:
+            # Draw triangle as a triangle
+            calling rlgl.rlBegin with (rlgl.RL_TRIANGLES to int)
+            # One triangle, three points
+            calling rlgl.rlColor4ub with (255 to byte), (0 to byte), (0 to byte), (255 to byte)
+            calling rlgl.rlVertex2f with p0.x, p0.y
+            calling rlgl.rlColor4ub with (0 to byte), (255 to byte), (0 to byte), (255 to byte)
+            calling rlgl.rlVertex2f with p1.x, p1.y
+            calling rlgl.rlColor4ub with (0 to byte), (0 to byte), (255 to byte), (255 to byte)
+            calling rlgl.rlVertex2f with p2.x, p2.y
+            calling rlgl.rlEnd
+
+        # Render the vertex handles
+        # Vertex 0
+        if calling shapes.collision_point_circle with mouse_pos, p0, handle_radius:
+            calling p0.draw_circle with handle_radius, (calling colors.fade with raylib.DARKGRAY, 0.5)
+        if triangle_index == 0:
+            calling p0.draw_circle with handle_radius, raylib.DARKGRAY
+        calling p0.draw_circle_lines with handle_radius, raylib.BLACK
+
+        # Vertex 1
+        if calling shapes.collision_point_circle with mouse_pos, p1, handle_radius:
+            calling p1.draw_circle with handle_radius, (calling colors.fade with raylib.DARKGRAY, 0.5)
+        if triangle_index == 1:
+            calling p1.draw_circle with handle_radius, raylib.DARKGRAY
+        calling p1.draw_circle_lines with handle_radius, raylib.BLACK
+
+        # Vertex 2
+        if calling shapes.collision_point_circle with mouse_pos, p2, handle_radius:
+            calling p2.draw_circle with handle_radius, (calling colors.fade with raylib.DARKGRAY, 0.5)
+        if triangle_index == 2:
+            calling p2.draw_circle with handle_radius, raylib.DARKGRAY
+        calling p2.draw_circle_lines with handle_radius, raylib.BLACK
+
+        # Draw controls
+        calling txt.draw_text with "SPACE: Toggle lines mode", 10, 10, 20, raylib.DARKGRAY
+        calling txt.draw_text with "LEFT-RIGHT: Toggle backface culling", 10, 40, 20, raylib.DARKGRAY
+        calling txt.draw_text with "MOUSE: Click and drag vertex points", 10, 70, 20, raylib.DARKGRAY
+        calling txt.draw_text with "R: Reset triangle to start positions", 10, 100, 20, raylib.DARKGRAY
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

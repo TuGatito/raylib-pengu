@@ -1,0 +1,224 @@
+## raylib [models] example - point rendering
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 5.0, last time updated with raylib 5.0
+##
+## Example contributed by Reese Gallagher (@satchelfrost) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2024-2025 Reese Gallagher (@satchelfrost)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates point cloud mesh generation and point rendering mode with rlgl.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_point_rendering.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import rlgl
+import raylibx.drawing as drawing
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.colors as colors
+import raylibx.models as models
+import raylibx.random as random
+import std.fractio
+
+# --- Constants ---
+
+## Maximum number of points in the cloud (10 million).
+const MAX_POINTS as int is 10000000
+
+## Minimum number of points in the cloud (1 thousand).
+const MIN_POINTS as int is 1000
+
+## PI constant for spherical coordinates.
+const PI_F as f32 is 3.14159265358979323846
+
+# --- Helpers ---
+
+## Generates a spherical point cloud mesh.
+##
+## ## Parameters
+## - `num_points`: Total number of points to generate in the cloud.
+##
+## ## Returns
+## A `raylib.Mesh` containing vertex positions and vertex colors.
+##
+## ## Memory
+## Allocates vertex and color buffers with `raylib.MemAlloc`, then uploads to GPU.
+weave gen_mesh_points with num_points as int into raylib.Mesh:
+    var vertices_ptr as ref to f32 is transmute (calling raylib.MemAlloc with (num_points * 3 * 4)) to (ref to f32)
+    var colors_ptr as ref to byte is transmute (calling raylib.MemAlloc with (num_points * 4 * 1)) to (ref to byte)
+
+    for i from 0 to num_points:
+        var rand_theta as f32 is ((calling random.between with 0, 1000000) to f32) / 1000000.0
+        var rand_phi as f32 is ((calling random.between with 0, 1000000) to f32) / 1000000.0
+        var rand_r as f32 is ((calling random.between with 0, 1000000) to f32) / 1000000.0
+
+        var theta as f32 is PI_F * rand_theta
+        var phi as f32 is 2.0 * PI_F * rand_phi
+        var r as f32 is 10.0 * rand_r
+
+        var sin_theta as f32 is calling theta.get_sin
+        var cos_theta as f32 is calling theta.get_cos
+        var sin_phi as f32 is calling phi.get_sin
+        var cos_phi as f32 is calling phi.get_cos
+
+        set vertices_ptr at (i * 3 + 0) is r * sin_theta * cos_phi
+        set vertices_ptr at (i * 3 + 1) is r * sin_theta * sin_phi
+        set vertices_ptr at (i * 3 + 2) is r * cos_theta
+
+        var color as raylib.Color is calling raylib.ColorFromHSV with (r * 360.0), 1.0, 1.0
+
+        set colors_ptr at (i * 4 + 0) is color.r
+        set colors_ptr at (i * 4 + 1) is color.g
+        set colors_ptr at (i * 4 + 2) is color.b
+        set colors_ptr at (i * 4 + 3) is color.a
+
+    var mesh as raylib.Mesh is with:
+        set .triangleCount is 1
+        set .vertexCount is num_points
+        set .vertices is vertices_ptr
+        set .colors is colors_ptr
+
+    calling raylib.UploadMesh with (sigil of mesh), false
+    return mesh
+
+## Draws a model using point rendering mode.
+##
+## ## Parameters
+## - `model`: The model to draw.
+## - `position`: 3D position where the model is rendered.
+## - `scale`: Scaling factor.
+## - `tint`: Tint color.
+weave draw_model_points with model as raylib.Model, position as raylib.Vector3, scale as f32, tint as raylib.Color into void:
+    calling rlgl.rlEnablePointMode
+    calling rlgl.rlDisableBackfaceCulling
+
+    calling model.draw with position, scale, tint
+
+    calling rlgl.rlEnableBackfaceCulling
+    calling rlgl.rlDisablePointMode
+
+## Draws a model using point rendering mode with extended transformation parameters.
+##
+## ## Parameters
+## - `model`: The model to draw.
+## - `position`: 3D position where the model is rendered.
+## - `rotation_axis`: 3D rotation axis.
+## - `rotation_angle`: Rotation angle in degrees.
+## - `scale`: 3D scaling vector.
+## - `tint`: Tint color.
+weave draw_model_points_ex with model as raylib.Model, position as raylib.Vector3, rotation_axis as raylib.Vector3, rotation_angle as f32, scale as raylib.Vector3, tint as raylib.Color into void:
+    calling rlgl.rlEnablePointMode
+    calling rlgl.rlDisableBackfaceCulling
+
+    calling model.draw_ex with position, rotation_axis, rotation_angle, scale, tint
+
+    calling rlgl.rlEnableBackfaceCulling
+    calling rlgl.rlDisablePointMode
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - point rendering"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 3.0, y is 3.0, z is 3.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    var use_draw_model_points as bool is true
+    var num_points_changed as bool is false
+    var num_points as int is 1000
+
+    var mesh as raylib.Mesh is calling gen_mesh_points with num_points
+    var model as raylib.Model is calling models.load_model_from_mesh with mesh
+    defer calling models.unload_model with model
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        if calling raylib.IsKeyPressed with raylib.KEY_SPACE:
+            set use_draw_model_points is not use_draw_model_points
+
+        if calling raylib.IsKeyPressed with raylib.KEY_UP:
+            set num_points is if (num_points * 10 > MAX_POINTS) then MAX_POINTS else (num_points * 10)
+            set num_points_changed is true
+
+        if calling raylib.IsKeyPressed with raylib.KEY_DOWN:
+            set num_points is if (num_points / 10 < MIN_POINTS) then MIN_POINTS else (num_points / 10)
+            set num_points_changed is true
+
+        # Upload a different point cloud size
+        if num_points_changed:
+            calling models.unload_model with model
+            set mesh is calling gen_mesh_points with num_points
+            set model is calling models.load_model_from_mesh with mesh
+            set num_points_changed is false
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.BLACK
+
+        calling drawing.begin_mode_3d with camera
+        if use_draw_model_points:
+            calling draw_model_points with model, position, 1.0, raylib.WHITE
+        else:
+            for i from 0 to num_points:
+                var pos as raylib.Vector3 is with:
+                    set .x is (mesh.vertices at (i * 3 + 0))
+                    set .y is (mesh.vertices at (i * 3 + 1))
+                    set .z is (mesh.vertices at (i * 3 + 2))
+
+                var color as raylib.Color is with:
+                    set .r is (mesh.colors at (i * 4 + 0))
+                    set .g is (mesh.colors at (i * 4 + 1))
+                    set .b is (mesh.colors at (i * 4 + 2))
+                    set .a is (mesh.colors at (i * 4 + 3))
+
+                calling pos.draw_point with color
+
+        # Draw a unit sphere for reference
+        calling shapes3d.draw_sphere_wires with position, 1.0, 10, 10, raylib.YELLOW
+        calling drawing.end_mode_3d
+
+        # Draw UI text
+        var count_str as string is "Point Count: {num_points}"
+        calling txt.draw_text with count_str, 10, screen_height - 50, 40, raylib.WHITE
+        banish count_str
+
+        calling txt.draw_text with "UP - Increase points", 10, 40, 20, raylib.WHITE
+        calling txt.draw_text with "DOWN - Decrease points", 10, 70, 20, raylib.WHITE
+        calling txt.draw_text with "SPACE - Drawing function", 10, 100, 20, raylib.WHITE
+
+        if use_draw_model_points:
+            calling txt.draw_text with "Using: DrawModelPoints()", 10, 130, 20, raylib.GREEN
+        else:
+            calling txt.draw_text with "Using: DrawPoint3D()", 10, 130, 20, raylib.RED
+
+        calling txt.draw_fps with 10, 10
+        calling drawing.end_drawing
+
+    return 0

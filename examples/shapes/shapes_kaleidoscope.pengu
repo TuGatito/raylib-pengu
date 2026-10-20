@@ -1,0 +1,213 @@
+## raylib [shapes] example - kaleidoscope
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.6
+## Example contributed by Hugo ARNAL (@hugoarnal) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Hugo ARNAL (@hugoarnal) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and rayguix.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_kaleidoscope.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raygui as raygui
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raymathx as raymathx
+import pengu.rayguix as rayguix
+
+# --- Constants ---
+
+## Maximum number of lines that can be stored
+const MAX_DRAW_LINES as int is 8192
+
+# --- Types ---
+
+## Represents a line segment with start and end points
+rune Line:
+    start as raylib.Vector2
+    end as raylib.Vector2
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - kaleidoscope"
+    defer calling raylib.CloseWindow
+
+    # Line drawing properties
+    let symmetry as int is 6
+    let angle as f32 is 360.0 / (symmetry to f32)
+    let thickness as f32 is 3.0
+
+    let reset_button_rec as raylib.Rectangle is with:
+        set .x is (screen_width to f32) - 55.0
+        set .y is 5.0
+        set .width is 50.0
+        set .height is 25.0
+
+    let back_button_rec as raylib.Rectangle is with:
+        set .x is (screen_width to f32) - 55.0
+        set .y is (screen_height to f32) - 30.0
+        set .width is 25.0
+        set .height is 25.0
+
+    let next_button_rec as raylib.Rectangle is with:
+        set .x is (screen_width to f32) - 30.0
+        set .y is (screen_height to f32) - 30.0
+        set .width is 25.0
+        set .height is 25.0
+
+    var mouse_pos as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+
+    var prev_mouse_pos as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+
+    let scale_vector as raylib.Vector2 is with:
+        set .x is 1.0
+        set .y is -1.0
+
+    let offset as raylib.Vector2 is with:
+        set .x is ((calling raylib.GetRenderWidth) to f32) / 2.0
+        set .y is ((calling raylib.GetRenderHeight) to f32) / 2.0
+
+    var camera as raylib.Camera2D is with:
+        set .target is with:
+            set .x is 0.0
+            set .y is 0.0
+        set .offset is offset
+        set .rotation is 0.0
+        set .zoom is 1.0
+
+    var lines as list of Line is list of Line
+    defer banish lines
+    for i from 0 to MAX_DRAW_LINES - 1:
+        let initial_line as Line is with:
+            set .start is with:
+                set .x is 0.0
+                set .y is 0.0
+            set .end is with:
+                set .x is 0.0
+                set .y is 0.0
+        calling lines.push with initial_line
+
+    var current_line_counter as int is 0
+    var total_line_counter as int is 0
+    var reset_button_clicked as bool is false
+    var back_button_clicked as bool is false
+    var next_button_clicked as bool is false
+
+    calling raylib.SetTargetFPS with 20
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        set prev_mouse_pos is mouse_pos
+        set mouse_pos is calling raylib.GetMousePosition
+
+        var line_start as raylib.Vector2 is calling mouse_pos.get_subtract with offset
+        var line_end as raylib.Vector2 is calling prev_mouse_pos.get_subtract with offset
+
+        let is_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT
+        let not_on_reset as bool is not (calling reset_button_rec.contains_point with mouse_pos)
+        let not_on_back as bool is not (calling back_button_rec.contains_point with mouse_pos)
+        let not_on_next as bool is not (calling next_button_rec.contains_point with mouse_pos)
+
+        if is_down and not_on_reset and not_on_back and not_on_next:
+            var s as int is 0
+            while (s < symmetry) and (total_line_counter < (MAX_DRAW_LINES - 1)):
+                calling line_start.rotate_by with (angle * raymathx.DEG2RAD)
+                calling line_end.rotate_by with (angle * raymathx.DEG2RAD)
+
+                # Store mouse line
+                set lines at total_line_counter is with:
+                    set .start is line_start
+                    set .end is line_end
+
+                # Store reflective line
+                set lines at (total_line_counter + 1) is with:
+                    set .start is calling line_start.get_multiply with scale_vector
+                    set .end is calling line_end.get_multiply with scale_vector
+
+                set total_line_counter is total_line_counter + 2
+                set current_line_counter is total_line_counter
+                set s is s + 1
+
+        if reset_button_clicked:
+            for i from 0 to total_line_counter:
+                if i < MAX_DRAW_LINES:
+                    set lines at i is with:
+                        set .start is with:
+                            set .x is 0.0
+                            set .y is 0.0
+                        set .end is with:
+                            set .x is 0.0
+                            set .y is 0.0
+            set current_line_counter is 0
+            set total_line_counter is 0
+
+        if back_button_clicked and (current_line_counter > 0):
+            set current_line_counter is current_line_counter - 1
+
+        if next_button_clicked and (current_line_counter < MAX_DRAW_LINES) and ((current_line_counter + 1) <= total_line_counter):
+            set current_line_counter is current_line_counter + 1
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_2d with camera
+        for s from 0 to symmetry - 1:
+            var i as int is 0
+            while i < current_line_counter:
+                let l0 as Line is lines at i
+                let l1 as Line is lines at (i + 1)
+                calling l0.start.draw_line_ex with l0.end, thickness, raylib.BLACK
+                calling l1.start.draw_line_ex with l1.end, thickness, raylib.BLACK
+                set i is i + 2
+        calling drawing.end_mode_2d
+
+        if (current_line_counter - 1) < 0:
+            calling raygui.GuiDisable
+        set back_button_clicked is ((calling rayguix.button with back_button_rec, "<") != 0)
+        calling raygui.GuiEnable
+
+        if (current_line_counter + 1) > total_line_counter:
+            calling raygui.GuiDisable
+        set next_button_clicked is ((calling rayguix.button with next_button_rec, ">") != 0)
+        calling raygui.GuiEnable
+
+        set reset_button_clicked is ((calling rayguix.button with reset_button_rec, "Reset") != 0)
+
+        var status_msg as string is "LINES: {current_line_counter}/{MAX_DRAW_LINES}"
+        calling txt.draw_text with status_msg, 10, screen_height - 30, 20, raylib.MAROON
+        banish status_msg
+
+        calling txt.draw_fps with 10, 10
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

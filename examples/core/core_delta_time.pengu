@@ -1,0 +1,142 @@
+## examples/core/core_delta_time.pengu
+## raylib [core] example - delta time
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.5
+##
+## Example contributed by Robin (@RobinsAviary) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2024-2025 Robin (@RobinsAviary)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_delta_time.c` built on top of the
+## `raylibx` wrapper layer. Circle rendering uses the `draw_circle` method on
+## `raylib.Vector2` from `raylibx.shapes`, and dynamic HUD strings use native
+## string interpolation with `defer banish`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_delta_time.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Initial target frames per second.
+const INITIAL_FPS as int is 60
+
+## Base horizontal movement speed factor.
+const SPEED as f32 is 10.0
+
+## Radius of the comparison circles, in pixels.
+const CIRCLE_RADIUS as f32 is 32.0
+
+# --- Entry point --------------------------------------------------------
+## Program entry point.
+##
+## Compares delta-time-scaled movement against fixed per-frame movement while
+## allowing the user to adjust target FPS with the mouse wheel and reset circle
+## positions with `R`.
+##
+## ## Returns
+## Exit code (`0` on clean exit).
+weave main into int:
+    # Initialization
+    #--------------------------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - delta time"
+    defer calling raylib.CloseWindow
+
+    var current_fps as int is INITIAL_FPS
+
+    # Store the position for comparison of both circles
+    var delta_circle as raylib.Vector2 is with x is 0.0, y is ((SCREEN_HEIGHT to f32) / 3.0)
+    var frame_circle as raylib.Vector2 is with x is 0.0, y is ((SCREEN_HEIGHT to f32) * (2.0 / 3.0))
+
+    calling raylib.SetTargetFPS with current_fps
+    #--------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+        # Update
+        #----------------------------------------------------------------------------------
+        # Adjust the FPS target based on the mouse wheel
+        let mouse_wheel as f32 is calling raylib.GetMouseWheelMove
+        if mouse_wheel != 0.0:
+            set current_fps += (mouse_wheel to int)
+            if current_fps < 0:
+                set current_fps is 0
+            calling raylib.SetTargetFPS with current_fps
+
+        # GetFrameTime() returns the time it took to draw the last frame, in seconds (usually called delta time)
+        # Uses the delta time to make the circle look like it's moving at a "consistent" speed regardless of FPS
+
+        # Multiply by 6.0 (an arbitrary value) in order to make the speed
+        # visually closer to the other circle (at 60 fps), for comparison
+        set delta_circle.x += (calling raylib.GetFrameTime) * 6.0 * SPEED
+        # This circle can move faster or slower visually depending on the FPS
+        set frame_circle.x += 0.1 * SPEED
+
+        # If either circle is off the screen, reset it back to the start
+        if delta_circle.x > (SCREEN_WIDTH to f32):
+            set delta_circle.x is 0.0
+        if frame_circle.x > (SCREEN_WIDTH to f32):
+            set frame_circle.x is 0.0
+
+        # Reset both circles positions
+        if calling input.is_key_pressed with raylib.KEY_R:
+            set delta_circle.x is 0.0
+            set frame_circle.x is 0.0
+        #----------------------------------------------------------------------------------
+
+        # Draw
+        #----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Draw both circles to the screen
+        calling delta_circle.draw_circle with CIRCLE_RADIUS, raylib.RED
+        calling frame_circle.draw_circle with CIRCLE_RADIUS, raylib.BLUE
+
+        # Draw the help text
+        # Determine what help text to show depending on the current FPS target
+        let fps_val as int is calling raylib.GetFPS
+        if current_fps <= 0:
+            let fps_text as string is "FPS: unlimited ({fps_val})"
+            defer banish fps_text
+            calling txt.draw_text with fps_text, 10, 10, 20, raylib.DARKGRAY
+        else:
+            let fps_text as string is "FPS: {fps_val} (target: {current_fps})"
+            defer banish fps_text
+            calling txt.draw_text with fps_text, 10, 10, 20, raylib.DARKGRAY
+
+        let frame_ms as f32 is (calling raylib.GetFrameTime) * 1000.0
+        let frame_time_text as string is "Frame time: {frame_ms} ms"
+        defer banish frame_time_text
+        calling txt.draw_text with frame_time_text, 10, 30, 20, raylib.DARKGRAY
+
+        calling txt.draw_text with "Use the scroll wheel to change the fps limit, r to reset", 10, 50, 20, raylib.DARKGRAY
+
+        # Draw the text above the circles
+        calling txt.draw_text with "FUNC: x += GetFrameTime()*speed", 10, 90, 20, raylib.RED
+        calling txt.draw_text with "FUNC: x += speed", 10, 240, 20, raylib.BLUE
+
+        calling drawing.end_drawing
+        #----------------------------------------------------------------------------------
+
+    return 0

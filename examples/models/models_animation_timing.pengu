@@ -1,0 +1,164 @@
+## raylib [models] example - animation timing
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2026 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.input`,
+## `raylibx.shapes`, `raylibx.shapes3d`, `raylibx.models`, `raylibx.text`, `rayguix`),
+## safe list management, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_animation_timing.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raygui
+import rayguix
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Path to the 3D model asset.
+const MODEL_PATH as string is "resources/models/gltf/robot.glb"
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Loads a rigged 3D robot model and its animations, displays interactive GUI
+## controls to select animations and adjust playback speed, and visualizes
+## keyframes on a timeline bar.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if asset loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - animation timing"
+    defer calling raylib.CloseWindow
+
+    # Define the camera to look into our 3d world
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 6.0, y is 6.0, z is 6.0)
+        set .target is (with x is 0.0, y is 2.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is raylib.CAMERA_PERSPECTIVE
+
+    # Load model
+    let loaded_model as maybe raylib.Model is calling models.load_model with MODEL_PATH
+    if model as raylib.Model is loaded_model:
+        defer calling models.unload_model with model
+
+        let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0 # Set model world position
+
+        # Load model animations
+        let loaded_anims as maybe (slice of raylib.ModelAnimation) is calling models.load_animations with MODEL_PATH
+        if anims as slice of raylib.ModelAnimation is loaded_anims:
+            defer calling models.unload_animations with anims
+
+            let anim_count as int is anims.length
+
+            # Animation playing variables
+            var anim_index as int is if anim_count > 10 then 10 else 0 # Current animation playing
+            var anim_current_frame as f32 is 0.0                      # Current animation frame (supporting interpolated frames)
+            var anim_frame_speed as f32 is 0.5                        # Animation play speed
+            var anim_pause as bool is false                           # Pause animation
+
+            # UI required variables
+            var anim_names as list of string is list of string
+            defer:
+                for s in anim_names:
+                    banish s
+                banish anim_names
+
+            for i from 0 to anim_count:
+                var anim_item as raylib.ModelAnimation is anims at i
+                calling anim_names.push with (calling anim_item.get_name)
+
+            var anim_dropdown_text as string is calling txt.text_join with (anim_names at 0 to anim_count), ";"
+            defer banish anim_dropdown_text
+
+            var dropdown_edit_mode as bool is false
+            var anim_frame_progress as f32 is 0.0
+
+            calling raylib.SetTargetFPS with 60 # Set our game to run at 60 frames-per-second
+
+            # Main game loop
+            while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+                # Update
+                calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+                if calling input.is_key_pressed with raylib.KEY_P:
+                    set anim_pause is not anim_pause
+
+                if (not anim_pause) and (anim_index < anim_count):
+                    # Update model animation
+                    set anim_current_frame is anim_current_frame + anim_frame_speed
+                    var active_anim as raylib.ModelAnimation is anims at anim_index
+                    if anim_current_frame >= (active_anim.keyframeCount to f32):
+                        set anim_current_frame is 0.0
+                    calling model.update_animation with active_anim, anim_current_frame
+
+                # NOTE: Animation and playing speed selected through UI
+
+                # Update progressbar value with current frame
+                set anim_frame_progress is anim_current_frame
+
+                let screen_w as f32 is calling raylib.GetScreenWidth to f32
+                let screen_h as f32 is calling raylib.GetScreenHeight to f32
+
+                # Draw
+                calling drawing.begin_drawing
+                calling drawing.clear_background with raylib.RAYWHITE
+
+                calling drawing.begin_mode_3d with camera
+                calling model.draw with position, 1.0, raylib.WHITE
+                calling shapes3d.draw_grid with 10, 1.0
+                calling drawing.end_mode_3d
+
+                # Draw UI, select anim and playing speed
+                calling raygui.GuiSetStyle with (raygui.DROPDOWNBOX to int), (raygui.DROPDOWN_ITEMS_SPACING to int), 1
+                let res as int is calling rayguix.dropdown_box with (with x is 10.0, y is 10.0, width is 140.0, height is 24.0), anim_dropdown_text, (sigil of anim_index), dropdown_edit_mode
+                if res != 0:
+                    set dropdown_edit_mode is not dropdown_edit_mode
+
+                let speed_label as string is "x{anim_frame_speed}"
+                let _s as int is calling rayguix.slider with (with x is 260.0, y is 10.0, width is 500.0, height is 24.0), "FRAME SPEED: ", speed_label, (sigil of anim_frame_speed), 0.1, 2.0
+                banish speed_label
+
+                # Draw playing timeline with keyframes
+                var cur_anim as raylib.ModelAnimation is anims at anim_index
+                let label_text as string is "CURRENT FRAME: {anim_frame_progress} / {cur_anim.keyframeCount}"
+                let _l as int is calling rayguix.label with (with x is 10.0, y is (screen_h - 64.0), width is (screen_w - 20.0), height is 24.0), label_text
+                banish label_text
+
+                let _p as int is calling rayguix.progress_bar with (with x is 10.0, y is (screen_h - 40.0), width is (screen_w - 20.0), height is 24.0), "", "", (sigil of anim_frame_progress), 0.0, (cur_anim.keyframeCount to f32)
+
+                for i from 0 to cur_anim.keyframeCount:
+                    let offset_x as int is (((screen_w - 20.0) / (cur_anim.keyframeCount to f32)) * (i to f32)) to int
+                    calling shapes.draw_rectangle with 10 + offset_x, (screen_h to int) - 40, 1, 24, raylib.BLUE
+
+                calling drawing.end_drawing
+
+            return 0
+
+    return 1

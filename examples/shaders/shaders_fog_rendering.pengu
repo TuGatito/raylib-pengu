@@ -1,0 +1,268 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - fog rendering
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Chris Camacho (@chriscamacho) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to implement depth-based distance fog on 3D meshes
+## using custom vertex and fragment shaders combined with dynamic point lighting.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_fog_rendering.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymath
+import raymathx
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Types --------------------------------------------------------------
+## Light types matching rlights.h.
+omen LightType:
+    Directional is 0
+    Point is 1
+
+## Light structure storing dynamic point/directional light uniforms.
+rune Light:
+    enabled as bool
+    type as int
+    position as raylib.Vector3
+    target as raylib.Vector3
+    color as raylib.Color
+    attenuation as f32
+    enabled_loc as int
+    type_loc as int
+    position_loc as int
+    target_loc as int
+    color_loc as int
+    attenuation_loc as int
+
+# --- Light Helpers ------------------------------------------------------
+## Sends updated light properties to the lighting shader.
+##
+## ## Parameters
+## - `shader`: The active lighting shader.
+## - `light`: The light struct whose values will be updated in shader uniforms.
+weave update_light_values with shader as raylib.Shader, light as Light into void:
+    calling shader.set_int with light.enabled_loc, (if light.enabled then 1 else 0)
+    calling shader.set_int with light.type_loc, light.type
+    calling shader.set_vec3 with light.position_loc, light.position
+    calling shader.set_vec3 with light.target_loc, light.target
+
+    let col_vec as raylib.Vector4 is with:
+        set .x is ((light.color.r to f32) / 255.0)
+        set .y is ((light.color.g to f32) / 255.0)
+        set .z is ((light.color.b to f32) / 255.0)
+        set .w is ((light.color.a to f32) / 255.0)
+    calling shader.set_vec4 with light.color_loc, col_vec
+
+## Creates a dynamic light and queries its uniform locations within the shader.
+##
+## ## Parameters
+## - `light_index`: Index of this light in the shader lights array.
+## - `light_type`: Type of light (`LightType.Point` or `LightType.Directional`).
+## - `position`: 3D position of the light source.
+## - `target`: Target look-at direction for directional lights.
+## - `color`: Emitted light color.
+## - `shader`: The target shader.
+##
+## ## Returns
+## Initialized `Light` struct with queried shader locations.
+weave create_light with light_index as int, light_type as int, position as raylib.Vector3, target as raylib.Vector3, color as raylib.Color, shader as raylib.Shader into Light:
+    var light as Light is with:
+        set .enabled is true
+        set .type is light_type
+        set .position is position
+        set .target is target
+        set .color is color
+        set .attenuation is 0.0
+        set .enabled_loc is -1
+        set .type_loc is -1
+        set .position_loc is -1
+        set .target_loc is -1
+        set .color_loc is -1
+        set .attenuation_loc is -1
+
+    let s_en as string is "lights[{light_index}].enabled"
+    let s_ty as string is "lights[{light_index}].type"
+    let s_pos as string is "lights[{light_index}].position"
+    let s_tar as string is "lights[{light_index}].target"
+    let s_col as string is "lights[{light_index}].color"
+    defer banish s_en
+    defer banish s_ty
+    defer banish s_pos
+    defer banish s_tar
+    defer banish s_col
+
+    if loc as int is calling shader.location with s_en:
+        set light.enabled_loc is loc
+    if loc as int is calling shader.location with s_ty:
+        set light.type_loc is loc
+    if loc as int is calling shader.location with s_pos:
+        set light.position_loc is loc
+    if loc as int is calling shader.location with s_tar:
+        set light.target_loc is loc
+    if loc as int is calling shader.location with s_col:
+        set light.color_loc is loc
+
+    return light
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - fog rendering"
+    defer calling raylib.CloseWindow
+
+    # Define camera
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 2.0, y is 2.0, z is 6.0)
+        set .target is (with x is 0.0, y is 0.5, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load models
+    var torus_mesh as raylib.Mesh is calling raylib.GenMeshTorus with 0.4, 1.0, 16, 32
+    var model_a as raylib.Model is calling raylib.LoadModelFromMesh with torus_mesh
+    defer calling models.unload_model with model_a
+
+    var cube_mesh as raylib.Mesh is calling raylib.GenMeshCube with 1.0, 1.0, 1.0
+    var model_b as raylib.Model is calling raylib.LoadModelFromMesh with cube_mesh
+    defer calling models.unload_model with model_b
+
+    var sphere_mesh as raylib.Mesh is calling raylib.GenMeshSphere with 0.5, 32, 32
+    var model_c as raylib.Model is calling raylib.LoadModelFromMesh with sphere_mesh
+    defer calling models.unload_model with model_c
+
+    # Load texture
+    var texture as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/texel_checker.png":
+        set texture is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with texture
+
+    # Assign texture to default materials
+    var mat_a as ref to raylib.Material is sigil of (model_a.materials at 0)
+    var mat_b as ref to raylib.Material is sigil of (model_b.materials at 0)
+    var mat_c as ref to raylib.Material is sigil of (model_c.materials at 0)
+    calling mat_a.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+    calling mat_b.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+    calling mat_c.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    # Load shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_shader with "examples/shaders/resources/shaders/glsl330/lighting.vs", "examples/shaders/resources/shaders/glsl330/fog.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Shader uniform locations
+    if loc as int is calling shader.location with "matModel":
+        set shader.locs at (raylib.SHADER_LOC_MATRIX_MODEL to int) is loc
+
+    if loc as int is calling shader.location with "viewPos":
+        set shader.locs at (raylib.SHADER_LOC_VECTOR_VIEW to int) is loc
+
+    # Ambient light level
+    var ambient as raylib.Vector4 is with x is 0.2, y is 0.2, z is 0.2, w is 1.0
+    if loc as int is calling shader.location with "ambient":
+        calling shader.set_vec4 with loc, ambient
+
+    var fog_color as raylib.Vector4 is with:
+        set .x is ((raylib.GRAY.r to f32) / 255.0)
+        set .y is ((raylib.GRAY.g to f32) / 255.0)
+        set .z is ((raylib.GRAY.b to f32) / 255.0)
+        set .w is ((raylib.GRAY.a to f32) / 255.0)
+
+    if loc as int is calling shader.location with "fogColor":
+        calling shader.set_vec4 with loc, fog_color
+
+    var fog_density as f32 is 0.15
+    var fog_density_loc as int is -1
+    if loc as int is calling shader.location with "fogDensity":
+        set fog_density_loc is loc
+        calling shader.set_float with fog_density_loc, fog_density
+
+    # Assign shader to model materials
+    set mat_a->shader is shader
+    set mat_b->shader is shader
+    set mat_c->shader is shader
+
+    # Create 1 point light
+    let zero as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    var light as Light is calling create_light with 0, (LightType.Point to int), (with x is 0.0, y is 2.0, z is 6.0), zero, raylib.WHITE, shader
+    calling update_light_values with shader, light
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        if calling input.is_key_down with raylib.KEY_UP:
+            set fog_density is fog_density + 0.001
+            if fog_density > 1.0:
+                set fog_density is 1.0
+
+        if calling input.is_key_down with raylib.KEY_DOWN:
+            set fog_density is fog_density - 0.001
+            if fog_density < 0.0:
+                set fog_density is 0.0
+
+        calling shader.set_float with fog_density_loc, fog_density
+
+        # Rotate the torus
+        set model_a.transform is calling model_a.transform.get_multiply with (calling raymath.MatrixRotateX with -0.025)
+        set model_a.transform is calling model_a.transform.get_multiply with (calling raymath.MatrixRotateZ with 0.012)
+
+        # Update view position uniform
+        let view_loc as int is shader.locs at (raylib.SHADER_LOC_VECTOR_VIEW to int)
+        calling shader.set_vec3 with view_loc, camera.position
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.GRAY
+
+        calling drawing.begin_mode_3d with camera
+        calling model_a.draw with zero, 1.0, raylib.WHITE
+        calling model_b.draw with (with x is -2.6, y is 0.0, z is 0.0), 1.0, raylib.WHITE
+        calling model_c.draw with (with x is 2.6, y is 0.0, z is 0.0), 1.0, raylib.WHITE
+
+        var i as int is -20
+        while i < 20:
+            calling model_a.draw with (with x is (i to f32), y is 0.0, z is 2.0), 1.0, raylib.WHITE
+            set i is i + 2
+
+        calling drawing.end_mode_3d
+
+        let info as string is "Use KEY_UP/KEY_DOWN to change fog density [{fog_density}]"
+        defer banish info
+        calling txt.draw_text with info, 10, 10, 20, raylib.RAYWHITE
+
+        calling drawing.end_drawing
+
+    return 0

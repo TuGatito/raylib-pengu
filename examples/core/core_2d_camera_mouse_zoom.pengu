@@ -12,15 +12,15 @@
 ##
 ## Copyright (c) 2022-2025 Jeffery Myers (@JeffM2501)
 ##
-## ## Port a PenguScript
-## Traducción 1:1 de `examples/core/core_2d_camera_mouse_zoom.c` sobre la capa
-## de wrappers `raylibx`. Los dos modos de zoom de C (`0` rueda, `1` arrastre)
-## se modelan con el `omen ZoomMode`, y el `judge` exhaustivo elige la rama.
-## La matriz de `rlgl` se usa directamente porque `rlglx` no envuelve la pila de
-## matrices (contrato §9, fila 9); los círculos, la rejilla y el texto sí pasan
-## por los wrappers.
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_2d_camera_mouse_zoom.c` on top of the
+## `raylibx` wrapper layer. The two C zoom modes (`0` wheel, `1` drag) are
+## modeled with the `omen ZoomMode`, and an exhaustive `judge` dispatches the
+## active branch. The `rlgl` matrix stack is used directly because `rlglx` does
+## not wrap the matrix stack (contract §9, row 9); circles, grid, and text go
+## through the wrappers.
 ##
-## ## Ejemplo
+## ## Example
 ## ```bash
 ## pengu run examples/core/core_2d_camera_mouse_zoom.pengu
 ## ```
@@ -37,41 +37,40 @@ import rcamerax
 import rlgl
 import std.fractio
 
-# --- Constantes ---------------------------------------------------------
-## Ancho de la ventana, en píxeles.
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
 const SCREEN_WIDTH as int is 800
 
-## Alto de la ventana, en píxeles.
+## Window height, in pixels.
 const SCREEN_HEIGHT as int is 450
 
-## Fotogramas por segundo a los que corre el bucle principal.
+## Target frames per second for the main game loop.
 const TARGET_FPS as int is 60
 
-## Límites de zoom de la cámara.
+## Camera zoom bounds.
 const MIN_ZOOM as f32 is 0.125
 const MAX_ZOOM as f32 is 64.0
 
-# --- Tipos --------------------------------------------------------------
-## Modo de zoom activo.
+# --- Types --------------------------------------------------------------
+## Active zoom mode.
 omen ZoomMode:
-    ## El zoom lo controla la rueda del ratón.
+    ## Zoom is controlled by the mouse wheel.
     Wheel
-    ## El zoom lo controla el arrastre con el botón derecho.
+    ## Zoom is controlled by right-button dragging.
     Move
 
 # --- Helpers ------------------------------------------------------------
-## Aplica el zoom basado en la rueda del ratón.
+## Applies zoom based on the mouse wheel.
 ##
-## ## Parámetros
-## - `camera`: cámara 2D que se muta en el sitio.
+## ## Parameters
+## - `camera`: 2D camera mutated in place.
 ##
-## ## Notas
-## Fija el `offset` en la posición del ratón y el `target` en el punto del mundo
-## bajo el cursor, para que el punto bajo el cursor se quede quieto a cualquier
-## zoom.
+## ## Notes
+## Sets `offset` to the mouse position and `target` to the world point under the
+## cursor so that the point under the cursor stays stationary at any zoom level.
 ##
-## ## Memoria
-## No asigna memoria; solo escribe los campos de la cámara.
+## ## Memory
+## Allocates no memory; only writes to the camera fields.
 weave update_wheel_zoom with camera as ref to raylib.Camera2D into void:
     let wheel as f32 is calling raylib.GetMouseWheelMove
     if wheel != 0.0:
@@ -87,13 +86,13 @@ weave update_wheel_zoom with camera as ref to raylib.Camera2D into void:
         let grown as f32 is log_zoom + (0.2 * wheel)
         set camera->zoom is (calling raymathx.clamp with (calling grown.get_exp), MIN_ZOOM, MAX_ZOOM)
 
-## Aplica el zoom basado en el arrastre con el botón derecho.
+## Applies zoom based on right-button dragging.
 ##
-## ## Parámetros
-## - `camera`: cámara 2D que se muta en el sitio.
+## ## Parameters
+## - `camera`: 2D camera mutated in place.
 ##
-## ## Memoria
-## No asigna memoria; solo escribe los campos de la cámara.
+## ## Memory
+## Allocates no memory; only writes to the camera fields.
 weave update_move_zoom with camera as ref to raylib.Camera2D into void:
     if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_RIGHT:
         let mouse as raylib.Vector2 is calling raylib.GetMousePosition
@@ -110,14 +109,14 @@ weave update_move_zoom with camera as ref to raylib.Camera2D into void:
         let grown as f32 is log_zoom + (0.005 * delta.x)
         set camera->zoom is (calling raymathx.clamp with (calling grown.get_exp), MIN_ZOOM, MAX_ZOOM)
 
-# --- Punto de entrada ---------------------------------------------------
-## Muestra una rejilla 3D proyectada sobre el plano XY, con zoom de cámara 2D
-## controlado por la rueda o por el arrastre del botón derecho.
+# --- Entry point --------------------------------------------------------
+## Displays a 3D grid projected onto the XY plane, with 2D camera zoom
+## controlled by the mouse wheel or right-button drag.
 ##
-## ## Retorno
-## Código de salida del proceso: `0` cuando la ventana se cierra con normalidad.
+## ## Returns
+## Process exit code: `0` when the window closes normally.
 weave main into int:
-    # Inicialización
+    # Initialization
     # ---------------------------------------------------------------------
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - 2d camera mouse zoom"
     defer calling raylib.CloseWindow
@@ -133,16 +132,16 @@ weave main into int:
     calling raylib.SetTargetFPS with TARGET_FPS
     # ---------------------------------------------------------------------
 
-    # Bucle principal
+    # Main game loop
     while not calling raylib.WindowShouldClose:
-        # Actualización
+        # Update
         # -----------------------------------------------------------------
         if calling input.is_key_pressed with raylib.KEY_ONE:
             set zoom_mode is ZoomMode.Wheel
         else if calling input.is_key_pressed with raylib.KEY_TWO:
             set zoom_mode is ZoomMode.Move
 
-        # Desplazamiento con el botón izquierdo
+        # Panning with the left mouse button
         if calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT:
             let delta as raylib.Vector2 is calling raylib.GetMouseDelta
             let scaled as raylib.Vector2 is calling delta.get_scale with (-1.0 / camera.zoom)
@@ -154,12 +153,12 @@ weave main into int:
             when Move -> calling update_move_zoom with (sigil of camera)
         # -----------------------------------------------------------------
 
-        # Dibujo
+        # Draw
         # -----------------------------------------------------------------
         calling drawing.begin_drawing
         calling drawing.clear_background with raylib.RAYWHITE
 
-        calling drawing.begin_mode_2d with camera  # Dibuja la rejilla 3D girada 90 grados
+        calling drawing.begin_mode_2d with camera  # Draw the 3D grid rotated 90 degrees
 
         calling rlgl.rlPushMatrix
         calling rlgl.rlTranslatef with 0.0, (25.0 * 50.0), 0.0
@@ -167,12 +166,12 @@ weave main into int:
         calling shapes3d.draw_grid with 100, 50.0
         calling rlgl.rlPopMatrix
 
-        # Círculo de referencia
+        # Reference circle
         calling shapes.draw_circle with ((calling raylib.GetScreenWidth) / 2), ((calling raylib.GetScreenHeight) / 2), 50.0, raylib.MAROON
 
         calling drawing.end_mode_2d
 
-        # Referencia del ratón
+        # Mouse reference
         let mouse as raylib.Vector2 is calling raylib.GetMousePosition
         calling mouse.draw_circle with 4.0, raylib.DARKGRAY
 

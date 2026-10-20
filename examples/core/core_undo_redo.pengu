@@ -1,0 +1,364 @@
+## examples/core/core_undo_redo.pengu
+## raylib [core] example - undo redo
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.6
+##
+## Example contributed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_undo_redo.c` built on top of the
+## `raylibx` wrapper layer. `Point` and `PlayerState` become `rune` types; raw
+## `RL_CALLOC` / `memcpy` / `memcmp` operations are replaced with an owned
+## `list of PlayerState` ring buffer and explicit structural comparison via
+## `states_differ`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_undo_redo.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.random as random
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Maximum undo states supported by the ring buffer.
+const MAX_UNDO_STATES as int is 26
+
+## Width and height of each grid cell in pixels.
+const GRID_CELL_SIZE as int is 24
+
+## Number of grid columns.
+const MAX_GRID_CELLS_X as int is 30
+
+## Number of grid rows.
+const MAX_GRID_CELLS_Y as int is 13
+
+## Number of frames between undo state snapshot checks.
+const UNDO_CHECK_INTERVAL as int is 2
+
+## Width and height of each undo buffer visualization slot in pixels.
+const UNDO_SLOT_SIZE as int is 24
+
+# --- Types --------------------------------------------------------------
+## Integer 2D grid coordinate, analogous to `Vector2` but using `int`.
+rune Point derive Par:
+    x as int
+    y as int
+
+## Snapshot of all player data tracked by the undo/redo ring buffer.
+rune PlayerState:
+    cell as Point
+    color as raylib.Color
+
+# --- Helpers ------------------------------------------------------------
+## Reports whether two `PlayerState` snapshots differ in position or color.
+##
+## ## Parameters
+## - `a`, `b`: snapshots to compare.
+##
+## ## Returns
+## `true` when either `cell` or `color` differs between `a` and `b`.
+##
+## ## Memory
+## No allocation.
+weave states_differ with a as PlayerState, b as PlayerState into bool:
+    if (a.cell.x != b.cell.x) or (a.cell.y != b.cell.y):
+        return true
+    if (a.color.r != b.color.r) or (a.color.g != b.color.g):
+        return true
+    if (a.color.b != b.color.b) or (a.color.a != b.color.a):
+        return true
+    return false
+
+## Returns a copy of `states` with the entry at `target_index` replaced by `new_state`.
+##
+## ## Parameters
+## - `states`: current undo ring buffer list.
+## - `target_index`: index in `[0, MAX_UNDO_STATES)` to overwrite.
+## - `new_state`: snapshot to store at `target_index`.
+##
+## ## Returns
+## A new `list of PlayerState` owned by the caller.
+##
+## ## Memory
+## Does not free `states`; the caller must `banish` the old list when replacing it.
+weave with_state_at with states as list of PlayerState, target_index as int, new_state as PlayerState into list of PlayerState:
+    var updated as list of PlayerState is list of PlayerState
+    for i, item in states:
+        let next_item as PlayerState is if i == target_index then new_state else item
+        calling updated.push with next_item
+    return updated
+
+## Clamps an integer coordinate into `[lo, hi]`.
+##
+## ## Parameters
+## - `value`: coordinate to clamp.
+## - `lo`: inclusive lower bound.
+## - `hi`: inclusive upper bound.
+##
+## ## Returns
+## Clamped integer.
+##
+## ## Memory
+## No allocation.
+weave clamp_int with value as int, lo as int, hi as int into int:
+    if value < lo:
+        return lo
+    if value > hi:
+        return hi
+    return value
+
+## Draws one visited grid cell recorded in the undo buffer.
+##
+## ## Parameters
+## - `grid_position`: top-left pixel coordinate of the grid.
+## - `state`: recorded player state whose cell should be highlighted.
+##
+## ## Memory
+## No allocation.
+weave draw_visited_cell with grid_position as raylib.Vector2, state as PlayerState into void:
+    let cell_rec as raylib.Rectangle is with:
+        set .x is grid_position.x + ((state.cell.x * GRID_CELL_SIZE) to f32)
+        set .y is grid_position.y + ((state.cell.y * GRID_CELL_SIZE) to f32)
+        set .width is GRID_CELL_SIZE to f32
+        set .height is GRID_CELL_SIZE to f32
+    calling cell_rec.draw with raylib.LIGHTGRAY
+
+## Draws one slot in the undo ring buffer visualization bar.
+##
+## ## Parameters
+## - `position`: top-left anchor of the undo bar.
+## - `slot_index`: 0-based slot index along the bar.
+## - `slot_width`: side length of each square slot in pixels.
+## - `fill_color`: interior fill color.
+## - `border_color`: 1-pixel border color.
+##
+## ## Memory
+## No allocation.
+weave draw_undo_slot with position as raylib.Vector2, slot_index as int, slot_width as int, fill_color as raylib.Color, border_color as raylib.Color into void:
+    let x as int is (position.x to int) + (slot_width * slot_index)
+    let y as int is position.y to int
+    calling shapes.draw_rectangle with x, y, slot_width, slot_width, fill_color
+    calling shapes.draw_rectangle_lines with x, y, slot_width, slot_width, border_color
+
+## Draws the undo ring buffer visualization bar and its index markers.
+##
+## ## Parameters
+## - `position`: top-left pixel position of the undo buffer bar.
+## - `first_undo_index`: oldest valid slot index in the ring buffer.
+## - `last_undo_index`: newest valid slot index in the ring buffer.
+## - `current_undo_index`: active slot index in the ring buffer.
+## - `slot_width`: width and height of each slot square in pixels.
+##
+## ## Memory
+## No allocation.
+weave draw_undo_buffer with position as raylib.Vector2, first_undo_index as int, last_undo_index as int, current_undo_index as int, slot_width as int into void:
+    let base_x as int is position.x to int
+    let base_y as int is position.y to int
+
+    # Draw index marks
+    calling shapes.draw_rectangle with (base_x + 8 + (slot_width * current_undo_index)), (base_y - 10), 8, 8, raylib.RED
+    calling shapes.draw_rectangle_lines with (base_x + 2 + (slot_width * first_undo_index)), (base_y + 27), 8, 8, raylib.BLACK
+    calling shapes.draw_rectangle with (base_x + 14 + (slot_width * last_undo_index)), (base_y + 27), 8, 8, raylib.BLACK
+
+    # Draw background gray slots
+    for i from 0 to MAX_UNDO_STATES:
+        calling draw_undo_slot with position, i, slot_width, raylib.LIGHTGRAY, raylib.GRAY
+
+    # Draw occupied slots: first_undo_index --> last_undo_index
+    if first_undo_index <= last_undo_index:
+        for i from first_undo_index to (last_undo_index + 1):
+            calling draw_undo_slot with position, i, slot_width, raylib.SKYBLUE, raylib.BLUE
+    else if last_undo_index < first_undo_index:
+        for i from first_undo_index to MAX_UNDO_STATES:
+            calling draw_undo_slot with position, i, slot_width, raylib.SKYBLUE, raylib.BLUE
+        for i from 0 to (last_undo_index + 1):
+            calling draw_undo_slot with position, i, slot_width, raylib.SKYBLUE, raylib.BLUE
+
+    # Draw occupied slots: first_undo_index --> current_undo_index
+    if first_undo_index < current_undo_index:
+        for i from first_undo_index to current_undo_index:
+            calling draw_undo_slot with position, i, slot_width, raylib.GREEN, raylib.LIME
+    else if current_undo_index < first_undo_index:
+        for i from first_undo_index to MAX_UNDO_STATES:
+            calling draw_undo_slot with position, i, slot_width, raylib.GREEN, raylib.LIME
+        for i from 0 to current_undo_index:
+            calling draw_undo_slot with position, i, slot_width, raylib.GREEN, raylib.LIME
+
+    # Draw current selected UNDO slot
+    calling draw_undo_slot with position, current_undo_index, slot_width, raylib.GOLD, raylib.ORANGE
+
+# --- Entry point --------------------------------------------------------
+## Lets the user move a colored square across a 2D grid and undo/redo state
+## changes (`Ctrl+Z` / `Ctrl+Y`) using a circular state buffer.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - undo redo"
+    defer calling raylib.CloseWindow
+
+    # Undo/redo system variables
+    var current_undo_index as int is 0
+    var first_undo_index as int is 0
+    var last_undo_index as int is 0
+    var undo_frame_counter as int is 0
+    let undo_info_pos as raylib.Vector2 is with x is 110.0, y is 400.0
+
+    # Init current player state and undo/redo recorded states buffer
+    var player as PlayerState with:
+        set .cell is with x is 10, y is 10
+        set .color is raylib.RED
+
+    # Init undo buffer to store MAX_UNDO_STATES states initialized to player
+    var states as list of PlayerState is list of PlayerState
+    defer banish states
+    for _ from 0 to MAX_UNDO_STATES:
+        calling states.push with player
+
+    # Grid variables
+    let grid_position as raylib.Vector2 is with x is 40.0, y is 60.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        # Player movement logic
+        if calling input.is_key_pressed with raylib.KEY_RIGHT:
+            set player.cell.x += 1
+        else if calling input.is_key_pressed with raylib.KEY_LEFT:
+            set player.cell.x -= 1
+        else if calling input.is_key_pressed with raylib.KEY_UP:
+            set player.cell.y -= 1
+        else if calling input.is_key_pressed with raylib.KEY_DOWN:
+            set player.cell.y += 1
+
+        # Make sure player does not go out of bounds
+        set player.cell.x is calling clamp_int with player.cell.x, 0, (MAX_GRID_CELLS_X - 1)
+        set player.cell.y is calling clamp_int with player.cell.y, 0, (MAX_GRID_CELLS_Y - 1)
+
+        # Player color change logic
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set player.color.r is ((calling random.between with 20, 255) to byte)
+            set player.color.g is ((calling random.between with 20, 220) to byte)
+            set player.color.b is ((calling random.between with 20, 240) to byte)
+
+        # Undo state change logic
+        set undo_frame_counter += 1
+
+        # Waiting a number of frames before checking if we should store a new state snapshot
+        if undo_frame_counter >= UNDO_CHECK_INTERVAL:
+            if calling states_differ with (states at current_undo_index), player:
+                # Move cursor to next available position of the undo ring buffer to record state
+                set current_undo_index += 1
+                if current_undo_index >= MAX_UNDO_STATES:
+                    set current_undo_index is 0
+                if current_undo_index == first_undo_index:
+                    set first_undo_index += 1
+                if first_undo_index >= MAX_UNDO_STATES:
+                    set first_undo_index is 0
+
+                var next_states as list of PlayerState is calling with_state_at with states, current_undo_index, player
+                banish states
+                set states is next_states
+                set last_undo_index is current_undo_index
+
+            set undo_frame_counter is 0
+
+        # Recover previous state from buffer: CTRL+Z
+        if (calling input.is_key_down with raylib.KEY_LEFT_CONTROL) and (calling input.is_key_pressed with raylib.KEY_Z):
+            if current_undo_index != first_undo_index:
+                set current_undo_index -= 1
+                if current_undo_index < 0:
+                    set current_undo_index is MAX_UNDO_STATES - 1
+
+                if calling states_differ with (states at current_undo_index), player:
+                    set player is (states at current_undo_index)
+
+        # Recover next state from buffer: CTRL+Y
+        if (calling input.is_key_down with raylib.KEY_LEFT_CONTROL) and (calling input.is_key_pressed with raylib.KEY_Y):
+            if current_undo_index != last_undo_index:
+                var next_undo_index as int is current_undo_index + 1
+                if next_undo_index >= MAX_UNDO_STATES:
+                    set next_undo_index is 0
+
+                if next_undo_index != first_undo_index:
+                    set current_undo_index is next_undo_index
+
+                    if calling states_differ with (states at current_undo_index), player:
+                        set player is (states at current_undo_index)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Draw controls info
+        calling txt.draw_text with "[ARROWS] MOVE PLAYER - [SPACE] CHANGE PLAYER COLOR", 40, 20, 20, raylib.DARKGRAY
+
+        # Draw player visited cells recorded by undo
+        if last_undo_index > first_undo_index:
+            for i from first_undo_index to current_undo_index:
+                calling draw_visited_cell with grid_position, (states at i)
+        else if first_undo_index > last_undo_index:
+            if (current_undo_index < MAX_UNDO_STATES) and (current_undo_index > last_undo_index):
+                for i from first_undo_index to current_undo_index:
+                    calling draw_visited_cell with grid_position, (states at i)
+            else:
+                for i from first_undo_index to MAX_UNDO_STATES:
+                    calling draw_visited_cell with grid_position, (states at i)
+                for i from 0 to current_undo_index:
+                    calling draw_visited_cell with grid_position, (states at i)
+
+        # Draw game grid
+        let grid_x as int is grid_position.x to int
+        let grid_y as int is grid_position.y to int
+        let grid_w as int is MAX_GRID_CELLS_X * GRID_CELL_SIZE
+        let grid_h as int is MAX_GRID_CELLS_Y * GRID_CELL_SIZE
+
+        for y from 0 to (MAX_GRID_CELLS_Y + 1):
+            let line_y as int is grid_y + (y * GRID_CELL_SIZE)
+            calling shapes.draw_line with grid_x, line_y, (grid_x + grid_w), line_y, raylib.GRAY
+
+        for x from 0 to (MAX_GRID_CELLS_X + 1):
+            let line_x as int is grid_x + (x * GRID_CELL_SIZE)
+            calling shapes.draw_line with line_x, grid_y, line_x, (grid_y + grid_h), raylib.GRAY
+
+        # Draw player
+        calling shapes.draw_rectangle with (grid_x + (player.cell.x * GRID_CELL_SIZE)), (grid_y + (player.cell.y * GRID_CELL_SIZE)), (GRID_CELL_SIZE + 1), (GRID_CELL_SIZE + 1), player.color
+
+        # Draw undo system buffer info
+        calling txt.draw_text with "UNDO STATES:", ((undo_info_pos.x to int) - 85), ((undo_info_pos.y to int) + 9), 10, raylib.DARKGRAY
+        calling draw_undo_buffer with undo_info_pos, first_undo_index, last_undo_index, current_undo_index, UNDO_SLOT_SIZE
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

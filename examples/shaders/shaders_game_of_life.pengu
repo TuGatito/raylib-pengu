@@ -1,0 +1,452 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - game of life
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Jordi Santonja (@JordSant) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Conway's Game of Life simulation executed on the GPU via fragment shader,
+## featuring interactive drawing, panning, zooming, speed adjustment, and classic presets.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_game_of_life.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raygui
+import rayguix
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.random as random
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- C Math Declarations ------------------------------------------------
+declare floorf with x as f32 into f32
+declare ceilf with x as f32 into f32
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Side menu width in pixels.
+const MENU_WIDTH as int is 100
+
+## Simulation window width in pixels.
+const WINDOW_WIDTH as int is 700
+
+## Simulation window height in pixels.
+const WINDOW_HEIGHT as int is 450
+
+## World grid width in cells.
+const WORLD_WIDTH as int is 2048
+
+## World grid height in cells.
+const WORLD_HEIGHT as int is 2048
+
+## Number of tiles per dimension for random preset generation.
+const RANDOM_TILES as int is 8
+
+# --- Types --------------------------------------------------------------
+## Interaction mode.
+omen InteractionMode:
+    Run is 0
+    Pause is 1
+    Draw is 2
+
+## Preset pattern description.
+rune PresetPattern:
+    name as string
+    pos_x as f32
+    pos_y as f32
+
+# --- Helpers ------------------------------------------------------------
+
+## Returns the image file path for a preset index (0 to 8).
+weave preset_path with index as int into string:
+    if index == 0:
+        return "examples/shaders/resources/game_of_life/glider.png"
+    if index == 1:
+        return "examples/shaders/resources/game_of_life/r_pentomino.png"
+    if index == 2:
+        return "examples/shaders/resources/game_of_life/acorn.png"
+    if index == 3:
+        return "examples/shaders/resources/game_of_life/spaceships.png"
+    if index == 4:
+        return "examples/shaders/resources/game_of_life/still_lifes.png"
+    if index == 5:
+        return "examples/shaders/resources/game_of_life/oscillators.png"
+    if index == 6:
+        return "examples/shaders/resources/game_of_life/puffer_train.png"
+    if index == 7:
+        return "examples/shaders/resources/game_of_life/glider_gun.png"
+    return "examples/shaders/resources/game_of_life/breeder.png"
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - game of life"
+    defer calling raylib.CloseWindow
+
+    var presets as list of PresetPattern is [
+        (with name is "Glider", pos_x is 0.5, pos_y is 0.5),
+        (with name is "R-pentomino", pos_x is 0.5, pos_y is 0.5),
+        (with name is "Acorn", pos_x is 0.5, pos_y is 0.5),
+        (with name is "Spaceships", pos_x is 0.1, pos_y is 0.5),
+        (with name is "Still lifes", pos_x is 0.5, pos_y is 0.5),
+        (with name is "Oscillators", pos_x is 0.5, pos_y is 0.5),
+        (with name is "Puffer train", pos_x is 0.1, pos_y is 0.5),
+        (with name is "Glider Gun", pos_x is 0.2, pos_y is 0.2),
+        (with name is "Breeder", pos_x is 0.1, pos_y is 0.5),
+        (with name is "Random", pos_x is 0.5, pos_y is 0.5)
+    ]
+    defer banish presets
+
+    let number_of_presets as int is presets.length
+
+    var zoom as int is 1
+    var offset_x as f32 is ((WORLD_WIDTH - WINDOW_WIDTH) to f32) / 2.0
+    var offset_y as f32 is ((WORLD_HEIGHT - WINDOW_HEIGHT) to f32) / 2.0
+    var frames_per_step as int is 1
+    var frame as int is 0
+
+    var preset as int is -1
+    var mode as int is InteractionMode.Run to int
+    var button_zoom_in as bool is false
+    var button_zoom_out as bool is false
+    var button_faster as bool is false
+    var button_slower as bool is false
+
+    # Load shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/game_of_life.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Set shader uniform resolution
+    if loc as int is calling shader.location with "resolution":
+        calling shader.set_vec2 with loc, (with x is (WORLD_WIDTH to f32), y is (WORLD_HEIGHT to f32))
+
+    # Define two textures: the current world and the previous world
+    var world1 as raylib.RenderTexture2D is with id is 0
+    if loaded1 as raylib.RenderTexture2D is calling textures.load_render_texture with WORLD_WIDTH, WORLD_HEIGHT:
+        set world1 is loaded1
+    else:
+        return 1
+    defer calling textures.unload_render_texture with world1
+
+    var world2 as raylib.RenderTexture2D is with id is 0
+    if loaded2 as raylib.RenderTexture2D is calling textures.load_render_texture with WORLD_WIDTH, WORLD_HEIGHT:
+        set world2 is loaded2
+    else:
+        return 1
+    defer calling textures.unload_render_texture with world2
+
+    calling drawing.begin_texture_mode with world2
+    calling drawing.clear_background with raylib.RAYWHITE
+    calling drawing.end_texture_mode
+
+    # Load starting pattern (R-pentomino)
+    var start_pat as raylib.Image is calling raylib.LoadImage with "examples/shaders/resources/game_of_life/r_pentomino.png"
+    var start_rec as raylib.Rectangle is with:
+        set .x is (WORLD_WIDTH to f32) / 2.0
+        set .y is (WORLD_HEIGHT to f32) / 2.0
+        set .width is start_pat.width to f32
+        set .height is start_pat.height to f32
+    calling raylib.UpdateTextureRec with world2.texture, start_rec, start_pat.data
+    calling raylib.UnloadImage with start_pat
+
+    # World ping-pong state: if world2_is_current is true, world2 is current and world1 is previous
+    var world2_is_current as bool is true
+
+    # Image used in Draw mode
+    var has_image_to_draw as bool is false
+    var image_to_draw as raylib.Image is with:
+        set .data is calling ffi.null_void
+        set .width is 0
+        set .height is 0
+        set .mipmaps is 0
+        set .format is 0
+    var first_color as int is -1
+    var prev_mouse_pos as raylib.Vector2 is with x is 0.0, y is 0.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        set frame is frame + 1
+
+        # Zoom handling
+        let mouse_wheel as f32 is calling raylib.GetMouseWheelMove
+        if button_zoom_in or (button_zoom_out and (zoom > 1)) or (mouse_wheel != 0.0):
+            if has_image_to_draw:
+                calling raylib.UnloadImage with image_to_draw
+                set has_image_to_draw is false
+
+            let center_x as f32 is offset_x + (((WINDOW_WIDTH to f32) / 2.0) / (zoom to f32))
+            let center_y as f32 is offset_y + (((WINDOW_HEIGHT to f32) / 2.0) / (zoom to f32))
+            if button_zoom_in or (mouse_wheel > 0.0):
+                set zoom is zoom * 2
+            if (button_zoom_out or (mouse_wheel < 0.0)) and (zoom > 1):
+                set zoom is zoom / 2
+            set offset_x is center_x - (((WINDOW_WIDTH to f32) / 2.0) / (zoom to f32))
+            set offset_y is center_y - (((WINDOW_HEIGHT to f32) / 2.0) / (zoom to f32))
+
+        # Speed handling
+        if button_faster and (frames_per_step > 1):
+            set frames_per_step is frames_per_step - 1
+        if button_slower:
+            set frames_per_step is frames_per_step + 1
+
+        # Mouse management
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+        if (mode == (InteractionMode.Run to int)) or (mode == (InteractionMode.Pause to int)):
+            if has_image_to_draw:
+                calling raylib.UnloadImage with image_to_draw
+                set has_image_to_draw is false
+
+            if (calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT) and (mouse_pos.x < (WINDOW_WIDTH to f32)):
+                set offset_x is offset_x - ((mouse_pos.x - prev_mouse_pos.x) / (zoom to f32))
+                set offset_y is offset_y - ((mouse_pos.y - prev_mouse_pos.y) / (zoom to f32))
+            set prev_mouse_pos is mouse_pos
+        else: # Draw mode
+            let dec_x as f32 is offset_x - (calling floorf with offset_x)
+            let dec_y as f32 is offset_y - (calling floorf with offset_y)
+            var size_w_x as int is (calling ceilf with (((WINDOW_WIDTH to f32) + (dec_x * (zoom to f32))) / (zoom to f32))) to int
+            var size_w_y as int is (calling ceilf with (((WINDOW_HEIGHT to f32) + (dec_y * (zoom to f32))) / (zoom to f32))) to int
+            if (offset_x + (size_w_x to f32)) >= (WORLD_WIDTH to f32):
+                set size_w_x is WORLD_WIDTH - ((calling floorf with offset_x) to int)
+            if (offset_y + (size_w_y to f32)) >= (WORLD_HEIGHT to f32):
+                set size_w_y is WORLD_HEIGHT - ((calling floorf with offset_y) to int)
+
+            if not has_image_to_draw:
+                var w_on_screen as raylib.RenderTexture2D is calling raylib.LoadRenderTexture with size_w_x, size_w_y
+                calling drawing.begin_texture_mode with w_on_screen
+                var cur_tex as raylib.Texture2D is if world2_is_current then world2.texture else world1.texture
+                var src_sub as raylib.Rectangle is with:
+                    set .x is calling floorf with offset_x
+                    set .y is calling floorf with offset_y
+                    set .width is size_w_x to f32
+                    set .height is (0.0 - (size_w_y to f32))
+                var dst_sub as raylib.Rectangle is with:
+                    set .x is 0.0
+                    set .y is 0.0
+                    set .width is size_w_x to f32
+                    set .height is size_w_y to f32
+                calling cur_tex.draw_pro with src_sub, dst_sub, (with x is 0.0, y is 0.0), 0.0, raylib.WHITE
+                calling drawing.end_texture_mode
+
+                set image_to_draw is calling raylib.LoadImageFromTexture with w_on_screen.texture
+                set has_image_to_draw is true
+                calling textures.unload_render_texture with w_on_screen
+
+            if (calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT) and (mouse_pos.x < (WINDOW_WIDTH to f32)):
+                var mx as int is (((mouse_pos.x + (dec_x * (zoom to f32))) / (zoom to f32)) to int)
+                var my as int is (((mouse_pos.y + (dec_y * (zoom to f32))) / (zoom to f32)) to int)
+                if mx >= size_w_x:
+                    set mx is size_w_x - 1
+                if my >= size_w_y:
+                    set my is size_w_y - 1
+
+                let col_at as raylib.Color is calling raylib.GetImageColor with image_to_draw, mx, my
+                if first_color == -1:
+                    set first_color is if col_at.r < 5 then 0 else 1
+                let prev_col as int is if col_at.r < 5 then 0 else 1
+
+                calling raylib.ImageDrawPixel with (sigil of image_to_draw), mx, my, (if first_color == 1 then raylib.BLACK else raylib.RAYWHITE)
+
+                if prev_col != first_color:
+                    var cur_t as raylib.Texture2D is if world2_is_current then world2.texture else world1.texture
+                    var update_r as raylib.Rectangle is with:
+                        set .x is calling floorf with offset_x
+                        set .y is calling floorf with offset_y
+                        set .width is size_w_x to f32
+                        set .height is size_w_y to f32
+                    calling raylib.UpdateTextureRec with cur_t, update_r, image_to_draw.data
+            else:
+                set first_color is -1
+
+        # Preset loading
+        if preset >= 0:
+            if preset < (number_of_presets - 1):
+                let pat_p as string is calling preset_path with preset
+                if loaded_pat as raylib.Image is calling images.load_image with pat_p:
+                    var pat_img as raylib.Image is loaded_pat
+                    let p_pos as PresetPattern is presets at preset
+                    var p_rec as raylib.Rectangle is with:
+                        set .x is (((WORLD_WIDTH to f32) * p_pos.pos_x) - ((pat_img.width to f32) / 2.0))
+                        set .y is (((WORLD_HEIGHT to f32) * p_pos.pos_y) - ((pat_img.height to f32) / 2.0))
+                        set .width is pat_img.width to f32
+                        set .height is pat_img.height to f32
+                    if world2_is_current:
+                        calling drawing.begin_texture_mode with world2
+                        calling drawing.clear_background with raylib.RAYWHITE
+                        calling drawing.end_texture_mode
+                        calling raylib.UpdateTextureRec with world2.texture, p_rec, pat_img.data
+                    else:
+                        calling drawing.begin_texture_mode with world1
+                        calling drawing.clear_background with raylib.RAYWHITE
+                        calling drawing.end_texture_mode
+                        calling raylib.UpdateTextureRec with world1.texture, p_rec, pat_img.data
+                    calling images.unload_image with pat_img
+            else:
+                # Random preset
+                let tile_w as int is WORLD_WIDTH / RANDOM_TILES
+                let tile_h as int is WORLD_HEIGHT / RANDOM_TILES
+                var rand_img as raylib.Image is calling raylib.GenImageColor with tile_w, tile_h, raylib.RAYWHITE
+                for ti from 0 to RANDOM_TILES:
+                    for tj from 0 to RANDOM_TILES:
+                        calling raylib.ImageClearBackground with (sigil of rand_img), raylib.RAYWHITE
+                        for px from 0 to rand_img.width:
+                            for py from 0 to rand_img.height:
+                                if (calling random.between with 0, 100) < 15:
+                                    calling raylib.ImageDrawPixel with (sigil of rand_img), px, py, raylib.BLACK
+
+                        var dst_tile_rec as raylib.Rectangle is with:
+                            set .x is (rand_img.width * ti) to f32
+                            set .y is (rand_img.height * tj) to f32
+                            set .width is rand_img.width to f32
+                            set .height is rand_img.height to f32
+                        let cur_tex2 as raylib.Texture2D is if world2_is_current then world2.texture else world1.texture
+                        calling raylib.UpdateTextureRec with cur_tex2, dst_tile_rec, rand_img.data
+                calling raylib.UnloadImage with rand_img
+
+            set mode is InteractionMode.Pause to int
+            let p_item as PresetPattern is presets at preset
+            set offset_x is (((WORLD_WIDTH to f32) * p_item.pos_x) - (((WINDOW_WIDTH to f32) / (zoom to f32)) / 2.0))
+            set offset_y is (((WORLD_HEIGHT to f32) * p_item.pos_y) - (((WINDOW_HEIGHT to f32) / (zoom to f32)) / 2.0))
+
+        # Check window draw inside world limits
+        if offset_x < 0.0:
+            set offset_x is 0.0
+        if offset_y < 0.0:
+            set offset_y is 0.0
+        if offset_x > ((WORLD_WIDTH to f32) - ((WINDOW_WIDTH to f32) / (zoom to f32))):
+            set offset_x is (WORLD_WIDTH to f32) - ((WINDOW_WIDTH to f32) / (zoom to f32))
+        if offset_y > ((WORLD_HEIGHT to f32) - ((WINDOW_HEIGHT to f32) / (zoom to f32))):
+            set offset_y is (WORLD_HEIGHT to f32) - ((WINDOW_HEIGHT to f32) / (zoom to f32))
+
+        # Ping-pong simulation step
+        if (mode == (InteractionMode.Run to int)) and ((frame % frames_per_step) == 0):
+            set world2_is_current is not world2_is_current
+            var cur_rt as raylib.RenderTexture2D is if world2_is_current then world2 else world1
+            var prev_rt as raylib.RenderTexture2D is if world2_is_current then world1 else world2
+
+            calling drawing.begin_texture_mode with cur_rt
+            calling drawing.begin_shader_mode with shader
+            var w_src as raylib.Rectangle is with:
+                set .x is 0.0
+                set .y is 0.0
+                set .width is WORLD_WIDTH to f32
+                set .height is (0.0 - (WORLD_HEIGHT to f32))
+            var w_dst as raylib.Rectangle is with:
+                set .x is 0.0
+                set .y is 0.0
+                set .width is WORLD_WIDTH to f32
+                set .height is WORLD_HEIGHT to f32
+            calling prev_rt.texture.draw_pro with w_src, w_dst, (with x is 0.0, y is 0.0), 0.0, raylib.RAYWHITE
+            calling drawing.end_shader_mode
+            calling drawing.end_texture_mode
+
+        # Draw to screen
+        calling drawing.begin_drawing
+        var cur_disp_tex as raylib.Texture2D is if world2_is_current then world2.texture else world1.texture
+        var tex_src_screen as raylib.Rectangle is with:
+            set .x is offset_x
+            set .y is offset_y
+            set .width is ((WINDOW_WIDTH to f32) / (zoom to f32))
+            set .height is ((WINDOW_HEIGHT to f32) / (zoom to f32))
+        var tex_on_screen as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is WINDOW_WIDTH to f32
+            set .height is WINDOW_HEIGHT to f32
+        calling cur_disp_tex.draw_pro with tex_src_screen, tex_on_screen, (with x is 0.0, y is 0.0), 0.0, raylib.WHITE
+
+        let sep_color as raylib.Color is with r is 218, g is 218, b is 218, a is 255
+        let panel_color as raylib.Color is with r is 232, g is 232, b is 232, a is 255
+        calling shapes.draw_line with WINDOW_WIDTH, 0, WINDOW_WIDTH, SCREEN_HEIGHT, sep_color
+        calling shapes.draw_rectangle with WINDOW_WIDTH, 0, SCREEN_WIDTH - WINDOW_WIDTH, SCREEN_HEIGHT, panel_color
+
+        calling txt.draw_text with "Conway's", 704, 4, 20, raylib.DARKBLUE
+        calling txt.draw_text with " game of", 704, 19, 20, raylib.DARKBLUE
+        calling txt.draw_text with "  life", 708, 34, 20, raylib.DARKBLUE
+        calling txt.draw_text with "in raylib", 757, 42, 6, raylib.BLACK
+
+        calling txt.draw_text with "Presets", 710, 58, 8, raylib.GRAY
+        set preset is -1
+        for pi from 0 to number_of_presets:
+            let pat_info as PresetPattern is presets at pi
+            var btn_rec as raylib.Rectangle is with:
+                set .x is 710.0
+                set .y is 70.0 + ((18 * pi) to f32)
+                set .width is 80.0
+                set .height is 16.0
+            if (calling rayguix.button with btn_rec, pat_info.name) == 1:
+                set preset is pi
+
+        var toggle_rec as raylib.Rectangle is with:
+            set .x is 710.0
+            set .y is 258.0
+            set .width is 80.0
+            set .height is 16.0
+        calling rayguix.toggle_group with toggle_rec, "Run\nPause\nDraw", (sigil of mode)
+
+        let zoom_txt as string is "Zoom: {zoom}x"
+        defer banish zoom_txt
+        calling txt.draw_text with zoom_txt, 710, 316, 8, raylib.GRAY
+
+        var zin_rec as raylib.Rectangle is with:
+            set .x is 710.0
+            set .y is 328.0
+            set .width is 80.0
+            set .height is 16.0
+        set button_zoom_in is (calling rayguix.button with zin_rec, "Zoom in") == 1
+
+        var zout_rec as raylib.Rectangle is with:
+            set .x is 710.0
+            set .y is 346.0
+            set .width is 80.0
+            set .height is 16.0
+        set button_zoom_out is (calling rayguix.button with zout_rec, "Zoom out") == 1
+
+        let spd_suf as string is if frames_per_step > 1 then "s" else ""
+        let speed_txt as string is "Speed: {frames_per_step} frame{spd_suf}"
+        defer banish speed_txt
+        calling txt.draw_text with speed_txt, 710, 370, 8, raylib.GRAY
+
+        var faster_rec as raylib.Rectangle is with:
+            set .x is 710.0
+            set .y is 382.0
+            set .width is 80.0
+            set .height is 16.0
+        set button_faster is (calling rayguix.button with faster_rec, "Faster") == 1
+
+        var slower_rec as raylib.Rectangle is with:
+            set .x is 710.0
+            set .y is 400.0
+            set .width is 80.0
+            set .height is 16.0
+        set button_slower is (calling rayguix.button with slower_rec, "Slower") == 1
+
+        calling txt.draw_fps with 712, 426
+        calling drawing.end_drawing
+
+    if has_image_to_draw:
+        calling raylib.UnloadImage with image_to_draw
+
+    return 0

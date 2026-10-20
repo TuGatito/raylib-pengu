@@ -1,0 +1,122 @@
+## ## PenguScript Port
+## Translated from raylib [shapes] example - collision area
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates 2D rectangle collision detection and computing/rendering
+## the exact intersecting overlap rectangle area between two boxes.
+##
+## ## Example
+## ```bash
+## pengu run examples/shapes/shapes_collision_area.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - collision area"
+    defer calling raylib.CloseWindow
+
+    # Box A: Moving box
+    var box_a as raylib.Rectangle is with:
+        set .x is 10.0
+        set .y is ((screen_height to f32) / 2.0) - 50.0
+        set .width is 200.0
+        set .height is 100.0
+
+    var box_a_speed_x as f32 is 4.0
+
+    # Box B: Mouse controlled box
+    var box_b as raylib.Rectangle is with:
+        set .x is ((screen_width to f32) / 2.0) - 30.0
+        set .y is ((screen_height to f32) / 2.0) - 30.0
+        set .width is 60.0
+        set .height is 60.0
+
+    var box_collision as raylib.Rectangle is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .width is 0.0
+        set .height is 0.0
+
+    const screen_upper_limit as int is 40
+    var pause as bool is false
+    var collision as bool is false
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if not pause:
+            set box_a.x is box_a.x + box_a_speed_x
+
+        # Bounce box on x screen limits
+        if ((box_a.x + box_a.width) >= (screen_width to f32)) or (box_a.x <= 0.0):
+            set box_a_speed_x is box_a_speed_x * -1.0
+
+        # Update player-controlled box position
+        set box_b.x is ((calling raylib.GetMouseX) to f32) - (box_b.width / 2.0)
+        set box_b.y is ((calling raylib.GetMouseY) to f32) - (box_b.height / 2.0)
+
+        # Make sure Box B stays within bounds
+        if (box_b.x + box_b.width) >= (screen_width to f32):
+            set box_b.x is (screen_width to f32) - box_b.width
+        else if box_b.x <= 0.0:
+            set box_b.x is 0.0
+
+        if (box_b.y + box_b.height) >= (screen_height to f32):
+            set box_b.y is (screen_height to f32) - box_b.height
+        else if box_b.y <= (screen_upper_limit to f32):
+            set box_b.y is screen_upper_limit to f32
+
+        # Check box collision
+        set collision is calling shapes.collision_recs with box_a, box_b
+        if collision:
+            set box_collision is calling shapes.collision_rectangle with box_a, box_b
+
+        # Toggle pause
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set pause is not pause
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let header_color as raylib.Color is if collision then raylib.RED else raylib.BLACK
+        calling shapes.draw_rectangle with 0, 0, screen_width, screen_upper_limit, header_color
+
+        calling box_a.draw with raylib.GOLD
+        calling box_b.draw with raylib.BLUE
+
+        if collision:
+            calling box_collision.draw with raylib.LIME
+
+            let msg as string is "COLLISION!"
+            let msg_w as int is calling txt.measure_text with msg, 20
+            calling txt.draw_text with msg, ((screen_width / 2) - (msg_w / 2)), ((screen_upper_limit / 2) - 10), 20, raylib.BLACK
+
+            let area as int is (box_collision.width to int) * (box_collision.height to int)
+            let area_str as string is "Collision Area: {area}"
+            defer banish area_str
+            calling txt.draw_text with area_str, ((screen_width / 2) - 100), (screen_upper_limit + 10), 20, raylib.BLACK
+
+        calling txt.draw_text with "Press SPACE to PAUSE/RESUME", 20, (screen_height - 35), 20, raylib.LIGHTGRAY
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+
+    return 0

@@ -1,0 +1,87 @@
+## examples/core/core_basic_window.pengu
+## raylib [core] example - Basic window
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Welcome to raylib!
+##
+## To test examples, just press F6 and execute 'raylib_compile_execute' script
+## Note that compiled executable is placed in the same folder as .c file
+##
+## To test the examples on Web, press F6 and execute 'raylib_compile_execute_web' script
+## Web version of the examples is generated in the same folder as .c file
+##
+## You can find all basic examples on C:\raylib\raylib\examples folder or
+## raylib official webpage: www.raylib.com
+##
+## Enjoy using raylib. :)
+##
+## Example originally created with raylib 1.0, last time updated with raylib 1.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2013-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_basic_window.c` built on top of the
+## `raylibx` wrapper layer. Window lifecycle is managed with `defer` on
+## `raylib.CloseWindow` right after `raylib.InitWindow`, while frame rendering
+## uses `raylibx.drawing` and `raylibx.text`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_basic_window.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+# --- Entry point --------------------------------------------------------
+## Program entry point.
+##
+## Opens an 800x450 window at 60 FPS and renders a centered greeting until
+## the user closes the window or presses `ESC`.
+##
+## ## Returns
+## Exit code (`0` on clean exit).
+weave main into int:
+    # Initialization
+    #--------------------------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - basic window"
+    defer calling raylib.CloseWindow
+
+    calling raylib.SetTargetFPS with TARGET_FPS # Set our game to run at 60 frames-per-second
+    #--------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+        # Update
+        #----------------------------------------------------------------------------------
+        # TODO: Update your variables here
+        #----------------------------------------------------------------------------------
+
+        # Draw
+        #----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "Congrats! You created your first window!", 190, 200, 20, raylib.LIGHTGRAY
+
+        calling drawing.end_drawing
+        #----------------------------------------------------------------------------------
+
+    return 0

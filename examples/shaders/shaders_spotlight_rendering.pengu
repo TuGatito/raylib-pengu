@@ -1,0 +1,246 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - spotlight rendering
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Chris Camacho (@chriscamacho) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to create a top-down dynamic spotlight effect using
+## fragment shaders with an array of moving spotlights and a starfield background.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_spotlight_rendering.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.random as random
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+import std.fractio
+
+# --- Constants ----------------------------------------------------------
+const MAX_SPOTS as int is 3
+const MAX_STARS as int is 400
+
+# --- Types --------------------------------------------------------------
+## Spotlight configuration and shader uniform locations.
+rune Spot:
+    position as raylib.Vector2
+    speed as raylib.Vector2
+    inner as f32
+    radius as f32
+    positionLoc as int
+    innerLoc as int
+    radiusLoc as int
+
+## Single particle in the star field.
+rune Star:
+    position as raylib.Vector2
+    speed as raylib.Vector2
+
+# --- Helpers ------------------------------------------------------------
+
+## Helper for absolute value of a float.
+weave abs_f32 with v as f32 into f32:
+    if v < 0.0:
+        return -v
+    return v
+
+## Helper to get shader uniform location as an int (or -1 if missing).
+weave loc_of with shader as raylib.Shader, name as string into int:
+    if loc as int is calling shader.location with name:
+        return loc
+    return -1
+
+## Resets a star's position to the center of the screen with a random velocity.
+weave reset_star with star as ref to Star, screen_w as f32, screen_h as f32 into void:
+    set star->position.x is screen_w / 2.0
+    set star->position.y is screen_h / 2.0
+
+    var sx as f32 is ((calling random.between with -1000, 1000) to f32) / 100.0
+    var sy as f32 is ((calling random.between with -1000, 1000) to f32) / 100.0
+    while ((calling abs_f32 with sx) + (calling abs_f32 with sy)) <= 1.0:
+        set sx is ((calling random.between with -1000, 1000) to f32) / 100.0
+        set sy is ((calling random.between with -1000, 1000) to f32) / 100.0
+
+    set star->speed.x is sx
+    set star->speed.y is sy
+    set star->position.x is star->position.x + (sx * 8.0)
+    set star->position.y is star->position.y + (sy * 8.0)
+
+## Updates a star's position according to its velocity, resetting it if off-screen.
+weave update_star with star as ref to Star, screen_w as f32, screen_h as f32 into void:
+    set star->position.x is star->position.x + star->speed.x
+    set star->position.y is star->position.y + star->speed.y
+
+    if star->position.x < 0.0 or star->position.x > screen_w or star->position.y < 0.0 or star->position.y > screen_h:
+        calling reset_star with star, screen_w, screen_h
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - spotlight rendering"
+    defer calling raylib.CloseWindow
+    calling raylib.HideCursor
+
+    # Load ray texture
+    var tex_ray as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/raysan.png":
+        set tex_ray is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with tex_ray
+
+    # Initialize stars
+    var stars as list of Star is list of Star
+    defer banish stars
+
+    for si from 0 to MAX_STARS:
+        var new_star as Star is with:
+            set .position.x is 0.0
+            set .position.y is 0.0
+            set .speed.x is 0.0
+            set .speed.y is 0.0
+        calling stars.push with new_star
+        calling reset_star with (sigil of (stars at si)), (screen_width to f32), (screen_height to f32)
+
+    # Progress all stars forward so they don't all start clustered in the center
+    for m from 0 to (screen_width / 2):
+        for n from 0 to MAX_STARS:
+            calling update_star with (sigil of (stars at n)), (screen_width to f32), (screen_height to f32)
+
+    # Load spotlight fragment shader
+    var shdr_spot as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/spotlight.fs":
+        set shdr_spot is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shdr_spot
+
+    # Query uniform locations for spotlights
+    var spots as list of Spot is list of Spot
+    defer banish spots
+
+    for i from 0 to MAX_SPOTS:
+        let pos_name as string is "spots[{i}].pos"
+        let inner_name as string is "spots[{i}].inner"
+        let rad_name as string is "spots[{i}].radius"
+
+        var sp as Spot is with:
+            set .position.x is 0.0
+            set .position.y is 0.0
+            set .speed.x is 0.0
+            set .speed.y is 0.0
+            set .inner is 0.0
+            set .radius is 0.0
+            set .positionLoc is calling loc_of with shdr_spot, pos_name
+            set .innerLoc is calling loc_of with shdr_spot, inner_name
+            set .radiusLoc is calling loc_of with shdr_spot, rad_name
+
+        banish pos_name
+        banish inner_name
+        banish rad_name
+        calling spots.push with sp
+
+    # Set screen width uniform
+    let w_loc as int is calling loc_of with shdr_spot, "screenWidth"
+    calling shdr_spot.set_float with w_loc, (screen_width to f32)
+
+    # Randomize initial spotlight locations and velocities
+    for i from 0 to MAX_SPOTS:
+        var spot_ref as ref to Spot is sigil of (spots at i)
+        set spot_ref->position.x is (calling random.between with 64, (screen_width - 64)) to f32
+        set spot_ref->position.y is (calling random.between with 64, (screen_height - 64)) to f32
+
+        var vx as f32 is ((calling random.between with -400, 40) to f32) / 25.0
+        var vy as f32 is ((calling random.between with -400, 40) to f32) / 25.0
+        while ((calling abs_f32 with vx) + (calling abs_f32 with vy)) < 2.0:
+            set vx is ((calling random.between with -400, 40) to f32) / 25.0
+            set vy is ((calling random.between with -400, 40) to f32) / 25.0
+
+        set spot_ref->speed.x is vx
+        set spot_ref->speed.y is vy
+        set spot_ref->inner is 28.0 * ((i + 1) to f32)
+        set spot_ref->radius is 48.0 * ((i + 1) to f32)
+
+        calling shdr_spot.set_vec2 with spot_ref->positionLoc, spot_ref->position
+        calling shdr_spot.set_float with spot_ref->innerLoc, spot_ref->inner
+        calling shdr_spot.set_float with spot_ref->radiusLoc, spot_ref->radius
+
+    var frame_counter as int is 0
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set frame_counter is frame_counter + 1
+
+        # Move stars
+        for n from 0 to MAX_STARS:
+            calling update_star with (sigil of (stars at n)), (screen_width to f32), (screen_height to f32)
+
+        # Update spotlights
+        for i from 0 to MAX_SPOTS:
+            var sp_ref as ref to Spot is sigil of (spots at i)
+            if i == 0:
+                let mp as raylib.Vector2 is calling raylib.GetMousePosition
+                set sp_ref->position.x is mp.x
+                set sp_ref->position.y is (screen_height to f32) - mp.y
+            else:
+                set sp_ref->position.x is sp_ref->position.x + sp_ref->speed.x
+                set sp_ref->position.y is sp_ref->position.y + sp_ref->speed.y
+
+                if sp_ref->position.x < 64.0:
+                    set sp_ref->speed.x is -sp_ref->speed.x
+                if sp_ref->position.x > ((screen_width - 64) to f32):
+                    set sp_ref->speed.x is -sp_ref->speed.x
+                if sp_ref->position.y < 64.0:
+                    set sp_ref->speed.y is -sp_ref->speed.y
+                if sp_ref->position.y > ((screen_height - 64) to f32):
+                    set sp_ref->speed.y is -sp_ref->speed.y
+
+            calling shdr_spot.set_vec2 with sp_ref->positionLoc, sp_ref->position
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.DARKBLUE
+
+        # Draw stars
+        for n from 0 to MAX_STARS:
+            let st as Star is stars at n
+            calling shapes.draw_rectangle with (st.position.x to int), (st.position.y to int), 2, 2, raylib.WHITE
+
+        # Draw swirling textures
+        for i from 0 to 16:
+            let fi as f32 is (frame_counter + (i * 8)) to f32
+            let angle_cos as f32 is fi / 51.45
+            let cos_val as f32 is calling angle_cos.get_cos
+            let angle_sin as f32 is fi / 17.87
+            let sin_val as f32 is calling angle_sin.get_sin
+            let tx as f32 is ((screen_width to f32) / 2.0) + (cos_val * ((screen_width to f32) / 2.2)) - 32.0
+            let ty as f32 is ((screen_height to f32) / 2.0) + (sin_val * ((screen_height to f32) / 4.2))
+            calling tex_ray.draw with (tx to int), (ty to int), raylib.WHITE
+
+        # Draw spotlights mask
+        calling drawing.begin_shader_mode with shdr_spot
+        calling shapes.draw_rectangle with 0, 0, screen_width, screen_height, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling txt.draw_fps with 10, 10
+        calling txt.draw_text with "Move the mouse!", 10, 30, 20, raylib.GREEN
+        calling txt.draw_text with "Pitch Black", (((screen_width to f32) * 0.2) to int), (screen_height / 2), 20, raylib.GREEN
+        calling txt.draw_text with "Dark", (((screen_width to f32) * 0.66) to int), (screen_height / 2), 20, raylib.GREEN
+
+        calling drawing.end_drawing
+
+    return 0

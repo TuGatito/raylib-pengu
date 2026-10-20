@@ -1,0 +1,147 @@
+## raylib [models] example - animation gpu skinning
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 4.5, last time updated with raylib 4.5
+##
+## Example contributed by Daniel Holden (@orangeduck) and reviewed by Ramon Santamaria (@raysan5)
+##
+## WARNING: GPU skinning must be enabled in raylib with a compilation flag,
+## if not enabled, CPU skinning will be used instead.
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2024-2025 Daniel Holden (@orangeduck)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.input`,
+## `raylibx.shapes3d`, `raylibx.models`, `raylibx.shaders`, `raylibx.text`),
+## structured animation stepping, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_animation_gpu_skinning.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Path to the rigged character model.
+const MODEL_PATH as string is "resources/models/gltf/greenman.glb"
+
+## Path to the vertex skinning shader.
+const VS_SHADER_PATH as string is "resources/shaders/glsl330/skinning.vs"
+
+## Path to the fragment skinning shader.
+const FS_SHADER_PATH as string is "resources/shaders/glsl330/skinning.fs"
+
+## Whether GPU skinning shader is assigned to the model material.
+## Note: raylib must be compiled with SUPPORT_GPU_SKINNING to use GPU skinning buffers.
+const SUPPORT_GPU_SKINNING as bool is false
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Loads a skinned glTF character model and its animations, updates bone poses
+## each frame (with optional GPU skinning shader assignment), and allows switching
+## active animations with the arrow keys.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if asset loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - animation gpu skinning"
+    defer calling raylib.CloseWindow
+
+    # Define the camera to look into our 3d world
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 5.0, y is 5.0, z is 5.0)
+        set .target is (with x is 0.0, y is 1.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is raylib.CAMERA_PERSPECTIVE
+
+    # Load gltf model
+    let loaded_model as maybe raylib.Model is calling models.load_model with MODEL_PATH
+    if model as raylib.Model is loaded_model:
+        defer calling models.unload_model with model
+
+        let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0 # Set model position
+
+        # Optional GPU skinning shader
+        if SUPPORT_GPU_SKINNING:
+            let loaded_shader as maybe raylib.Shader is calling shaders.load_shader with VS_SHADER_PATH, FS_SHADER_PATH
+            if skinning_shader as raylib.Shader is loaded_shader:
+                defer calling shaders.unload_shader with skinning_shader
+                var mat as ref to raylib.Material is sigil of (model.materials at 1)
+                set mat->shader is skinning_shader
+
+        # Load gltf model animations
+        let loaded_anims as maybe (slice of raylib.ModelAnimation) is calling models.load_animations with MODEL_PATH
+        if anims as slice of raylib.ModelAnimation is loaded_anims:
+            defer calling models.unload_animations with anims
+
+            let anim_count as int is anims.length
+
+            # Animation playing variables
+            var anim_index as int is 0         # Current animation playing
+            var anim_current_frame as int is 0 # Current animation frame
+
+            calling raylib.SetTargetFPS with TARGET_FPS # Set our game to run at 60 frames-per-second
+
+            # Main game loop
+            while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+                # Update
+                calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+                # Select current animation
+                if calling input.is_key_pressed with raylib.KEY_RIGHT:
+                    set anim_index is (anim_index + 1) % anim_count
+                else if calling input.is_key_pressed with raylib.KEY_LEFT:
+                    set anim_index is ((anim_index + anim_count) - 1) % anim_count
+
+                # Update model animation
+                var active_anim as raylib.ModelAnimation is anims at anim_index
+                set anim_current_frame is (anim_current_frame + 1) % active_anim.keyframeCount
+                calling model.update_animation with active_anim, (anim_current_frame to f32)
+
+                # Draw
+                calling drawing.begin_drawing
+                calling drawing.clear_background with raylib.RAYWHITE
+
+                calling drawing.begin_mode_3d with camera
+                calling model.draw with position, 1.0, raylib.WHITE
+                calling shapes3d.draw_grid with 10, 1.0
+                calling drawing.end_mode_3d
+
+                var anim_name as string is calling active_anim.get_name
+                let anim_text as string is "Current animation: {anim_name}"
+                calling txt.draw_text with anim_text, 10, 40, 20, raylib.MAROON
+                banish anim_text
+                banish anim_name
+
+                calling txt.draw_text with "Use the LEFT/RIGHT keys to switch animation", 10, 10, 20, raylib.GRAY
+
+                calling drawing.end_drawing
+
+            return 0
+
+    return 1

@@ -1,0 +1,138 @@
+## ## PenguScript Port
+## Translated from raylib [shapes] example - lines drawing
+##
+## Original example complexity rating: [★☆☆☆] 1/4
+## Contributed by Robin (@RobinsAviary) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates an interactive freehand drawing canvas using render textures,
+## line segment drawing with circle caps, and dynamic HSV rainbow colors.
+##
+## ## Example
+## ```bash
+## pengu run examples/shapes/shapes_lines_drawing.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymathx
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - lines drawing"
+    defer calling raylib.CloseWindow
+
+    # Hint text that shows before you click the screen
+    var start_text as bool is true
+
+    # The mouse's position on the previous frame
+    var mouse_prev as raylib.Vector2 is calling raylib.GetMousePosition
+
+    # The canvas to draw lines on
+    var canvas as raylib.RenderTexture2D is with id is 0
+    if loaded_canvas as raylib.RenderTexture2D is calling textures.load_render_texture with screen_width, screen_height:
+        set canvas is loaded_canvas
+    else:
+        return 1
+    defer calling textures.unload_render_texture with canvas
+
+    # Line drawing settings
+    var line_thickness as f32 is 8.0
+    var line_hue as f32 is 0.0
+
+    # Clear canvas to background color
+    calling drawing.begin_texture_mode with canvas
+    calling drawing.clear_background with raylib.RAYWHITE
+    calling drawing.end_texture_mode
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let mouse_curr as raylib.Vector2 is calling raylib.GetMousePosition
+
+        if (calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT) and start_text:
+            set start_text is false
+
+        # Clear canvas when user middle-clicks
+        if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_MIDDLE:
+            calling drawing.begin_texture_mode with canvas
+            calling drawing.clear_background with raylib.RAYWHITE
+            calling drawing.end_texture_mode
+
+        let left_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT
+        let right_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_RIGHT
+
+        if left_down or right_down:
+            var draw_color as raylib.Color is raylib.WHITE
+
+            if left_down:
+                let move_dist as f32 is calling mouse_prev.distance_to with mouse_curr
+                set line_hue is line_hue + (move_dist / 3.0)
+
+                while line_hue >= 360.0:
+                    set line_hue is line_hue - 360.0
+
+                set draw_color is calling raylib.ColorFromHSV with line_hue, 1.0, 1.0
+            else if right_down:
+                set draw_color is raylib.RAYWHITE
+
+            # Draw line onto canvas
+            calling drawing.begin_texture_mode with canvas
+            calling mouse_prev.draw_circle with (line_thickness / 2.0), draw_color
+            calling mouse_curr.draw_circle with (line_thickness / 2.0), draw_color
+            calling mouse_prev.draw_line_ex with mouse_curr, line_thickness, draw_color
+            calling drawing.end_texture_mode
+
+        # Update line thickness based on mouse wheel
+        set line_thickness is line_thickness + (calling raylib.GetMouseWheelMove)
+        if line_thickness < 1.0:
+            set line_thickness is 1.0
+        else if line_thickness > 500.0:
+            set line_thickness is 500.0
+
+        set mouse_prev is mouse_curr
+
+        # Draw
+        calling drawing.begin_drawing
+
+        # Draw render texture flipped vertically
+        var src_rec as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is canvas.texture.width to f32
+            set .height is -(canvas.texture.height to f32)
+
+        var zero_pos as raylib.Vector2 is with:
+            set .x is 0.0
+            set .y is 0.0
+
+        calling canvas.texture.draw_rec with src_rec, zero_pos, raylib.WHITE
+
+        # Draw preview circle
+        if not left_down:
+            var preview_color as raylib.Color is with:
+                set .r is 127
+                set .g is 127
+                set .b is 127
+                set .a is 127
+            calling mouse_curr.draw_circle_lines with (line_thickness / 2.0), preview_color
+
+        if start_text:
+            calling txt.draw_text with "try clicking and dragging!", 275, 215, 20, raylib.LIGHTGRAY
+
+        calling drawing.end_drawing
+
+    return 0

@@ -1,0 +1,140 @@
+## examples/core/core_basic_screen_manager.pengu
+## raylib [core] example - basic screen manager
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## NOTE: This example illustrates a very simple screen manager based on a states machines
+##
+## Example originally created with raylib 1.1, last time updated with raylib 1.4
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2021-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_basic_screen_manager.c` using the
+## `raylibx` wrapper layer. The C `GameScreen` enum is modeled as an `omen`
+## and state transitions and rendering dispatch through `judge` blocks.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_basic_screen_manager.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Number of frames the logo screen remains active (2 seconds at 60 FPS).
+const LOGO_DURATION_FRAMES as int is 120
+
+# --- Types --------------------------------------------------------------
+## States of the screen manager state machine.
+omen GameScreen:
+    LOGO is 0
+    TITLE
+    GAMEPLAY
+    ENDING
+
+# --- Entry point --------------------------------------------------------
+## Program entry point.
+##
+## Runs a four-state screen manager (`LOGO` -> `TITLE` -> `GAMEPLAY` -> `ENDING`)
+## that advances automatically after 2 seconds on the logo screen and then on
+## `ENTER` or tap gestures.
+##
+## ## Returns
+## Exit code (`0` on clean exit).
+weave main into int:
+    # Initialization
+    #--------------------------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - basic screen manager"
+    defer calling raylib.CloseWindow
+
+    var current_screen as GameScreen is GameScreen.LOGO
+
+    # TODO: Initialize all required variables and load all required data here!
+
+    var frames_counter as int is 0 # Useful to count frames
+
+    calling raylib.SetTargetFPS with TARGET_FPS # Set desired framerate (frames-per-second)
+    #--------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+        # Update
+        #----------------------------------------------------------------------------------
+        judge current_screen:
+            when GameScreen.LOGO ->
+                # TODO: Update LOGO screen variables here!
+
+                set frames_counter += 1 # Count frames
+
+                # Wait for 2 seconds (120 frames) before jumping to TITLE screen
+                if frames_counter > LOGO_DURATION_FRAMES:
+                    set current_screen is GameScreen.TITLE
+            when GameScreen.TITLE ->
+                # TODO: Update TITLE screen variables here!
+
+                # Press enter to change to GAMEPLAY screen
+                if (calling input.is_key_pressed with raylib.KEY_ENTER) or (calling input.is_gesture_detected with raylib.GESTURE_TAP):
+                    set current_screen is GameScreen.GAMEPLAY
+            when GameScreen.GAMEPLAY ->
+                # TODO: Update GAMEPLAY screen variables here!
+
+                # Press enter to change to ENDING screen
+                if (calling input.is_key_pressed with raylib.KEY_ENTER) or (calling input.is_gesture_detected with raylib.GESTURE_TAP):
+                    set current_screen is GameScreen.ENDING
+            when GameScreen.ENDING ->
+                # TODO: Update ENDING screen variables here!
+
+                # Press enter to return to TITLE screen
+                if (calling input.is_key_pressed with raylib.KEY_ENTER) or (calling input.is_gesture_detected with raylib.GESTURE_TAP):
+                    set current_screen is GameScreen.TITLE
+        #----------------------------------------------------------------------------------
+
+        # Draw
+        #----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        judge current_screen:
+            when GameScreen.LOGO ->
+                # TODO: Draw LOGO screen here!
+                calling txt.draw_text with "LOGO SCREEN", 20, 20, 40, raylib.LIGHTGRAY
+                calling txt.draw_text with "WAIT for 2 SECONDS...", 290, 220, 20, raylib.GRAY
+            when GameScreen.TITLE ->
+                # TODO: Draw TITLE screen here!
+                calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.GREEN
+                calling txt.draw_text with "TITLE SCREEN", 20, 20, 40, raylib.DARKGREEN
+                calling txt.draw_text with "PRESS ENTER or TAP to JUMP to GAMEPLAY SCREEN", 120, 220, 20, raylib.DARKGREEN
+            when GameScreen.GAMEPLAY ->
+                # TODO: Draw GAMEPLAY screen here!
+                calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.PURPLE
+                calling txt.draw_text with "GAMEPLAY SCREEN", 20, 20, 40, raylib.MAROON
+                calling txt.draw_text with "PRESS ENTER or TAP to JUMP to ENDING SCREEN", 130, 220, 20, raylib.MAROON
+            when GameScreen.ENDING ->
+                # TODO: Draw ENDING screen here!
+                calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.BLUE
+                calling txt.draw_text with "ENDING SCREEN", 20, 20, 40, raylib.DARKBLUE
+                calling txt.draw_text with "PRESS ENTER or TAP to RETURN to TITLE SCREEN", 120, 220, 20, raylib.DARKBLUE
+
+        calling drawing.end_drawing
+        #----------------------------------------------------------------------------------
+
+    return 0

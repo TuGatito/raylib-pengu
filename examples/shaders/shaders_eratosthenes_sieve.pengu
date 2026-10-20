@@ -1,0 +1,86 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - eratosthenes sieve
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by ProfJski (@ProfJski) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Sieve of Eratosthenes, the earliest known prime number sieve, implemented
+## purely on the GPU within a fragment shader:
+## "Sift the twos and sift the threes,
+##  The Sieve of Eratosthenes.
+##  When the multiples sublime,
+##  the numbers that are left are prime."
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_eratosthenes_sieve.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - eratosthenes sieve"
+    defer calling raylib.CloseWindow
+
+    var target as raylib.RenderTexture2D is with id is 0
+    if loaded_target as raylib.RenderTexture2D is calling textures.load_render_texture with SCREEN_WIDTH, SCREEN_HEIGHT:
+        set target is loaded_target
+    else:
+        return 1
+    defer calling textures.unload_render_texture with target
+
+    # Load Eratosthenes fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/eratosthenes.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Draw into render texture
+        calling drawing.begin_texture_mode with target
+        calling drawing.clear_background with raylib.BLACK
+
+        # Draw a rectangle in shader mode to be used as shader canvas
+        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.BLACK
+        calling drawing.end_texture_mode
+
+        # Draw into screen
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_shader_mode with shader
+        var src_rec as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is target.texture.width to f32
+            set .height is -target.texture.height to f32
+        calling target.texture.draw_rec with src_rec, (with x is 0.0, y is 0.0), raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling drawing.end_drawing
+
+    return 0

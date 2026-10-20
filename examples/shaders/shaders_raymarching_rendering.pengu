@@ -1,0 +1,113 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - raymarching rendering
+##
+## Original example complexity rating: [★★★★] 4/4
+## Contributed by Ramon Santamaria (@raysan5), shader by Iñigo Quilez
+##
+## This example demonstrates full-screen volumetric raymarching using a fragment
+## shader driven by first-person camera movement and animated signed distance fields.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_raymarching_rendering.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Initial screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.SetConfigFlags with (raylib.FLAG_WINDOW_RESIZABLE to u32)
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - raymarching rendering"
+    defer calling raylib.CloseWindow
+
+    # Define camera
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 2.5, y is 2.5, z is 3.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.7)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 65.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load raymarching fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/raymarching.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Query uniform locations
+    var view_eye_loc as int is 0
+    if loc as int is calling shader.location with "viewEye":
+        set view_eye_loc is loc
+
+    var view_center_loc as int is 0
+    if loc as int is calling shader.location with "viewCenter":
+        set view_center_loc is loc
+
+    var run_time_loc as int is 0
+    if loc as int is calling shader.location with "runTime":
+        set run_time_loc is loc
+
+    var resolution_loc as int is 0
+    if loc as int is calling shader.location with "resolution":
+        set resolution_loc is loc
+
+    var resolution as raylib.Vector2 is with:
+        set .x is SCREEN_WIDTH to f32
+        set .y is SCREEN_HEIGHT to f32
+    calling shader.set_vec2 with resolution_loc, resolution
+
+    var run_time as f32 is 0.0
+
+    calling raylib.DisableCursor
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FIRST_PERSON to int)
+
+        let dt as f32 is calling raylib.GetFrameTime
+        set run_time is run_time + dt
+
+        calling shader.set_vec3 with view_eye_loc, camera.position
+        calling shader.set_vec3 with view_center_loc, camera.target
+        calling shader.set_float with run_time_loc, run_time
+
+        if calling raylib.IsWindowResized:
+            set resolution.x is (calling raylib.GetScreenWidth) to f32
+            set resolution.y is (calling raylib.GetScreenHeight) to f32
+            calling shader.set_vec2 with resolution_loc, resolution
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_shader_mode with shader
+        calling shapes.draw_rectangle with 0, 0, (calling raylib.GetScreenWidth), (calling raylib.GetScreenHeight), raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling txt.draw_text with "(c) Raymarching shader by Inigo Quilez. MIT License.", ((calling raylib.GetScreenWidth) - 280), ((calling raylib.GetScreenHeight) - 20), 10, raylib.BLACK
+
+        calling drawing.end_drawing
+
+    return 0

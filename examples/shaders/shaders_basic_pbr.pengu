@@ -1,0 +1,412 @@
+## examples/shaders/shaders_basic_pbr.pengu
+## raylib [shaders] example - basic pbr
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 5.0, last time updated with raylib 5.5
+##
+## Example contributed by Afan OLOVCIC (@_DevDad) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2023-2025 Afan OLOVCIC (@_DevDad)
+##
+## Model: "Old Rusty Car" (https://skfb.ly/LxRy) by Renafox,
+## licensed under Creative Commons Attribution-NonCommercial
+## (http://creativecommons.org/licenses/by-nc/4.0/)
+##
+## ## PenguScript Port
+## Port of `examples/shaders/shaders_basic_pbr.c` demonstrating Physically Based
+## Rendering (PBR) with albedo, metallic/roughness/AO (MRA), normal, and emissive
+## maps, dynamic point lights, and configurable ambient illumination.
+##
+## Uses wrappers from `raylibx.models`, `raylibx.textures`, `raylibx.shaders`,
+## `raylibx.drawing`, `raylibx.colors`, `raylibx.input`, and `raylibx.text`.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_basic_pbr.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Maximum number of dynamic lights supported by shader.
+const MAX_LIGHTS as int is 4
+
+# --- Types --------------------------------------------------------------
+## Light source type classification.
+omen LightType:
+    Directional
+    Point
+    Spot
+
+## Dynamic PBR light parameters and shader uniform locations.
+rune PbrLight:
+    type as int
+    enabled as bool
+    position as raylib.Vector3
+    target as raylib.Vector3
+    color as raylib.Vector4
+    intensity as f32
+    type_loc as int
+    enabled_loc as int
+    position_loc as int
+    target_loc as int
+    color_loc as int
+    intensity_loc as int
+
+# --- Light Helpers ------------------------------------------------------
+## Uploads light parameters to the PBR shader.
+##
+## ## Parameters
+## - `shader`: The active PBR shader.
+## - `light`: The light struct whose values are uploaded.
+weave update_pbr_light with shader as raylib.Shader, light as PbrLight into void:
+    calling shader.set_int with light.enabled_loc, (if light.enabled then 1 else 0)
+    calling shader.set_int with light.type_loc, light.type
+    calling shader.set_vec3 with light.position_loc, light.position
+    calling shader.set_vec3 with light.target_loc, light.target
+    calling shader.set_vec4 with light.color_loc, light.color
+    calling shader.set_float with light.intensity_loc, light.intensity
+
+## Initializes a dynamic light and queries uniform locations in the PBR shader.
+##
+## ## Parameters
+## - `light_index`: Index of this light in the shader lights array.
+## - `light_type`: Classification of the light (`LightType.Point`, etc.).
+## - `position`: 3D position of the light source.
+## - `target`: Target look-at direction.
+## - `color`: Light color.
+## - `intensity`: Radiance intensity multiplier.
+## - `shader`: The target PBR shader.
+##
+## ## Returns
+## Initialized `PbrLight` struct with queried shader locations.
+weave create_pbr_light with light_index as int, light_type as int, position as raylib.Vector3, target as raylib.Vector3, color as raylib.Color, intensity as f32, shader as raylib.Shader into PbrLight:
+    let col_vec as raylib.Vector4 is with:
+        set .x is ((color.r to f32) / 255.0)
+        set .y is ((color.g to f32) / 255.0)
+        set .z is ((color.b to f32) / 255.0)
+        set .w is ((color.a to f32) / 255.0)
+
+    var light as PbrLight is with:
+        set .type is light_type
+        set .enabled is true
+        set .position is position
+        set .target is target
+        set .color is col_vec
+        set .intensity is intensity
+        set .type_loc is -1
+        set .enabled_loc is -1
+        set .position_loc is -1
+        set .target_loc is -1
+        set .color_loc is -1
+        set .intensity_loc is -1
+
+    let s_en as string is "lights[{light_index}].enabled"
+    let s_ty as string is "lights[{light_index}].type"
+    let s_pos as string is "lights[{light_index}].position"
+    let s_tar as string is "lights[{light_index}].target"
+    let s_col as string is "lights[{light_index}].color"
+    let s_int as string is "lights[{light_index}].intensity"
+    defer banish s_en
+    defer banish s_ty
+    defer banish s_pos
+    defer banish s_tar
+    defer banish s_col
+    defer banish s_int
+
+    if loc as int is calling shader.location with s_en: set light.enabled_loc is loc
+    if loc as int is calling shader.location with s_ty: set light.type_loc is loc
+    if loc as int is calling shader.location with s_pos: set light.position_loc is loc
+    if loc as int is calling shader.location with s_tar: set light.target_loc is loc
+    if loc as int is calling shader.location with s_col: set light.color_loc is loc
+    if loc as int is calling shader.location with s_int: set light.intensity_loc is loc
+
+    calling update_pbr_light with shader, light
+    return light
+
+# --- Entry Point --------------------------------------------------------
+## Program main entry point.
+##
+## Configures MSAA 4x, loads the PBR shader and texture maps, binds PBR materials
+## to car and floor models, and runs the orbital camera loop with interactive
+## light toggles.
+##
+## ## Returns
+## Exit status code (`0` for success, `1` if asset loading fails).
+weave main into int:
+    # Initialization
+    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - basic pbr"
+    defer calling raylib.CloseWindow
+
+    # 3D Camera definition
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 2.0, y is 2.0, z is 6.0)
+        set .target is (with x is 0.0, y is 0.5, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load PBR shader
+    let vs_path as string is "examples/shaders/resources/shaders/glsl330/pbr.vs"
+    let fs_path as string is "examples/shaders/resources/shaders/glsl330/pbr.fs"
+    var shader as raylib.Shader is with id is 0
+    let shader_opt as maybe raylib.Shader is calling shaders.load_shader with vs_path, fs_path
+    if loaded_shader as raylib.Shader is shader_opt:
+        set shader is loaded_shader
+        defer calling shaders.unload_shader with shader
+
+        # Setup standard map locations
+        if loc as int is calling shader.location with "albedoMap":
+            set shader.locs at (raylib.SHADER_LOC_MAP_ALBEDO to int) is loc
+        if loc as int is calling shader.location with "mraMap":
+            set shader.locs at (raylib.SHADER_LOC_MAP_METALNESS to int) is loc
+        if loc as int is calling shader.location with "normalMap":
+            set shader.locs at (raylib.SHADER_LOC_MAP_NORMAL to int) is loc
+        if loc as int is calling shader.location with "emissiveMap":
+            set shader.locs at (raylib.SHADER_LOC_MAP_EMISSION to int) is loc
+        if loc as int is calling shader.location with "albedoColor":
+            set shader.locs at (raylib.SHADER_LOC_COLOR_DIFFUSE to int) is loc
+        if loc as int is calling shader.location with "viewPos":
+            set shader.locs at (raylib.SHADER_LOC_VECTOR_VIEW to int) is loc
+
+        # Setup light count and ambient parameters
+        if loc as int is calling shader.location with "numOfLights":
+            calling shader.set_int with loc, MAX_LIGHTS
+
+        let ambient_intensity as f32 is 0.02
+        let amb_col_vec as raylib.Vector3 is with x is (26.0 / 255.0), y is (32.0 / 255.0), z is (135.0 / 255.0)
+        if loc as int is calling shader.location with "ambientColor":
+            calling shader.set_vec3 with loc, amb_col_vec
+        if loc as int is calling shader.location with "ambient":
+            calling shader.set_float with loc, ambient_intensity
+
+        # Material parameters locations
+        var metallic_val_loc as int is -1
+        var roughness_val_loc as int is -1
+        var emissive_intensity_loc as int is -1
+        var emissive_color_loc as int is -1
+        var texture_tiling_loc as int is -1
+
+        if loc as int is calling shader.location with "metallicValue": set metallic_val_loc is loc
+        if loc as int is calling shader.location with "roughnessValue": set roughness_val_loc is loc
+        if loc as int is calling shader.location with "emissivePower": set emissive_intensity_loc is loc
+        if loc as int is calling shader.location with "emissiveColor": set emissive_color_loc is loc
+        if loc as int is calling shader.location with "tiling": set texture_tiling_loc is loc
+
+        # Enable texture map usage uniforms
+        if loc as int is calling shader.location with "useTexAlbedo": calling shader.set_int with loc, 1
+        if loc as int is calling shader.location with "useTexNormal": calling shader.set_int with loc, 1
+        if loc as int is calling shader.location with "useTexMRA": calling shader.set_int with loc, 1
+        if loc as int is calling shader.location with "useTexEmissive": calling shader.set_int with loc, 1
+
+        # Load models
+        let car_opt as maybe raylib.Model is calling models.load_model with "examples/shaders/resources/models/old_car_new.glb"
+        let floor_opt as maybe raylib.Model is calling models.load_model with "examples/shaders/resources/models/plane.glb"
+
+        if car_val as raylib.Model is car_opt:
+            var car as raylib.Model is car_val
+            defer calling models.unload_model with car
+
+            if floor_val as raylib.Model is floor_opt:
+                var floor as raylib.Model is floor_val
+                defer calling models.unload_model with floor
+
+                # Load textures for car
+                let car_tex_d_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/old_car_d.png"
+                let car_tex_mra_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/old_car_mra.png"
+                let car_tex_n_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/old_car_n.png"
+                let car_tex_e_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/old_car_e.png"
+
+                # Load textures for floor
+                let road_tex_a_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/road_a.png"
+                let road_tex_mra_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/road_mra.png"
+                let road_tex_n_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/road_n.png"
+
+                if car_tex_d as raylib.Texture2D is car_tex_d_opt:
+                    defer calling textures.unload_texture with car_tex_d
+                    if car_tex_mra as raylib.Texture2D is car_tex_mra_opt:
+                        defer calling textures.unload_texture with car_tex_mra
+                        if car_tex_n as raylib.Texture2D is car_tex_n_opt:
+                            defer calling textures.unload_texture with car_tex_n
+                            if car_tex_e as raylib.Texture2D is car_tex_e_opt:
+                                defer calling textures.unload_texture with car_tex_e
+                                if road_tex_a as raylib.Texture2D is road_tex_a_opt:
+                                    defer calling textures.unload_texture with road_tex_a
+                                    if road_tex_mra as raylib.Texture2D is road_tex_mra_opt:
+                                        defer calling textures.unload_texture with road_tex_mra
+                                        if road_tex_n as raylib.Texture2D is road_tex_n_opt:
+                                            defer calling textures.unload_texture with road_tex_n
+
+                                            # Configure car material
+                                            var car_mat as ref to raylib.Material is sigil of (car.materials at 0)
+                                            set car_mat->shader is shader
+
+                                            var car_alb as ref to raylib.MaterialMap is sigil of (car_mat->maps at (raylib.MATERIAL_MAP_ALBEDO to int))
+                                            set car_alb->color is raylib.WHITE
+                                            set car_alb->texture is car_tex_d
+
+                                            var car_met as ref to raylib.MaterialMap is sigil of (car_mat->maps at (raylib.MATERIAL_MAP_METALNESS to int))
+                                            set car_met->value is 1.0
+                                            set car_met->texture is car_tex_mra
+
+                                            var car_rou as ref to raylib.MaterialMap is sigil of (car_mat->maps at (raylib.MATERIAL_MAP_ROUGHNESS to int))
+                                            set car_rou->value is 0.0
+
+                                            var car_occ as ref to raylib.MaterialMap is sigil of (car_mat->maps at (raylib.MATERIAL_MAP_OCCLUSION to int))
+                                            set car_occ->value is 1.0
+
+                                            var car_norm as ref to raylib.MaterialMap is sigil of (car_mat->maps at (raylib.MATERIAL_MAP_NORMAL to int))
+                                            set car_norm->texture is car_tex_n
+
+                                            var car_emi as ref to raylib.MaterialMap is sigil of (car_mat->maps at (raylib.MATERIAL_MAP_EMISSION to int))
+                                            let car_emiss_col as raylib.Color is with r is 255 to byte, g is 162 to byte, b is 0 to byte, a is 255 to byte
+                                            set car_emi->color is car_emiss_col
+                                            set car_emi->texture is car_tex_e
+
+                                            # Configure floor material
+                                            var floor_mat as ref to raylib.Material is sigil of (floor.materials at 0)
+                                            set floor_mat->shader is shader
+
+                                            var floor_alb as ref to raylib.MaterialMap is sigil of (floor_mat->maps at (raylib.MATERIAL_MAP_ALBEDO to int))
+                                            set floor_alb->color is raylib.WHITE
+                                            set floor_alb->texture is road_tex_a
+
+                                            var floor_met as ref to raylib.MaterialMap is sigil of (floor_mat->maps at (raylib.MATERIAL_MAP_METALNESS to int))
+                                            set floor_met->value is 0.8
+                                            set floor_met->texture is road_tex_mra
+
+                                            var floor_rou as ref to raylib.MaterialMap is sigil of (floor_mat->maps at (raylib.MATERIAL_MAP_ROUGHNESS to int))
+                                            set floor_rou->value is 0.1
+
+                                            var floor_occ as ref to raylib.MaterialMap is sigil of (floor_mat->maps at (raylib.MATERIAL_MAP_OCCLUSION to int))
+                                            set floor_occ->value is 1.0
+
+                                            var floor_norm as ref to raylib.MaterialMap is sigil of (floor_mat->maps at (raylib.MATERIAL_MAP_NORMAL to int))
+                                            set floor_norm->texture is road_tex_n
+
+                                            var floor_emi as ref to raylib.MaterialMap is sigil of (floor_mat->maps at (raylib.MATERIAL_MAP_EMISSION to int))
+                                            set floor_emi->color is raylib.BLACK
+
+                                            let car_tiling as raylib.Vector2 is with x is 0.5, y is 0.5
+                                            let floor_tiling as raylib.Vector2 is with x is 0.5, y is 0.5
+
+                                            # Create lights
+                                            var lights as list of PbrLight is []
+                                            defer banish lights
+
+                                            let zero as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+                                            calling lights.append with (calling create_pbr_light with 0, (LightType.Point to int), (with x is -1.0, y is 1.0, z is -2.0), zero, raylib.YELLOW, 4.0, shader)
+                                            calling lights.append with (calling create_pbr_light with 1, (LightType.Point to int), (with x is 2.0, y is 1.0, z is 1.0), zero, raylib.GREEN, 3.3, shader)
+                                            calling lights.append with (calling create_pbr_light with 2, (LightType.Point to int), (with x is -2.0, y is 1.0, z is 1.0), zero, raylib.RED, 8.3, shader)
+                                            calling lights.append with (calling create_pbr_light with 3, (LightType.Point to int), (with x is 1.0, y is 1.0, z is -2.0), zero, raylib.BLUE, 2.0, shader)
+
+                                            calling raylib.SetTargetFPS with TARGET_FPS
+
+                                            # Main game loop
+                                            while not calling raylib.WindowShouldClose:
+                                                # Update
+                                                calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+                                                let view_loc as int is shader.locs at (raylib.SHADER_LOC_VECTOR_VIEW to int)
+                                                calling shader.set_vec3 with view_loc, camera.position
+
+                                                if calling input.is_key_pressed with raylib.KEY_ONE:
+                                                    var l2 as PbrLight is lights at 2
+                                                    set l2.enabled is not l2.enabled
+                                                    set lights at 2 is l2
+
+                                                if calling input.is_key_pressed with raylib.KEY_TWO:
+                                                    var l1 as PbrLight is lights at 1
+                                                    set l1.enabled is not l1.enabled
+                                                    set lights at 1 is l1
+
+                                                if calling input.is_key_pressed with raylib.KEY_THREE:
+                                                    var l3 as PbrLight is lights at 3
+                                                    set l3.enabled is not l3.enabled
+                                                    set lights at 3 is l3
+
+                                                if calling input.is_key_pressed with raylib.KEY_FOUR:
+                                                    var l0 as PbrLight is lights at 0
+                                                    set l0.enabled is not l0.enabled
+                                                    set lights at 0 is l0
+
+                                                for i from 0 to MAX_LIGHTS:
+                                                    calling update_pbr_light with shader, (lights at i)
+
+                                                # Draw
+                                                calling drawing.begin_drawing
+                                                calling drawing.clear_background with raylib.BLACK
+
+                                                calling drawing.begin_mode_3d with camera
+
+                                                # Floor parameters
+                                                calling shader.set_vec2 with texture_tiling_loc, floor_tiling
+                                                var floor_emiss_c as raylib.Color is floor_emi->color
+                                                calling shader.set_vec4 with emissive_color_loc, (calling floor_emiss_c.to_normalized)
+                                                calling shader.set_float with metallic_val_loc, floor_met->value
+                                                calling shader.set_float with roughness_val_loc, floor_rou->value
+
+                                                calling floor.draw with zero, 5.0, raylib.WHITE
+
+                                                # Car parameters
+                                                calling shader.set_vec2 with texture_tiling_loc, car_tiling
+                                                var car_emiss_c as raylib.Color is car_emi->color
+                                                calling shader.set_vec4 with emissive_color_loc, (calling car_emiss_c.to_normalized)
+                                                calling shader.set_float with emissive_intensity_loc, 0.01
+                                                calling shader.set_float with metallic_val_loc, car_met->value
+                                                calling shader.set_float with roughness_val_loc, car_rou->value
+
+                                                calling car.draw with zero, 0.25, raylib.WHITE
+
+                                                # Draw light spheres
+                                                for i from 0 to MAX_LIGHTS:
+                                                    let lt as PbrLight is lights at i
+                                                    let light_col as raylib.Color is with:
+                                                        set .r is (lt.color.x * 255.0) to byte
+                                                        set .g is (lt.color.y * 255.0) to byte
+                                                        set .b is (lt.color.z * 255.0) to byte
+                                                        set .a is (lt.color.w * 255.0) to byte
+                                                    if lt.enabled:
+                                                        calling raylib.DrawSphereEx with lt.position, 0.2, 8, 8, light_col
+                                                    else:
+                                                        calling shapes3d.draw_sphere_wires with lt.position, 0.2, 8, 8, (calling colors.fade with light_col, 0.3)
+
+                                                calling drawing.end_mode_3d
+
+                                                calling txt.draw_text with "Toggle lights: [1][2][3][4]", 10, 40, 20, raylib.LIGHTGRAY
+                                                calling txt.draw_text with "(c) Old Rusty Car model by Renafox (https://skfb.ly/LxRy)", SCREEN_WIDTH - 320, SCREEN_HEIGHT - 20, 10, raylib.LIGHTGRAY
+                                                calling txt.draw_fps with 10, 10
+
+                                                calling drawing.end_drawing
+
+                                            # Disconnect shader before unloading models to prevent double-free
+                                            var null_shdr as raylib.Shader is with id is 0
+                                            set car_mat->shader is null_shdr
+                                            set floor_mat->shader is null_shdr
+
+                                            return 0
+
+    return 1

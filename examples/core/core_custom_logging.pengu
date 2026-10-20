@@ -1,0 +1,113 @@
+## examples/core/core_custom_logging.pengu
+## raylib [core] example - custom logging
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 2.5
+##
+## Example contributed by Pablo Marcos Oltra (@pamarcos) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2018-2025 Pablo Marcos Oltra (@pamarcos) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_custom_logging.c` using `raylib` and
+## `raylibx`. Registers a custom `TraceLogCallback` via `raylib.SetTraceLogCallback`
+## that prefixes each log line with a local timestamp and log-level tag before
+## forwarding variadic arguments to libc `vprintf`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_custom_logging.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.text as txt
+import std.chronicle as chronicle
+import std.spark as spark
+
+# --- C FFI declarations -------------------------------------------------
+declare vprintf with fmt as ref to frozen char, args as va_list into int
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+# --- Callbacks ----------------------------------------------------------
+## Custom logging function registered with `raylib.SetTraceLogCallback`.
+##
+## Prints the current timestamp (`YYYY-MM-DD HH:MM:SS`), the severity tag
+## (`[INFO]`, `[ERROR]`, `[WARN]`, or `[DEBUG]`), and the formatted variadic
+## message followed by a newline.
+##
+## ## Parameters
+## - `msg_type`: Raylib `TraceLogLevel` value cast to `int`.
+## - `text`: `printf`-style format C string.
+## - `args`: Variadic argument list (`va_list`) forwarded to `vprintf`.
+weave custom_trace_log with msg_type as int, text as ref to frozen char, args as va_list into void:
+    let time_str as string is calling chronicle.format_now with "%Y-%m-%d %H:%M:%S"
+    defer banish time_str
+    calling spark.print with "[{time_str}] "
+
+    if msg_type == (raylib.LOG_INFO to int):
+        calling spark.print with "[INFO] : "
+    else if msg_type == (raylib.LOG_ERROR to int):
+        calling spark.print with "[ERROR]: "
+    else if msg_type == (raylib.LOG_WARNING to int):
+        calling spark.print with "[WARN] : "
+    else if msg_type == (raylib.LOG_DEBUG to int):
+        calling spark.print with "[DEBUG]: "
+
+    calling vprintf with text, args
+    calling spark.println with ""
+
+# --- Entry point --------------------------------------------------------
+## Program entry point.
+##
+## Installs `custom_trace_log` before initializing the window so that all
+## startup, runtime, and shutdown raylib log messages pass through the custom
+## logger.
+##
+## ## Returns
+## Exit code (`0` on clean exit).
+weave main into int:
+    # Initialization
+    #--------------------------------------------------------------------------------------
+    # Set custom logger
+    calling raylib.SetTraceLogCallback with custom_trace_log
+
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - custom logging"
+    defer calling raylib.CloseWindow
+
+    calling raylib.SetTargetFPS with TARGET_FPS # Set our game to run at 60 frames-per-second
+    #--------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+        # Update
+        #----------------------------------------------------------------------------------
+        # TODO: Update your variables here
+        #----------------------------------------------------------------------------------
+
+        # Draw
+        #----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "Check out the console output to see the custom logger in action!", 60, 200, 20, raylib.LIGHTGRAY
+
+        calling drawing.end_drawing
+        #----------------------------------------------------------------------------------
+
+    return 0

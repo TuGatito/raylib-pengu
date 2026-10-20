@@ -1,0 +1,296 @@
+## raylib [models] example - animation blending
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 6.0
+##
+## Example contributed by Kirandeep (@Kirandeep-Singh-Khehra) and reviewed by Ramon Santamaria (@raysan5)
+##
+## WARNING: GPU skinning must be enabled in raylib with a compilation flag,
+## if not enabled, CPU skinning will be used instead.
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2024-2026 Kirandeep (@Kirandeep-Singh-Khehra) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.input`,
+## `raylibx.shapes`, `raylibx.shapes3d`, `raylibx.models`, `raylibx.text`, `raylibx.shaders`, `rayguix`),
+## smooth cross-fade animation interpolation, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_animation_blending.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raygui
+import rayguix
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Path to the rigged 3D robot model.
+const MODEL_PATH as string is "resources/models/gltf/robot.glb"
+
+## Path to the vertex skinning shader.
+const VS_SHADER_PATH as string is "resources/shaders/glsl330/skinning.vs"
+
+## Path to the fragment skinning shader.
+const FS_SHADER_PATH as string is "resources/shaders/glsl330/skinning.fs"
+
+## Whether GPU skinning shader is assigned to all model materials.
+## Note: raylib must be compiled with SUPPORT_GPU_SKINNING to use GPU skinning buffers.
+const SUPPORT_GPU_SKINNING as bool is false
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Loads a 3D animated model and its animation clips, provides interactive controls
+## to configure play speeds and active clips, and performs smooth linear blend
+## transitions between any two animations on user request.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if asset loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - animation blending"
+    defer calling raylib.CloseWindow
+
+    # Define the camera to look into our 3d world
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 6.0, y is 6.0, z is 6.0)
+        set .target is (with x is 0.0, y is 2.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is raylib.CAMERA_PERSPECTIVE
+
+    # Load model
+    let loaded_model as maybe raylib.Model is calling models.load_model with MODEL_PATH
+    if model as raylib.Model is loaded_model:
+        defer calling models.unload_model with model
+
+        let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0 # Set model world position
+
+        # Optional GPU skinning shader
+        if SUPPORT_GPU_SKINNING:
+            let loaded_shader as maybe raylib.Shader is calling shaders.load_shader with VS_SHADER_PATH, FS_SHADER_PATH
+            if skinning_shader as raylib.Shader is loaded_shader:
+                defer calling shaders.unload_shader with skinning_shader
+                for i from 0 to model.materialCount:
+                    var mat as ref to raylib.Material is sigil of (model.materials at i)
+                    set mat->shader is skinning_shader
+
+        # Load model animations
+        let loaded_anims as maybe (slice of raylib.ModelAnimation) is calling models.load_animations with MODEL_PATH
+        if anims as slice of raylib.ModelAnimation is loaded_anims:
+            defer calling models.unload_animations with anims
+
+            let anim_count as int is anims.length
+
+            # Animation playing variables
+            var current_anim_playing as int is 0  # Current animation playing (0 or 1)
+            var next_anim_to_play as int is 1     # Next animation to play (to transition)
+            var anim_transition as bool is false  # Flag to register anim transition state
+
+            var anim_index0 as int is if anim_count > 10 then 10 else 0 # Current animation playing (walking)
+            var anim_current_frame0 as f32 is 0.0                       # Current animation frame
+            var anim_frame_speed0 as f32 is 0.5                         # Current animation play speed
+
+            var anim_index1 as int is if anim_count > 6 then 6 else 0   # Next animation to play (running)
+            var anim_current_frame1 as f32 is 0.0                       # Next animation frame
+            var anim_frame_speed1 as f32 is 0.5                         # Next animation play speed
+
+            var anim_blend_factor as f32 is 0.0                         # Blend factor [0.0..1.0]
+            var anim_blend_time as f32 is 2.0                           # Time to blend in seconds
+            var anim_blend_time_counter as f32 is 0.0                   # Time counter (delta time)
+            var anim_pause as bool is false                             # Pause animation
+
+            # UI required variables
+            var anim_names as list of string is list of string
+            defer:
+                for s in anim_names:
+                    banish s
+                banish anim_names
+
+            for i from 0 to anim_count:
+                var anim_item as raylib.ModelAnimation is anims at i
+                calling anim_names.push with (calling anim_item.get_name)
+
+            var anim_dropdown_text as string is calling txt.text_join with (anim_names at 0 to anim_count), ";"
+            defer banish anim_dropdown_text
+
+            var dropdown_edit_mode0 as bool is false
+            var dropdown_edit_mode1 as bool is false
+            var anim_frame_progress0 as f32 is 0.0
+            var anim_frame_progress1 as f32 is 0.0
+            var anim_blend_progress as f32 is 0.0
+
+            calling raylib.SetTargetFPS with TARGET_FPS # Set our game to run at 60 frames-per-second
+
+            # Main game loop
+            while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+                # Update
+                calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+                if calling input.is_key_pressed with raylib.KEY_P:
+                    set anim_pause is not anim_pause
+
+                if (not anim_pause) and (anim_count > 0):
+                    # Start transition from anim0 to anim1
+                    if (calling input.is_key_pressed with raylib.KEY_SPACE) and (not anim_transition):
+                        if current_anim_playing == 0:
+                            set next_anim_to_play is 1
+                            set anim_current_frame1 is 0.0
+                        else:
+                            set next_anim_to_play is 0
+                            set anim_current_frame0 is 0.0
+
+                        set anim_transition is true
+                        set anim_blend_time_counter is 0.0
+                        set anim_blend_factor is 0.0
+
+                    if anim_transition:
+                        set anim_current_frame0 is anim_current_frame0 + anim_frame_speed0
+                        var a0 as raylib.ModelAnimation is anims at anim_index0
+                        if anim_current_frame0 >= (a0.keyframeCount to f32):
+                            set anim_current_frame0 is 0.0
+
+                        set anim_current_frame1 is anim_current_frame1 + anim_frame_speed1
+                        var a1 as raylib.ModelAnimation is anims at anim_index1
+                        if anim_current_frame1 >= (a1.keyframeCount to f32):
+                            set anim_current_frame1 is 0.0
+
+                        set anim_blend_factor is anim_blend_time_counter / anim_blend_time
+                        set anim_blend_time_counter is anim_blend_time_counter + (calling raylib.GetFrameTime)
+                        set anim_blend_progress is anim_blend_factor
+
+                        if next_anim_to_play == 1:
+                            calling model.update_animation_ex with a0, anim_current_frame0, a1, anim_current_frame1, anim_blend_factor
+                        else:
+                            calling model.update_animation_ex with a1, anim_current_frame1, a0, anim_current_frame0, anim_blend_factor
+
+                        if anim_blend_factor > 1.0:
+                            if current_anim_playing == 0:
+                                set anim_current_frame0 is 0.0
+                            else if current_anim_playing == 1:
+                                set anim_current_frame1 is 0.0
+
+                            set current_anim_playing is next_anim_to_play
+                            set anim_blend_factor is 0.0
+                            set anim_transition is false
+                            set anim_blend_time_counter is 0.0
+                    else:
+                        if current_anim_playing == 0:
+                            set anim_current_frame0 is anim_current_frame0 + anim_frame_speed0
+                            var a0 as raylib.ModelAnimation is anims at anim_index0
+                            if anim_current_frame0 >= (a0.keyframeCount to f32):
+                                set anim_current_frame0 is 0.0
+                            calling model.update_animation with a0, anim_current_frame0
+                        else if current_anim_playing == 1:
+                            set anim_current_frame1 is anim_current_frame1 + anim_frame_speed1
+                            var a1 as raylib.ModelAnimation is anims at anim_index1
+                            if anim_current_frame1 >= (a1.keyframeCount to f32):
+                                set anim_current_frame1 is 0.0
+                            calling model.update_animation with a1, anim_current_frame1
+
+                set anim_frame_progress0 is anim_current_frame0
+                set anim_frame_progress1 is anim_current_frame1
+
+                let screen_w as f32 is calling raylib.GetScreenWidth to f32
+                let screen_h as f32 is calling raylib.GetScreenHeight to f32
+
+                # Draw
+                calling drawing.begin_drawing
+                calling drawing.clear_background with raylib.RAYWHITE
+
+                calling drawing.begin_mode_3d with camera
+                calling model.draw with position, 1.0, raylib.WHITE
+                calling shapes3d.draw_grid with 10, 1.0
+                calling drawing.end_mode_3d
+
+                if anim_transition:
+                    calling txt.draw_text with "ANIM TRANSITION BLENDING!", 170, 50, 30, raylib.BLUE
+
+                # Draw UI elements
+                if dropdown_edit_mode0:
+                    calling raygui.GuiDisable
+                let speed_lbl0 as string is "x{anim_frame_speed0}"
+                let _s0 as int is calling rayguix.slider with (with x is 10.0, y is 38.0, width is 160.0, height is 12.0), "", speed_lbl0, (sigil of anim_frame_speed0), 0.1, 2.0
+                banish speed_lbl0
+                calling raygui.GuiEnable
+
+                if dropdown_edit_mode1:
+                    calling raygui.GuiDisable
+                let speed_lbl1 as string is "{anim_frame_speed1}x"
+                let _s1 as int is calling rayguix.slider with (with x is (screen_w - 170.0), y is 38.0, width is 160.0, height is 12.0), speed_lbl1, "", (sigil of anim_frame_speed1), 0.1, 2.0
+                banish speed_lbl1
+                calling raygui.GuiEnable
+
+                # Draw animation selectors for blending transition
+                calling raygui.GuiSetStyle with (raygui.DROPDOWNBOX to int), (raygui.DROPDOWN_ITEMS_SPACING to int), 1
+                let res0 as int is calling rayguix.dropdown_box with (with x is 10.0, y is 10.0, width is 160.0, height is 24.0), anim_dropdown_text, (sigil of anim_index0), dropdown_edit_mode0
+                if res0 != 0:
+                    set dropdown_edit_mode0 is not dropdown_edit_mode0
+
+                # Blending process progress bar
+                if next_anim_to_play == 1:
+                    calling raygui.GuiSetStyle with (raygui.PROGRESSBAR to int), (raygui.PROGRESS_SIDE to int), 0
+                else:
+                    calling raygui.GuiSetStyle with (raygui.PROGRESSBAR to int), (raygui.PROGRESS_SIDE to int), 1
+
+                let _pb as int is calling rayguix.progress_bar with (with x is 180.0, y is 14.0, width is 440.0, height is 16.0), "", "", (sigil of anim_blend_progress), 0.0, 1.0
+                calling raygui.GuiSetStyle with (raygui.PROGRESSBAR to int), (raygui.PROGRESS_SIDE to int), 0
+
+                let res1 as int is calling rayguix.dropdown_box with (with x is (screen_w - 170.0), y is 10.0, width is 160.0, height is 24.0), anim_dropdown_text, (sigil of anim_index1), dropdown_edit_mode1
+                if res1 != 0:
+                    set dropdown_edit_mode1 is not dropdown_edit_mode1
+
+                let font as raylib.Font is calling raygui.GuiGetFont
+                calling raygui.GuiSetStyle with (raygui.LABEL to int), (raygui.TEXT_ALIGNMENT to int), (raygui.TEXT_ALIGN_CENTER to int)
+                calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SIZE to int), font.baseSize * 2
+                let _lbl as int is calling rayguix.label with (with x is 0.0, y is (screen_h - 100.0), width is screen_w, height is 40.0), "PRESS SPACE to START BLENDING"
+                calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SIZE to int), font.baseSize
+                calling raygui.GuiSetStyle with (raygui.LABEL to int), (raygui.TEXT_ALIGNMENT to int), (raygui.TEXT_ALIGN_LEFT to int)
+
+                if anim_count > 0:
+                    # Draw playing timeline with keyframes for anim0
+                    var a0 as raylib.ModelAnimation is anims at anim_index0
+                    let txt0 as string is "FRAME: {anim_frame_progress0} / {a0.keyframeCount}"
+                    let _p0 as int is calling rayguix.progress_bar with (with x is 60.0, y is (screen_h - 60.0), width is (screen_w - 180.0), height is 20.0), "ANIM 0", txt0, (sigil of anim_frame_progress0), 0.0, (a0.keyframeCount to f32)
+                    banish txt0
+                    for i from 0 to a0.keyframeCount:
+                        let offset_x as int is (((screen_w - 180.0) / (a0.keyframeCount to f32)) * (i to f32)) to int
+                        calling shapes.draw_rectangle with 60 + offset_x, (screen_h to int) - 60, 1, 20, raylib.BLUE
+
+                    # Draw playing timeline with keyframes for anim1
+                    var a1 as raylib.ModelAnimation is anims at anim_index1
+                    let txt1 as string is "FRAME: {anim_frame_progress1} / {a1.keyframeCount}"
+                    let _p1 as int is calling rayguix.progress_bar with (with x is 60.0, y is (screen_h - 30.0), width is (screen_w - 180.0), height is 20.0), "ANIM 1", txt1, (sigil of anim_frame_progress1), 0.0, (a1.keyframeCount to f32)
+                    banish txt1
+                    for i from 0 to a1.keyframeCount:
+                        let offset_x as int is (((screen_w - 180.0) / (a1.keyframeCount to f32)) * (i to f32)) to int
+                        calling shapes.draw_rectangle with 60 + offset_x, (screen_h to int) - 30, 1, 20, raylib.BLUE
+
+                calling drawing.end_drawing
+
+            return 0
+
+    return 1

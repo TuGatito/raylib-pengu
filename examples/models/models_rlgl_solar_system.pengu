@@ -1,0 +1,178 @@
+## raylib [models] example - rlgl solar system
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## NOTE: This example uses [rlgl] module functionality (pseudo-OpenGL 1.1 style coding)
+##
+## Example originally created with raylib 2.5, last time updated with raylib 4.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2018-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates matrix stack transformations (push/pop, rotate, translate, scale) with rlgl.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_rlgl_solar_system.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import rlgl
+import raylibx.drawing as drawing
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.colors as colors
+import rcamerax
+import std.fractio
+
+# --- Constants ---
+
+## Degrees to radians conversion factor.
+const DEG2RAD as f32 is 0.017453292519943295
+
+## Visual radius of the Sun.
+const SUN_RADIUS as f32 is 4.0
+
+## Visual radius of the Earth.
+const EARTH_RADIUS as f32 is 0.6
+
+## Orbit distance of the Earth around the Sun.
+const EARTH_ORBIT_RADIUS as f32 is 8.0
+
+## Visual radius of the Moon.
+const MOON_RADIUS as f32 is 0.16
+
+## Orbit distance of the Moon around the Earth.
+const MOON_ORBIT_RADIUS as f32 is 1.5
+
+# --- Helpers ---
+
+## Draws a basic unit sphere centered at origin using immediate-mode rlgl triangles.
+##
+## ## Parameters
+## - `color`: Tint color for vertex modulation.
+weave draw_sphere_basic with color as raylib.Color into void:
+    var rings as int is 16
+    var slices as int is 16
+
+    let _lim as bool is calling rlgl.rlCheckRenderBatchLimit with ((rings + 2) * slices * 6)
+
+    calling rlgl.rlBegin with (rlgl.RL_TRIANGLES to int)
+    calling rlgl.rlColor4ub with color.r, color.g, color.b, color.a
+
+    for i from 0 to (rings + 2):
+        for j from 0 to slices:
+            var a1 as f32 is DEG2RAD * (270.0 + (180.0 / ((rings + 1) to f32)) * (i to f32))
+            var a2 as f32 is DEG2RAD * (270.0 + (180.0 / ((rings + 1) to f32)) * ((i + 1) to f32))
+            var b1 as f32 is DEG2RAD * ((j to f32) * 360.0 / (slices to f32))
+            var b2 as f32 is DEG2RAD * (((j + 1) to f32) * 360.0 / (slices to f32))
+
+            var cos_a1 as f32 is calling a1.get_cos
+            var sin_a1 as f32 is calling a1.get_sin
+            var cos_a2 as f32 is calling a2.get_cos
+            var sin_a2 as f32 is calling a2.get_sin
+
+            var cos_b1 as f32 is calling b1.get_cos
+            var sin_b1 as f32 is calling b1.get_sin
+            var cos_b2 as f32 is calling b2.get_cos
+            var sin_b2 as f32 is calling b2.get_sin
+
+            # Triangle 1
+            calling rlgl.rlVertex3f with (cos_a1 * sin_b1), sin_a1, (cos_a1 * cos_b1)
+            calling rlgl.rlVertex3f with (cos_a2 * sin_b2), sin_a2, (cos_a2 * cos_b2)
+            calling rlgl.rlVertex3f with (cos_a2 * sin_b1), sin_a2, (cos_a2 * cos_b1)
+
+            # Triangle 2
+            calling rlgl.rlVertex3f with (cos_a1 * sin_b1), sin_a1, (cos_a1 * cos_b1)
+            calling rlgl.rlVertex3f with (cos_a1 * sin_b2), sin_a1, (cos_a1 * cos_b2)
+            calling rlgl.rlVertex3f with (cos_a2 * sin_b2), sin_a2, (cos_a2 * cos_b2)
+
+    calling rlgl.rlEnd
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - rlgl solar system"
+    defer calling raylib.CloseWindow
+
+    # Define camera to look into our 3D world
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 16.0, y is 16.0, z is 16.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var rotation_speed as f32 is 0.2
+    var earth_rotation as f32 is 0.0
+    var earth_orbit_rotation as f32 is 0.0
+    var moon_rotation as f32 is 0.0
+    var moon_orbit_rotation as f32 is 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set earth_rotation is earth_rotation + (5.0 * rotation_speed)
+        set earth_orbit_rotation is earth_orbit_rotation + ((365.0 / 360.0) * (5.0 * rotation_speed) * rotation_speed)
+        set moon_rotation is moon_rotation + (2.0 * rotation_speed)
+        set moon_orbit_rotation is moon_orbit_rotation + (8.0 * rotation_speed)
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        # Draw the Sun
+        calling rlgl.rlPushMatrix
+        calling rlgl.rlScalef with SUN_RADIUS, SUN_RADIUS, SUN_RADIUS
+        calling draw_sphere_basic with raylib.GOLD
+        calling rlgl.rlPopMatrix
+
+        # Earth & Moon hierarchy
+        calling rlgl.rlPushMatrix
+        calling rlgl.rlRotatef with earth_orbit_rotation, 0.0, 1.0, 0.0
+        calling rlgl.rlTranslatef with EARTH_ORBIT_RADIUS, 0.0, 0.0
+
+        # Draw Earth
+        calling rlgl.rlPushMatrix
+        calling rlgl.rlRotatef with earth_rotation, 0.25, 1.0, 0.0
+        calling rlgl.rlScalef with EARTH_RADIUS, EARTH_RADIUS, EARTH_RADIUS
+        calling draw_sphere_basic with raylib.BLUE
+        calling rlgl.rlPopMatrix
+
+        # Draw Moon
+        calling rlgl.rlRotatef with moon_orbit_rotation, 0.0, 1.0, 0.0
+        calling rlgl.rlTranslatef with MOON_ORBIT_RADIUS, 0.0, 0.0
+        calling rlgl.rlRotatef with moon_rotation, 0.0, 1.0, 0.0
+        calling rlgl.rlScalef with MOON_RADIUS, MOON_RADIUS, MOON_RADIUS
+        calling draw_sphere_basic with raylib.LIGHTGRAY
+
+        calling rlgl.rlPopMatrix
+
+        # Reference orbit line and grid
+        var zero_pos as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+        var rot_x as raylib.Vector3 is with x is 1.0, y is 0.0, z is 0.0
+        calling shapes3d.draw_circle_3d with zero_pos, EARTH_ORBIT_RADIUS, rot_x, 90.0, (calling colors.fade with raylib.RED, 0.5)
+        calling shapes3d.draw_grid with 20, 1.0
+
+        calling drawing.end_mode_3d
+
+        calling txt.draw_text with "EARTH ORBITING AROUND THE SUN!", 400, 10, 20, raylib.MAROON
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+
+    return 0

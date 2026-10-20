@@ -1,0 +1,193 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - lightmap rendering
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Jussi Viitala (@nullstare) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to apply a pre-baked / dynamic lightmap onto a
+## 3D mesh using secondary UV texture coordinates (texcoords2) and a custom lightmap shader.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_lightmap_rendering.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymath
+import rlgl
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Dimension of the lightmap in texels.
+const MAP_SIZE as int is 16
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - lightmap rendering"
+    defer calling raylib.CloseWindow
+
+    # Define camera
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 4.0, y is 6.0, z is 8.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Generate plane mesh
+    var mesh as raylib.Mesh is calling raylib.GenMeshPlane with (MAP_SIZE to f32), (MAP_SIZE to f32), 1, 1
+    defer calling raylib.UnloadMesh with mesh
+
+    # Upload texcoords2 attributes buffer for the mesh
+    set mesh.texcoords2 is transmute (calling raylib.MemAlloc with (mesh.vertexCount * 2 * 4)) to (ref to f32)
+    set mesh.texcoords2 at 0 is 0.0
+    set mesh.texcoords2 at 1 is 0.0
+    set mesh.texcoords2 at 2 is 1.0
+    set mesh.texcoords2 at 3 is 0.0
+    set mesh.texcoords2 at 4 is 0.0
+    set mesh.texcoords2 at 5 is 1.0
+    set mesh.texcoords2 at 6 is 1.0
+    set mesh.texcoords2 at 7 is 1.0
+
+    set mesh.vboId at (raylib.SHADER_LOC_VERTEX_TEXCOORD02 to int) is calling rlgl.rlLoadVertexBuffer with (transmute mesh.texcoords2 to ref to frozen void), (mesh.vertexCount * 2 * 4), false
+    let _v_ok as bool is calling rlgl.rlEnableVertexArray with mesh.vaoId
+    calling rlgl.rlSetVertexAttribute with 5, 2, (rlgl.RL_FLOAT to int), false, 0, 0
+    calling rlgl.rlEnableVertexAttribute with 5
+    calling rlgl.rlDisableVertexArray
+
+    # Load lightmap shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_shader with "examples/shaders/resources/shaders/glsl330/lightmap.vs", "examples/shaders/resources/shaders/glsl330/lightmap.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Load textures
+    var texture as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/cubicmap_atlas.png":
+        set texture is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with texture
+
+    var light as raylib.Texture2D is with id is 0
+    if loaded_light as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/spark_flame.png":
+        set light is loaded_light
+    else:
+        return 1
+    defer calling textures.unload_texture with light
+
+    calling raylib.GenTextureMipmaps with (sigil of texture)
+    calling raylib.SetTextureFilter with texture, (raylib.TEXTURE_FILTER_TRILINEAR to int)
+
+    # Load render texture for dynamic lightmap
+    var lightmap as raylib.RenderTexture2D is with id is 0
+    if loaded_lm as raylib.RenderTexture2D is calling textures.load_render_texture with MAP_SIZE, MAP_SIZE:
+        set lightmap is loaded_lm
+    else:
+        return 1
+    defer calling textures.unload_render_texture with lightmap
+
+    var material as raylib.Material is calling raylib.LoadMaterialDefault
+    set material.shader is shader
+
+    var map_albedo as ref to raylib.MaterialMap is sigil of (material.maps at (raylib.MATERIAL_MAP_ALBEDO to int))
+    set map_albedo->texture is texture
+
+    var map_metalness as ref to raylib.MaterialMap is sigil of (material.maps at (raylib.MATERIAL_MAP_METALNESS to int))
+    set map_metalness->texture is lightmap.texture
+
+    # Render into lightmap
+    calling drawing.begin_texture_mode with lightmap
+    calling drawing.clear_background with raylib.BLACK
+
+    calling drawing.begin_blend_mode with raylib.BLEND_ADDITIVE
+
+    var light_src as raylib.Rectangle is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .width is light.width to f32
+        set .height is light.height to f32
+
+    var dst1 as raylib.Rectangle is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .width is (2 * MAP_SIZE) to f32
+        set .height is (2 * MAP_SIZE) to f32
+    calling light.draw_pro with light_src, dst1, (with x is (MAP_SIZE to f32), y is (MAP_SIZE to f32)), 0.0, raylib.RED
+
+    var dst2 as raylib.Rectangle is with:
+        set .x is ((MAP_SIZE to f32) * 0.8)
+        set .y is ((MAP_SIZE to f32) / 2.0)
+        set .width is (2 * MAP_SIZE) to f32
+        set .height is (2 * MAP_SIZE) to f32
+    calling light.draw_pro with light_src, dst2, (with x is (MAP_SIZE to f32), y is (MAP_SIZE to f32)), 0.0, raylib.BLUE
+
+    var dst3 as raylib.Rectangle is with:
+        set .x is ((MAP_SIZE to f32) * 0.8)
+        set .y is ((MAP_SIZE to f32) * 0.8)
+        set .width is MAP_SIZE to f32
+        set .height is MAP_SIZE to f32
+    calling light.draw_pro with light_src, dst3, (with x is ((MAP_SIZE to f32) / 2.0), y is ((MAP_SIZE to f32) / 2.0)), 0.0, raylib.GREEN
+
+    calling drawing.end_blend_mode
+    calling drawing.end_texture_mode
+
+    calling raylib.GenTextureMipmaps with (sigil of lightmap.texture)
+    calling raylib.SetTextureFilter with lightmap.texture, (raylib.TEXTURE_FILTER_TRILINEAR to int)
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        calling raylib.DrawMesh with mesh, material, (calling raymath.MatrixIdentity)
+        calling drawing.end_mode_3d
+
+        # Display preview of the lightmap in the upper right
+        var preview_src as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is (0 - MAP_SIZE) to f32
+            set .height is (0 - MAP_SIZE) to f32
+        var preview_dst as raylib.Rectangle is with:
+            set .x is (((calling raylib.GetRenderWidth) - (MAP_SIZE * 8)) - 10) to f32
+            set .y is 10.0
+            set .width is (MAP_SIZE * 8) to f32
+            set .height is (MAP_SIZE * 8) to f32
+        calling lightmap.texture.draw_pro with preview_src, preview_dst, (with x is 0.0, y is 0.0), 0.0, raylib.WHITE
+
+        let lm_text as string is "LIGHTMAP: {MAP_SIZE}x{MAP_SIZE} pixels"
+        defer banish lm_text
+        calling txt.draw_text with lm_text, ((calling raylib.GetRenderWidth) - 130), (20 + (MAP_SIZE * 8)), 10, raylib.GREEN
+
+        calling txt.draw_fps with 10, 10
+        calling drawing.end_drawing
+
+    return 0

@@ -1,0 +1,155 @@
+## raylib [models] example - loading m3d
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 4.5, last time updated with raylib 4.5
+## Example contributed by bzt (@bztsrc) and reviewed by Ramon Santamaria (@raysan5)
+## Example licensed under an unmodified zlib/libpng license.
+## CesiumMan model by KhronosGroup.
+##
+## ## PenguScript Port
+## - Uses `raylibx.drawing` for frame and 3D mode scopes
+## - Uses `raylibx.models` for model loading, animation loading, and pose updates
+## - Uses `raylibx.shapes3d` for rendering skeleton bones, connection lines, and grid
+## - Uses `raylibx.text` for animation info and controls display
+##
+## ## Example
+## ```pengu
+## pengu run examples/models/models_loading_m3d.pengu
+## ```
+
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+
+# --- Constants ---
+
+## Target window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Target window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Helpers ---
+
+## Draws the bone joints and skeletal hierarchy lines of an animated model.
+##
+## ## Parameters
+## - `skeleton`: Model skeleton data containing bone count and parent-child hierarchy
+## - `pose`: Pointer to the transform array of the current animation frame
+## - `scale`: Global scale factor for bone cubes
+## - `color`: Tint color for joints and connection lines
+weave draw_model_skeleton with skeleton as raylib.ModelSkeleton, pose as ref to raylib.Transform, scale as f32, color as raylib.Color into void:
+    if skeleton.boneCount > 1:
+        let sz as f32 is scale * 0.05
+        for i from 0 to skeleton.boneCount - 2:
+            var tf as raylib.Transform is pose at i
+            calling shapes3d.draw_cube with tf.translation, sz, sz, sz, color
+            var bone_info as raylib.BoneInfo is skeleton.bones at i
+            if bone_info.parent >= 0:
+                var parent_tf as raylib.Transform is pose at bone_info.parent
+                calling shapes3d.draw_line_3d with tf.translation, parent_tf.translation, color
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## ## Returns
+## Exit status code (0 for success).
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - loading m3d"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D with:
+        set .position is (with x is 1.5, y is 1.5, z is 1.5)
+        set .target is (with x is 0.0, y is 0.4, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var model as raylib.Model is with meshCount is 0
+    if loaded_m as raylib.Model is calling models.load_model with "resources/models/m3d/cesium_man.m3d":
+        set model is loaded_m
+    defer calling models.unload_model with model
+
+    let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+
+    var anim_holder as list of raylib.ModelAnimation is list of raylib.ModelAnimation
+    defer banish anim_holder
+    var anims as slice of raylib.ModelAnimation is anim_holder at 0 to 0
+    var anim_count as int is 0
+
+    if loaded_anims as slice of raylib.ModelAnimation is calling models.load_animations with "resources/models/m3d/cesium_man.m3d":
+        set anims is loaded_anims
+        set anim_count is anims.length
+    defer calling models.unload_animations with anims
+
+    var anim_index as int is 0
+    var anim_current_frame as f32 is 0.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        if anim_count > 0:
+            if calling input.is_key_pressed with raylib.KEY_RIGHT:
+                set anim_index is (anim_index + 1) % anim_count
+            else if calling input.is_key_pressed with raylib.KEY_LEFT:
+                set anim_index is (anim_index + anim_count - 1) % anim_count
+
+            set anim_current_frame is anim_current_frame + 1.0
+            var cur_anim as raylib.ModelAnimation is anims at anim_index
+            if anim_current_frame >= (cur_anim.keyframeCount to f32):
+                set anim_current_frame is 0.0
+
+            calling model.update_animation with cur_anim, anim_current_frame
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        if not calling input.is_key_down with raylib.KEY_SPACE:
+            calling model.draw with position, 1.0, raylib.WHITE
+        else:
+            if anim_count > 0:
+                var active_anim as raylib.ModelAnimation is anims at anim_index
+                let frame_idx as int is anim_current_frame to int
+                var current_pose as ref to raylib.Transform is active_anim.keyframePoses at frame_idx
+                calling draw_model_skeleton with model.skeleton, current_pose, 1.0, raylib.RED
+
+        calling shapes3d.draw_grid with 10, 1.0
+
+        calling drawing.end_mode_3d
+
+        if anim_count > 0:
+            var active_anim as raylib.ModelAnimation is anims at anim_index
+            var anim_name as string is calling active_anim.get_name
+            var info_text as string is "Current animation: {anim_name}"
+            calling txt.draw_text with info_text, 10, 10, 20, raylib.LIGHTGRAY
+            banish info_text
+            banish anim_name
+
+        calling txt.draw_text with "Press SPACE to draw skeleton", 10, 40, 20, raylib.MAROON
+        calling txt.draw_text with "(c) CesiumMan model by KhronosGroup", SCREEN_WIDTH - 210, SCREEN_HEIGHT - 20, 10, raylib.GRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

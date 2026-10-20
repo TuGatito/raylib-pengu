@@ -1,0 +1,125 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - vertex displacement
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Alex ZH (@ZzzhHe) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates GPU vertex displacement by sampling a procedural
+## Perlin noise texture in the vertex shader to dynamically deform a 3D terrain grid.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_vertex_displacement.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.text as txt
+import raylibx.textures as textures
+import rlgl
+
+# --- Helpers ------------------------------------------------------------
+
+## Helper to get shader uniform location as an int (or -1 if missing).
+weave loc_of with shader as raylib.Shader, name as string into int:
+    if loc as int is calling shader.location with name:
+        return loc
+    return -1
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - vertex displacement"
+    defer calling raylib.CloseWindow
+
+    # Set up camera
+    var camera as raylib.Camera3D is with:
+        set .position.x is 20.0
+        set .position.y is 5.0
+        set .position.z is -20.0
+        set .target.x is 0.0
+        set .target.y is 0.0
+        set .target.z is 0.0
+        set .up.x is 0.0
+        set .up.y is 1.0
+        set .up.z is 0.0
+        set .fovy is 60.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load vertex and fragment shaders
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_shader with "examples/shaders/resources/shaders/glsl330/vertex_displacement.vs", "examples/shaders/resources/shaders/glsl330/vertex_displacement.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Load Perlin noise texture
+    var perlin_img as raylib.Image is calling raylib.GenImagePerlinNoise with 512, 512, 0, 0, 1.0
+    var perlin_tex as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture_from_image with perlin_img:
+        set perlin_tex is loaded_tex
+    else:
+        calling raylib.UnloadImage with perlin_img
+        return 1
+    calling raylib.UnloadImage with perlin_img
+    defer calling textures.unload_texture with perlin_tex
+
+    # Set shader uniform location and bind texture to slot 1
+    let perlin_noise_loc as int is calling loc_of with shader, "perlinNoiseMap"
+    calling rlgl.rlEnableShader with shader.id
+    calling rlgl.rlActiveTextureSlot with 1
+    calling rlgl.rlEnableTexture with perlin_tex.id
+    calling rlgl.rlSetUniformSampler with perlin_noise_loc, 1
+
+    # Create plane mesh and model
+    var plane_mesh as raylib.Mesh is calling raylib.GenMeshPlane with 50.0, 50.0, 50, 50
+    var plane_model as raylib.Model is calling models.load_model_from_mesh with plane_mesh
+    defer calling models.unload_model with plane_model
+
+    var mat as ref to raylib.Material is sigil of (plane_model.materials at 0)
+    set mat->shader is shader
+
+    let time_loc as int is calling loc_of with shader, "time"
+    var time_val as f32 is 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FREE to int)
+
+        set time_val is time_val + (calling raylib.GetFrameTime)
+        calling shader.set_float with time_loc, time_val
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        calling drawing.begin_shader_mode with shader
+        var plane_pos as raylib.Vector3 is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .z is 0.0
+        calling plane_model.draw with plane_pos, 1.0, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling drawing.end_mode_3d
+
+        calling txt.draw_text with "Vertex displacement", 10, 10, 20, raylib.DARKGRAY
+        calling txt.draw_fps with 10, 40
+
+        calling drawing.end_drawing
+
+    return 0

@@ -1,0 +1,155 @@
+## raylib [models] example - tesseract view
+##
+## NOTE: This example only works on platforms that support drag & drop (Windows, Linux, OSX, Html5?)
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example contributed by Timothy van der Valk (@arceryz) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2024-2025 Timothy van der Valk (@arceryz) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.shapes3d`,
+## `raymathx`), structured list bindings, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_tesseract_view.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes3d as shapes3d
+import raymath
+import raymathx
+import std.fractio
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Initializes the window and camera, defines the 16 4D vertices of a tesseract,
+## projects them down to 3D via 4D rotation and perspective division, and renders
+## the resulting hypercube with spheres and maroon lines.
+##
+## ## Returns
+## Exit code `0` on clean shutdown.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - tesseract view"
+    defer calling raylib.CloseWindow
+
+    # Define the camera to look into our 3d world
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 4.0, y is 4.0, z is 4.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 0.0, z is 1.0)
+        set .fovy is 50.0
+        set .projection is raylib.CAMERA_PERSPECTIVE
+
+    # Find the coordinates by setting XYZW to +-1
+    var tesseract as list of raylib.Vector4 is [
+        (with x is 1.0, y is 1.0, z is 1.0, w is 1.0),
+        (with x is 1.0, y is 1.0, z is 1.0, w is -1.0),
+        (with x is 1.0, y is 1.0, z is -1.0, w is 1.0),
+        (with x is 1.0, y is 1.0, z is -1.0, w is -1.0),
+        (with x is 1.0, y is -1.0, z is 1.0, w is 1.0),
+        (with x is 1.0, y is -1.0, z is 1.0, w is -1.0),
+        (with x is 1.0, y is -1.0, z is -1.0, w is 1.0),
+        (with x is 1.0, y is -1.0, z is -1.0, w is -1.0),
+        (with x is -1.0, y is 1.0, z is 1.0, w is 1.0),
+        (with x is -1.0, y is 1.0, z is 1.0, w is -1.0),
+        (with x is -1.0, y is 1.0, z is -1.0, w is 1.0),
+        (with x is -1.0, y is 1.0, z is -1.0, w is -1.0),
+        (with x is -1.0, y is -1.0, z is 1.0, w is 1.0),
+        (with x is -1.0, y is -1.0, z is 1.0, w is -1.0),
+        (with x is -1.0, y is -1.0, z is -1.0, w is 1.0),
+        (with x is -1.0, y is -1.0, z is -1.0, w is -1.0)
+    ]
+    defer banish tesseract
+
+    var transformed as list of raylib.Vector3 is list of raylib.Vector3
+    defer banish transformed
+    for i from 0 to 16:
+        calling transformed.push with (with x is 0.0, y is 0.0, z is 0.0)
+
+    var w_values as list of f32 is list of f32
+    defer banish w_values
+    for i from 0 to 16:
+        calling w_values.push with 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let time_val as f32 is (calling raylib.GetTime to f32)
+        let rotation as f32 is raylib.DEG2RAD * 45.0 * time_val
+
+        for i from 0 to 16:
+            var p as raylib.Vector4 is tesseract at i
+
+            # Rotate the XW part of the vector
+            var rot_xw as raylib.Vector2 is with x is p.x, y is p.w
+            set rot_xw is calling rot_xw.get_rotate_by with rotation
+            set p.x is rot_xw.x
+            set p.w is rot_xw.y
+
+            # Projection from XYZW to XYZ from perspective point (0, 0, 0, 3)
+            # NOTE: Trace a ray from (0, 0, 0, 3) > p and continue until W = 0
+            let c as f32 is 3.0 / (3.0 - p.w)
+            set p.x is c * p.x
+            set p.y is c * p.y
+            set p.z is c * p.z
+
+            # Split XYZ coordinate and W values later for drawing
+            set transformed at i is (with x is p.x, y is p.y, z is p.z)
+            set w_values at i is p.w
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        for i from 0 to 16:
+            # Draw spheres to indicate the W value
+            let w_rad as f32 is (w_values at i) * 0.1
+            let radius as f32 is if w_rad < 0.0 then -w_rad else w_rad
+            calling shapes3d.draw_sphere with (transformed at i), radius, raylib.RED
+
+            for j from 0 to 16:
+                # Two lines are connected if they differ by 1 coordinate
+                # This way we dont have to keep an edge list
+                let v1 as raylib.Vector4 is tesseract at i
+                let v2 as raylib.Vector4 is tesseract at j
+                var diff as int is 0
+                if v1.x == v2.x:
+                    set diff is diff + 1
+                if v1.y == v2.y:
+                    set diff is diff + 1
+                if v1.z == v2.z:
+                    set diff is diff + 1
+                if v1.w == v2.w:
+                    set diff is diff + 1
+
+                # Draw only differing by 1 coordinate and the lower index only (duplicate lines)
+                if diff == 3 and i < j:
+                    calling shapes3d.draw_line_3d with (transformed at i), (transformed at j), raylib.MAROON
+        calling drawing.end_mode_3d
+
+        calling drawing.end_drawing
+
+    return 0

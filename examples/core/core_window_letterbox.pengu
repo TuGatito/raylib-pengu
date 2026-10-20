@@ -1,0 +1,185 @@
+## examples/core/core_window_letterbox.pengu
+## raylib [core] example - window letterbox
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 4.0
+##
+## Example contributed by Anata (@anatagawa) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2019-2025 Anata (@anatagawa) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_window_letterbox.c` on top of the
+## `raylibx`, `raymathx`, and `std.numerus` layers. The offscreen virtual
+## framebuffer is created via `textures.load_render_texture` (returning `maybe`)
+## and released with `defer`, scaling uses `get_min_with` from `std.numerus`,
+## and virtual mouse clamping uses `Vector2.get_clamp` from `raymathx`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_window_letterbox.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.random as random
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymathx
+import std.numerus
+
+# --- Constants ----------------------------------------------------------
+## Initial window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Minimum window width, in pixels.
+const MIN_WINDOW_WIDTH as int is 320
+
+## Minimum window height, in pixels.
+const MIN_WINDOW_HEIGHT as int is 240
+
+## Virtual game screen width, in pixels.
+const GAME_SCREEN_WIDTH as int is 640
+
+## Virtual game screen height, in pixels.
+const GAME_SCREEN_HEIGHT as int is 480
+
+## Number of horizontal color bars drawn in the virtual screen.
+const BAR_COUNT as int is 10
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+# --- Helpers ------------------------------------------------------------
+## Generates a random opaque color for one of the horizontal background bars.
+##
+## ## Returns
+## A new `raylib.Color` with random RGB channels in the example's ranges.
+##
+## ## Memory
+## No allocation and nothing to release.
+weave random_bar_color into raylib.Color:
+    return with:
+        set .r is ((calling random.between with 100, 250) to byte)
+        set .g is ((calling random.between with 50, 150) to byte)
+        set .b is ((calling random.between with 10, 100) to byte)
+        set .a is 255
+
+# --- Entry point --------------------------------------------------------
+## Opens a resizable window, renders a fixed-resolution virtual screen into a
+## render texture, and draws it letterboxed in the window center.
+##
+## ## Returns
+## Process exit code: `0` on normal exit, `1` if the render texture cannot be
+## created.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    # Enable config flags for resizable window and vertical synchro
+    let init_flags as u32 is (raylib.FLAG_WINDOW_RESIZABLE to u32) | (raylib.FLAG_VSYNC_HINT to u32)
+    calling raylib.SetConfigFlags with init_flags
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - window letterbox"
+    defer calling raylib.CloseWindow
+    calling raylib.SetWindowMinSize with MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT
+
+    # Render texture initialization, used to hold the rendering result so we can easily resize it
+    let loaded_target as maybe raylib.RenderTexture is calling textures.load_render_texture with GAME_SCREEN_WIDTH, GAME_SCREEN_HEIGHT
+    if target as raylib.RenderTexture is loaded_target:
+        defer calling textures.unload_render_texture with target
+        calling target.texture.set_filter with raylib.TEXTURE_FILTER_BILINEAR
+
+        var bar_colors as list of raylib.Color is list of raylib.Color
+        defer banish bar_colors
+        for _ from 0 to BAR_COUNT:
+            calling bar_colors.push with (calling random_bar_color)
+
+        calling raylib.SetTargetFPS with TARGET_FPS
+        # -----------------------------------------------------------------
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            # -------------------------------------------------------------
+            let screen_w as f32 is ((calling raylib.GetScreenWidth) to f32)
+            let screen_h as f32 is ((calling raylib.GetScreenHeight) to f32)
+            let game_w as f32 is (GAME_SCREEN_WIDTH to f32)
+            let game_h as f32 is (GAME_SCREEN_HEIGHT to f32)
+
+            # Compute required framebuffer scaling
+            let scale_x as f32 is screen_w / game_w
+            let scale_y as f32 is screen_h / game_h
+            let scale as f32 is calling scale_x.get_min_with with scale_y
+
+            if calling input.is_key_pressed with raylib.KEY_SPACE:
+                # Recalculate random colors for the bars
+                for i from 0 to BAR_COUNT:
+                    set bar_colors at i is (calling random_bar_color)
+
+            # Update virtual mouse (clamped mouse value behind game screen)
+            let mouse as raylib.Vector2 is calling raylib.GetMousePosition
+            let raw_virtual_mouse as raylib.Vector2 with:
+                set .x is (mouse.x - ((screen_w - (game_w * scale)) * 0.5)) / scale
+                set .y is (mouse.y - ((screen_h - (game_h * scale)) * 0.5)) / scale
+            let min_bound as raylib.Vector2 is with x is 0.0, y is 0.0
+            let max_bound as raylib.Vector2 is with x is game_w, y is game_h
+            let virtual_mouse as raylib.Vector2 is calling raw_virtual_mouse.get_clamp with min_bound, max_bound
+
+            # Apply the same transformation as the virtual mouse to the real mouse (i.e. to work with raygui)
+            # calling input.set_mouse_offset with (with x is (-((screen_w - (game_w * scale)) * 0.5)), y is (-((screen_h - (game_h * scale)) * 0.5)))
+            # calling input.set_mouse_scale with (with x is (1.0 / scale), y is (1.0 / scale))
+            # -------------------------------------------------------------
+
+            # Draw
+            # -------------------------------------------------------------
+            # Draw everything in the render texture, note this will not be rendered on screen, yet
+            calling drawing.begin_texture_mode with target
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            let bar_height as int is GAME_SCREEN_HEIGHT / BAR_COUNT
+            for i, col in bar_colors:
+                calling shapes.draw_rectangle with 0, (bar_height * i), GAME_SCREEN_WIDTH, bar_height, col
+
+            calling txt.draw_text with "If executed inside a window,\nyou can resize the window,\nand see the screen scaling!", 10, 25, 20, raylib.WHITE
+
+            let default_mouse_text as string is "Default Mouse: [{mouse.x to int} , {mouse.y to int}]"
+            calling txt.draw_text with default_mouse_text, 350, 25, 20, raylib.GREEN
+            banish default_mouse_text
+
+            let virtual_mouse_text as string is "Virtual Mouse: [{virtual_mouse.x to int} , {virtual_mouse.y to int}]"
+            calling txt.draw_text with virtual_mouse_text, 350, 55, 20, raylib.YELLOW
+            banish virtual_mouse_text
+
+            calling drawing.end_texture_mode
+
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.BLACK
+
+            # Draw render texture to screen, properly scaled
+            let src_rec as raylib.Rectangle is with:
+                set .x is 0.0
+                set .y is 0.0
+                set .width is (target.texture.width to f32)
+                set .height is (-(target.texture.height to f32))
+            let dst_rec as raylib.Rectangle is with:
+                set .x is (screen_w - (game_w * scale)) * 0.5
+                set .y is (screen_h - (game_h * scale)) * 0.5
+                set .width is game_w * scale
+                set .height is game_h * scale
+            calling target.texture.draw_pro with src_rec, dst_rec, (with x is 0.0, y is 0.0), 0.0, raylib.WHITE
+
+            calling drawing.end_drawing
+            # -------------------------------------------------------------
+
+        return 0
+
+    return 1

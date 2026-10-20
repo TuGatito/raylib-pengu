@@ -1,0 +1,147 @@
+## examples/core/core_directory_files.pengu
+## raylib [core] example - directory files
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.6
+##
+## Example contributed by Hugo ARNAL (@hugoarnal) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Hugo ARNAL (@hugoarnal)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_directory_files.c` on top of the
+## `raylibx` and `rayguix` wrapper layers. The C `FilePathList` and manual
+## `UnloadDirectoryFiles` lifecycle are replaced by `files.load_directory_filtered`,
+## which returns an owned `list of string`. Entries are joined with `";"` via
+## `txt.text_join` and fed to `rayguix.list_view`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_directory_files.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raygui
+import rayguix
+import raylib
+import raylibx.drawing as drawing
+import raylibx.files as files
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Directory listing filter matching directories, PNG images, and C source files.
+const FILE_FILTER as string is "DIRS*;.png;.c"
+
+# --- Helpers ------------------------------------------------------------
+## Releases all strings inside a path list and then the list buffer itself.
+##
+## ## Parameters
+## - `paths`: reference to the `list of string` to release.
+##
+## ## Memory
+## Frees every owned string element and the list's backing array.
+weave release_path_list with paths as ref to (list of string) into void:
+    for item in (essence of paths):
+        banish item
+    banish (essence of paths)
+
+# --- Entry point --------------------------------------------------------
+## Opens a file browser window showing filtered entries of the current directory
+## and allows navigating into subdirectories or up to the parent directory.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - directory files"
+    defer calling raylib.CloseWindow
+
+    var directory as string is calling files.working_directory
+    defer banish directory
+
+    # Load file-paths on current working directory
+    # NOTE: load_directory loads files and directories by default,
+    # use load_directory_filtered for custom filters and recursive directories loading
+    var dir_files as list of string is calling files.load_directory_filtered with directory, FILE_FILTER, false
+    defer calling release_path_list with (sigil of dir_files)
+
+    var btn_back_pressed as int is 0
+    var list_scroll_index as int is 0
+    var list_item_active as int is -1
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if btn_back_pressed != 0:
+            let parent_dir as string is calling files.previous_directory with directory
+            banish directory
+            set directory is parent_dir
+
+            calling release_path_list with (sigil of dir_files)
+            set dir_files is calling files.load_directory_filtered with directory, FILE_FILTER, false
+
+            set list_scroll_index is 0
+            set list_item_active is -1
+
+        if (list_item_active >= 0) and (list_item_active < (dir_files length)):
+            let selected_path as string is dir_files at list_item_active
+            if calling files.directory_exists with selected_path:
+                let next_dir as string is "{selected_path}"
+                banish directory
+                set directory is next_dir
+
+                calling release_path_list with (sigil of dir_files)
+                set dir_files is calling files.load_directory_filtered with directory, FILE_FILTER, false
+
+                set list_scroll_index is 0
+                set list_item_active is -1
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let back_bounds as raylib.Rectangle is with x is 40.0, y is 10.0, width is 48.0, height is 28.0
+        set btn_back_pressed is calling rayguix.button with back_bounds, "<"
+
+        let gui_font as raylib.Font is calling raygui.GuiGetFont
+        calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SIZE to int), (gui_font.baseSize * 2)
+        let label_bounds as raylib.Rectangle is with x is 98.0, y is 10.0, width is 700.0, height is 28.0
+        calling rayguix.label with label_bounds, directory
+        calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SIZE to int), gui_font.baseSize
+
+        calling raygui.GuiSetStyle with (raygui.LISTVIEW to int), (raygui.TEXT_ALIGNMENT to int), (raygui.TEXT_ALIGN_LEFT to int)
+        calling raygui.GuiSetStyle with (raygui.LISTVIEW to int), (raygui.TEXT_PADDING to int), 40
+
+        let list_bounds as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 50.0
+            set .width is (calling raylib.GetScreenWidth) to f32
+            set .height is ((calling raylib.GetScreenHeight) to f32) - 50.0
+        let joined_paths as string is calling txt.text_join with (dir_files at 0 to (dir_files length)), ";"
+        calling rayguix.list_view with list_bounds, joined_paths, (sigil of list_scroll_index), (sigil of list_item_active)
+        banish joined_paths
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

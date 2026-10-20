@@ -1,0 +1,265 @@
+## ## raylib [shapes] example - clock of clocks
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 6.0
+## Example contributed by JP Mortiboys (@themushroompirates) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 JP Mortiboys (@themushroompirates)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and std.chronicle.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_clock_of_clocks.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raymathx as raymathx
+import std.chronicle as chronicle
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+
+# --- Helpers ---
+
+## ## Clamps a float value between min and max
+weave clamp_f32 with value as f32, min_val as f32, max_val as f32 into f32:
+    if value < min_val:
+        return min_val
+    if value > max_val:
+        return max_val
+    return value
+
+## ## Returns the angle definition for a coded shape (0=TL, 1=TR, 2=BR, 3=BL, 4=HH, 5=VV, 6=ZZ)
+weave get_angle_by_code with code as string into raylib.Vector2:
+    if code == "0":
+        return with:
+            set .x is 0.0
+            set .y is 90.0
+    if code == "1":
+        return with:
+            set .x is 90.0
+            set .y is 180.0
+    if code == "2":
+        return with:
+            set .x is 180.0
+            set .y is 270.0
+    if code == "3":
+        return with:
+            set .x is 0.0
+            set .y is 270.0
+    if code == "4":
+        return with:
+            set .x is 0.0
+            set .y is 180.0
+    if code == "5":
+        return with:
+            set .x is 90.0
+            set .y is 270.0
+    # "6" or default is ZZ
+    return with:
+        set .x is 135.0
+        set .y is 135.0
+
+## ## Returns cell angle for a digit and cell index (0..23)
+weave get_digit_angle with digit as int, cell as int into raylib.Vector2:
+    var pattern as string is ""
+    if digit == 0:
+        set pattern is "044150155555555553253442"
+    else if digit == 1:
+        set pattern is "041631566556655602313442"
+    else if digit == 2:
+        set pattern is "044134150425504253413442"
+    else if digit == 3:
+        set pattern is "044134150425341504253442"
+    else if digit == 4:
+        set pattern is "010155555325341566556632"
+    else if digit == 5:
+        set pattern is "044150425341341504253442"
+    else if digit == 6:
+        set pattern is "044150425341501553253442"
+    else if digit == 7:
+        set pattern is "044134156655665566556632"
+    else if digit == 8:
+        set pattern is "044150155325501553253442"
+    else:
+        set pattern is "044150155325341504253442"
+
+    let code as string is pattern at cell
+    return calling get_angle_by_code with code
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - clock of clocks"
+    defer calling raylib.CloseWindow
+
+    let bg_color as raylib.Color is calling raylib.ColorLerp with colors.DARKBLUE, colors.BLACK, 0.75
+    let hands_color as raylib.Color is calling raylib.ColorLerp with colors.YELLOW, colors.RAYWHITE, 0.25
+
+    let clock_face_size as f32 is 24.0
+    let clock_face_spacing as f32 is 8.0
+    let section_spacing as f32 is 16.0
+    let hands_move_duration as f32 is 0.5
+
+    var prev_seconds as int is -1
+
+    var current_angles as list of raylib.Vector2 is []
+    defer banish current_angles
+    var src_angles as list of raylib.Vector2 is []
+    defer banish src_angles
+    var dst_angles as list of raylib.Vector2 is []
+    defer banish dst_angles
+
+    for _i from 0 to 143:
+        var zero_v as raylib.Vector2 is with:
+            set .x is 0.0
+            set .y is 0.0
+        calling current_angles.append with zero_v
+        calling src_angles.append with zero_v
+        calling dst_angles.append with zero_v
+
+    var hands_move_timer as f32 is 0.0
+    var hour_mode as int is 24
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let dt as chronicle.DateTime is calling chronicle.datetime_local with (calling chronicle.time)
+
+        if dt.second != prev_seconds:
+            set prev_seconds is dt.second
+
+            let display_hour as int is dt.hour % hour_mode
+            let h0 as int is display_hour / 10
+            let h1 as int is display_hour % 10
+            let m0 as int is dt.minute / 10
+            let m1 as int is dt.minute % 10
+            let s0 as int is dt.second / 10
+            let s1 as int is dt.second % 10
+
+            for digit from 0 to 5:
+                let d_val as int is if digit == 0 then h0 else if digit == 1 then h1 else if digit == 2 then m0 else if digit == 3 then m1 else if digit == 4 then s0 else s1
+
+                for cell from 0 to 23:
+                    let idx as int is (digit * 24) + cell
+                    var src_v as raylib.Vector2 is current_angles at idx
+                    var dst_v as raylib.Vector2 is calling get_digit_angle with d_val, cell
+
+                    # Quick exception for 12h mode
+                    if (digit == 0) and (hour_mode == 12) and (h0 == 0):
+                        set dst_v is with:
+                            set .x is 135.0
+                            set .y is 135.0
+
+                    if src_v.x > dst_v.x:
+                        set src_v.x is src_v.x - 360.0
+                    if src_v.y > dst_v.y:
+                        set src_v.y is src_v.y - 360.0
+
+                    set src_angles at idx is src_v
+                    set dst_angles at idx is dst_v
+
+            set hands_move_timer is -(calling raylib.GetFrameTime)
+
+        # Animate all hands if needed
+        if hands_move_timer < hands_move_duration:
+            set hands_move_timer is calling clamp_f32 with hands_move_timer + (calling raylib.GetFrameTime), 0.0, hands_move_duration
+
+            # Calculate % completion of animation with smoothstep
+            var t as f32 is hands_move_timer / hands_move_duration
+            set t is t * t * (3.0 - (2.0 * t))
+
+            for digit from 0 to 5:
+                for cell from 0 to 23:
+                    let idx as int is (digit * 24) + cell
+                    let s_v as raylib.Vector2 is src_angles at idx
+                    let d_v as raylib.Vector2 is dst_angles at idx
+
+                    var c_v as raylib.Vector2 is with:
+                        set .x is calling raymathx.lerp with s_v.x, d_v.x, t
+                        set .y is calling raymathx.lerp with s_v.y, d_v.y, t
+
+                    set current_angles at idx is c_v
+
+        # Handle input
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set hour_mode is 36 - hour_mode
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with bg_color
+
+        var mode_str as string is "{hour_mode}-h mode, space to change"
+        calling txt.draw_text with mode_str, 10, 30, 20, colors.RAYWHITE
+        banish mode_str
+
+        var x_offset as f32 is 4.0
+
+        for digit from 0 to 5:
+            for row from 0 to 5:
+                for col from 0 to 3:
+                    var centre as raylib.Vector2 is with:
+                        set .x is x_offset + ((col to f32) * (clock_face_size + clock_face_spacing)) + (clock_face_size * 0.5)
+                        set .y is 100.0 + ((row to f32) * (clock_face_size + clock_face_spacing)) + (clock_face_size * 0.5)
+
+                    calling centre.draw_ring with (clock_face_size * 0.5) - 2.0, clock_face_size * 0.5, 0.0, 360.0, 24, colors.DARKGRAY
+
+                    let cell_idx as int is (digit * 24) + (row * 4) + col
+                    let cur_a as raylib.Vector2 is current_angles at cell_idx
+
+                    # Big hand
+                    var big_rec as raylib.Rectangle is with:
+                        set .x is centre.x
+                        set .y is centre.y
+                        set .width is (clock_face_size * 0.5) + 4.0
+                        set .height is 4.0
+
+                    var hand_origin as raylib.Vector2 is with:
+                        set .x is 2.0
+                        set .y is 2.0
+
+                    calling big_rec.draw_pro with hand_origin, cur_a.x, hands_color
+
+                    # Little hand
+                    var little_rec as raylib.Rectangle is with:
+                        set .x is centre.x
+                        set .y is centre.y
+                        set .width is (clock_face_size * 0.5) + 2.0
+                        set .height is 4.0
+
+                    calling little_rec.draw_pro with hand_origin, cur_a.y, hands_color
+
+            set x_offset is x_offset + ((clock_face_size + clock_face_spacing) * 4.0)
+            if (digit % 2) == 1:
+                var dot1 as raylib.Vector2 is with:
+                    set .x is x_offset + 4.0
+                    set .y is 160.0
+                calling dot1.draw_ring with 6.0, 8.0, 0.0, 360.0, 24, hands_color
+
+                var dot2 as raylib.Vector2 is with:
+                    set .x is x_offset + 4.0
+                    set .y is 225.0
+                calling dot2.draw_ring with 6.0, 8.0, 0.0, 360.0, 24, hands_color
+
+                set x_offset is x_offset + section_spacing
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing

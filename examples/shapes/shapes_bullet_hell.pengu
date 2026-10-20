@@ -1,0 +1,249 @@
+## ## raylib [shapes] example - bullet hell
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 5.6, last time updated with raylib 5.6
+## Example contributed by Zero (@zerohorsepower) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Zero (@zerohorsepower)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and texture render mode.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_bullet_hell.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.textures as textures
+import std.fractio
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+const MAX_BULLETS as int is 50000
+const DEG2RAD as f32 is 0.017453292519943295
+
+# --- Types ---
+
+## ## Bullet representation
+rune Bullet:
+    position as raylib.Vector2
+    acceleration as raylib.Vector2
+    disabled as bool
+    color as raylib.Color
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - bullet hell"
+    defer calling raylib.CloseWindow
+
+    var bullets as list of Bullet is []
+    defer banish bullets
+
+    var bullet_count as int is 0
+    var bullet_disabled_count as int is 0
+    let bullet_radius as int is 10
+    var bullet_speed as f32 is 3.0
+    var bullet_rows as int is 6
+
+    # Spawner variables
+    var base_direction as f32 is 0.0
+    var angle_increment as int is 5
+    var spawn_cooldown as f32 is 2.0
+    var spawn_cooldown_timer as f32 is spawn_cooldown
+
+    # Magic circle
+    var magic_circle_rotation as f32 is 0.0
+
+    # Used on performance drawing
+    var bullet_texture as raylib.RenderTexture is calling raylib.LoadRenderTexture with 24, 24
+    defer calling raylib.UnloadRenderTexture with bullet_texture
+
+    # Draw circle to bullet texture, then draw bullet using DrawTexture()
+    calling drawing.begin_texture_mode with bullet_texture
+    calling shapes.draw_circle with 12, 12, bullet_radius to f32, colors.WHITE
+    calling shapes.draw_circle_lines with 12, 12, bullet_radius to f32, colors.BLACK
+    calling drawing.end_texture_mode
+
+    var draw_in_performance_mode as bool is true
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if bullet_count >= MAX_BULLETS:
+            set bullet_count is 0
+            set bullet_disabled_count is 0
+
+        set spawn_cooldown_timer is spawn_cooldown_timer - 1.0
+        if spawn_cooldown_timer < 0.0:
+            set spawn_cooldown_timer is spawn_cooldown
+
+            # Spawn bullets
+            let degrees_per_row as f32 is 360.0 / (bullet_rows to f32)
+            for row from 0 to bullet_rows - 1:
+                if bullet_count < MAX_BULLETS:
+                    var spawn_pos as raylib.Vector2 is with:
+                        set .x is (SCREEN_WIDTH to f32) / 2.0
+                        set .y is (SCREEN_HEIGHT to f32) / 2.0
+
+                    let bullet_color as raylib.Color is if (row % 2) == 0 then colors.RED else colors.BLUE
+                    let bullet_direction as f32 is base_direction + (degrees_per_row * (row to f32))
+                    var rad_angle as f32 is bullet_direction * DEG2RAD
+
+                    var accel as raylib.Vector2 is with:
+                        set .x is bullet_speed * (calling rad_angle.get_cos)
+                        set .y is bullet_speed * (calling rad_angle.get_sin)
+
+                    var new_bullet as Bullet is with:
+                        set .position is spawn_pos
+                        set .acceleration is accel
+                        set .disabled is false
+                        set .color is bullet_color
+
+                    if bullet_count < (bullets.length to int):
+                        set bullets at bullet_count is new_bullet
+                    else:
+                        calling bullets.append with new_bullet
+
+                    set bullet_count is bullet_count + 1
+
+            set base_direction is base_direction + (angle_increment to f32)
+
+        # Update bullets position based on its acceleration
+        for i from 0 to bullet_count - 1:
+            var b as Bullet is bullets at i
+            if not b.disabled:
+                set b.position.x is b.position.x + b.acceleration.x
+                set b.position.y is b.position.y + b.acceleration.y
+
+                let limit as f32 is (bullet_radius * 2) to f32
+                let out_x as bool is (b.position.x < -limit) or (b.position.x > ((SCREEN_WIDTH to f32) + limit))
+                let out_y as bool is (b.position.y < -limit) or (b.position.y > ((SCREEN_HEIGHT to f32) + limit))
+                if out_x or out_y:
+                    set b.disabled is true
+                    set bullet_disabled_count is bullet_disabled_count + 1
+
+                set bullets at i is b
+
+        # Input logic
+        let right_press as bool is calling input.is_key_pressed with raylib.KEY_RIGHT
+        let d_press as bool is calling input.is_key_pressed with raylib.KEY_D
+        if (right_press or d_press) and (bullet_rows < 359):
+            set bullet_rows is bullet_rows + 1
+
+        let left_press as bool is calling input.is_key_pressed with raylib.KEY_LEFT
+        let a_press as bool is calling input.is_key_pressed with raylib.KEY_A
+        if (left_press or a_press) and (bullet_rows > 1):
+            set bullet_rows is bullet_rows - 1
+
+        let up_press as bool is calling input.is_key_pressed with raylib.KEY_UP
+        let w_press as bool is calling input.is_key_pressed with raylib.KEY_W
+        if up_press or w_press:
+            set bullet_speed is bullet_speed + 0.25
+
+        let down_press as bool is calling input.is_key_pressed with raylib.KEY_DOWN
+        let s_press as bool is calling input.is_key_pressed with raylib.KEY_S
+        if (down_press or s_press) and (bullet_speed > 0.50):
+            set bullet_speed is bullet_speed - 0.25
+
+        if (calling input.is_key_pressed with raylib.KEY_Z) and (spawn_cooldown > 1.0):
+            set spawn_cooldown is spawn_cooldown - 1.0
+
+        if calling input.is_key_pressed with raylib.KEY_X:
+            set spawn_cooldown is spawn_cooldown + 1.0
+
+        if calling input.is_key_pressed with raylib.KEY_ENTER:
+            set draw_in_performance_mode is not draw_in_performance_mode
+
+        if calling input.is_key_down with raylib.KEY_SPACE:
+            set angle_increment is (angle_increment + 1) % 360
+
+        if calling input.is_key_pressed with raylib.KEY_C:
+            set bullet_count is 0
+            set bullet_disabled_count is 0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        # Draw magic circle
+        set magic_circle_rotation is magic_circle_rotation + 1.0
+        var center_rec as raylib.Rectangle is with:
+            set .x is (SCREEN_WIDTH to f32) / 2.0
+            set .y is (SCREEN_HEIGHT to f32) / 2.0
+            set .width is 120.0
+            set .height is 120.0
+
+        var magic_origin as raylib.Vector2 is with:
+            set .x is 60.0
+            set .y is 60.0
+
+        calling center_rec.draw_pro with magic_origin, magic_circle_rotation, colors.PURPLE
+        calling center_rec.draw_pro with magic_origin, magic_circle_rotation + 45.0, colors.PURPLE
+
+        calling shapes.draw_circle_lines with SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, 70.0, colors.BLACK
+        calling shapes.draw_circle_lines with SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, 50.0, colors.BLACK
+        calling shapes.draw_circle_lines with SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, 30.0, colors.BLACK
+
+        # Draw bullets
+        if draw_in_performance_mode:
+            let half_tex_w as f32 is (bullet_texture.texture.width to f32) * 0.5
+            let half_tex_h as f32 is (bullet_texture.texture.height to f32) * 0.5
+            for i from 0 to bullet_count - 1:
+                var b as Bullet is bullets at i
+                if not b.disabled:
+                    let px as int is (b.position.x - half_tex_w) to int
+                    let py as int is (b.position.y - half_tex_h) to int
+                    calling bullet_texture.texture.draw with px, py, b.color
+        else:
+            for i from 0 to bullet_count - 1:
+                var b as Bullet is bullets at i
+                if not b.disabled:
+                    calling b.position.draw_circle with bullet_radius to f32, b.color
+                    calling b.position.draw_circle_lines with bullet_radius to f32, colors.BLACK
+
+        # Draw UI
+        var panel_color as raylib.Color is with:
+            set .r is 0 to byte
+            set .g is 0 to byte
+            set .b is 0 to byte
+            set .a is 200 to byte
+
+        calling shapes.draw_rectangle with 10, 10, 280, 150, panel_color
+        calling txt.draw_text with "Controls:", 20, 20, 10, colors.LIGHTGRAY
+        calling txt.draw_text with "- Right/Left or A/D: Change rows number", 40, 40, 10, colors.LIGHTGRAY
+        calling txt.draw_text with "- Up/Down or W/S: Change bullet speed", 40, 60, 10, colors.LIGHTGRAY
+        calling txt.draw_text with "- Z or X: Change spawn cooldown", 40, 80, 10, colors.LIGHTGRAY
+        calling txt.draw_text with "- Space (Hold): Change the angle increment", 40, 100, 10, colors.LIGHTGRAY
+        calling txt.draw_text with "- Enter: Switch draw method (Performance)", 40, 120, 10, colors.LIGHTGRAY
+        calling txt.draw_text with "- C: Clear bullets", 40, 140, 10, colors.LIGHTGRAY
+
+        calling shapes.draw_rectangle with 610, 10, 170, 30, panel_color
+        if draw_in_performance_mode:
+            calling txt.draw_text with "Draw method: DrawTexture(*)", 620, 20, 10, colors.GREEN
+        else:
+            calling txt.draw_text with "Draw method: DrawCircle(*)", 620, 20, 10, colors.RED
+
+        calling shapes.draw_rectangle with 135, 410, 530, 30, panel_color
+
+        var active_bullets as int is bullet_count - bullet_disabled_count
+        var status_str as string is "[ FPS: {calling raylib.GetFPS}, Bullets: {active_bullets}, Rows: {bullet_rows}, Speed: {bullet_speed to int}, Inc: {angle_increment}, CD: {spawn_cooldown to int} ]"
+        calling txt.draw_text with status_str, 155, 420, 10, colors.GREEN
+        banish status_str
+
+        calling drawing.end_drawing

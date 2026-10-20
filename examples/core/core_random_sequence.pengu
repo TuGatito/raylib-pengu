@@ -1,0 +1,216 @@
+## examples/core/core_random_sequence.pengu
+## raylib [core] example - random sequence
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 5.0, last time updated with raylib 5.0
+##
+## Example contributed by Dalton Overmyer (@REDl3east) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2023-2025 Dalton Overmyer (@REDl3east)
+##
+## ## PenguScript Port
+## 1:1 port of `examples/core/core_random_sequence.c` built on `raylibx.random`
+## and `raymathx`. C's manual `RL_CALLOC`/`RL_FREE` array and
+## `LoadRandomSequence`/`UnloadRandomSequence` pair are replaced with an owned
+## `list of ColorRect` and `raylibx.random.sequence`, which returns a
+## `maybe list of int` and frees raylib's C buffer automatically.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_random_sequence.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.random as random
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raymathx
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Initial number of rectangles in the random sequence.
+const INITIAL_RECT_COUNT as int is 20
+
+## Minimum number of rectangles allowed when pressing `DOWN`.
+const MIN_RECT_COUNT as int is 4
+
+# --- Types --------------------------------------------------------------
+## Colored rectangle bar in the random sequence visualizer.
+rune ColorRect:
+    color as raylib.Color
+    rect as raylib.Rectangle
+
+# --- Helpers ------------------------------------------------------------
+## Generates a random opaque `raylib.Color`.
+##
+## ## Returns
+## A new `raylib.Color` with random RGB channels in `[0, 255]` and `a = 255`.
+weave generate_random_color into raylib.Color:
+    return with:
+        set .r is ((calling random.between with 0, 255) to byte)
+        set .g is ((calling random.between with 0, 255) to byte)
+        set .b is ((calling random.between with 0, 255) to byte)
+        set .a is 255
+
+## Generates a sequence of `rect_count` colored rectangles with non-repeating heights.
+##
+## ## Parameters
+## - `rect_count`: number of rectangles to generate.
+## - `rect_width`: width of each rectangle in pixels.
+## - `screen_width`: total width of the drawing area.
+## - `screen_height`: maximum height of the rectangle sequence area.
+##
+## ## Returns
+## An owned `list of ColorRect` of length `rect_count`.
+##
+## ## Memory
+## The caller owns the returned `list of ColorRect` and must `banish` it when done.
+weave generate_random_color_rect_sequence with rect_count as int, rect_width as f32, screen_width as f32, screen_height as f32 into list of ColorRect:
+    var rectangles as list of ColorRect is list of ColorRect
+    let seq_opt as maybe list of int is calling random.sequence with rect_count, 0, (rect_count - 1)
+    if not (seq_opt is present):
+        return rectangles
+
+    var seq as list of int is calling seq_opt.unwrap
+    defer banish seq
+
+    let count_f as f32 is (rect_count to f32)
+    let rect_seq_width as f32 is count_f * rect_width
+    let start_x as f32 is (screen_width - rect_seq_width) * 0.5
+
+    for i from 0 to rect_count:
+        let seq_val as f32 is ((seq at i) to f32)
+        let rect_height as int is (calling raymathx.remap with seq_val, 0.0, (count_f - 1.0), 0.0, screen_height) to int
+        let height_f as f32 is (rect_height to f32)
+
+        let item as ColorRect is with:
+            set .color is (calling generate_random_color)
+            set .rect is with:
+                set .x is start_x + ((i to f32) * rect_width)
+                set .y is screen_height - height_f
+                set .width is rect_width
+                set .height is height_f
+        calling rectangles.push with item
+
+    return rectangles
+
+## Shuffles the colors and heights of `rectangles` in place using a fresh random sequence.
+##
+## ## Parameters
+## - `rectangles`: list of `ColorRect` items to shuffle in place.
+## - `rect_count`: number of rectangles in the list.
+weave shuffle_color_rect_sequence with rectangles as list of ColorRect, rect_count as int into void:
+    let seq_opt as maybe list of int is calling random.sequence with rect_count, 0, (rect_count - 1)
+    if not (seq_opt is present):
+        return
+
+    var seq as list of int is calling seq_opt.unwrap
+    defer banish seq
+
+    var rects as list of ColorRect is rectangles
+    for i1 from 0 to rect_count:
+        let i2 as int is seq at i1
+        var r1 as ColorRect is rects at i1
+        var r2 as ColorRect is rects at i2
+
+        # Swap only the color, height, and y position
+        let tmp_color as raylib.Color is r1.color
+        let tmp_height as f32 is r1.rect.height
+        let tmp_y as f32 is r1.rect.y
+
+        set r1.color is r2.color
+        set r1.rect.height is r2.rect.height
+        set r1.rect.y is r2.rect.y
+
+        set r2.color is tmp_color
+        set r2.rect.height is tmp_height
+        set r2.rect.y is tmp_y
+
+        set rects at i1 is r1
+        set rects at i2 is r2
+
+# --- Entry point --------------------------------------------------------
+## Visualizes a random non-repeating sequence of colored bars that can be
+## shuffled (`SPACE`) or resized (`UP` / `DOWN`).
+##
+## ## Returns
+## Process exit code: `0` on normal window closure.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - random sequence"
+    defer calling raylib.CloseWindow
+
+    let screen_w_f as f32 is (SCREEN_WIDTH to f32)
+    let max_bar_h as f32 is 0.75 * (SCREEN_HEIGHT to f32)
+
+    var rect_count as int is INITIAL_RECT_COUNT
+    var rect_width as f32 is screen_w_f / (rect_count to f32)
+    var rectangles as list of ColorRect is calling generate_random_color_rect_sequence with rect_count, rect_width, screen_w_f, max_bar_h
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            calling shuffle_color_rect_sequence with rectangles, rect_count
+
+        if calling input.is_key_pressed with raylib.KEY_UP:
+            set rect_count += 1
+            set rect_width is screen_w_f / (rect_count to f32)
+            banish rectangles
+
+            # Re-generate random sequence with new count
+            set rectangles is calling generate_random_color_rect_sequence with rect_count, rect_width, screen_w_f, max_bar_h
+
+        if calling input.is_key_pressed with raylib.KEY_DOWN:
+            if rect_count >= MIN_RECT_COUNT:
+                set rect_count -= 1
+                set rect_width is screen_w_f / (rect_count to f32)
+                banish rectangles
+
+                # Re-generate random sequence with new count
+                set rectangles is calling generate_random_color_rect_sequence with rect_count, rect_width, screen_w_f, max_bar_h
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        for item in rectangles:
+            calling item.rect.draw with item.color
+
+        calling txt.draw_text with "Press SPACE to shuffle the current sequence", 10, (SCREEN_HEIGHT - 96), 20, raylib.BLACK
+        calling txt.draw_text with "Press UP to add a rectangle and generate a new sequence", 10, (SCREEN_HEIGHT - 64), 20, raylib.BLACK
+        calling txt.draw_text with "Press DOWN to remove a rectangle and generate a new sequence", 10, (SCREEN_HEIGHT - 32), 20, raylib.BLACK
+
+        let count_label as string is "Count: {rect_count} rectangles"
+        defer banish count_label
+        calling txt.draw_text with count_label, 10, 10, 20, raylib.MAROON
+
+        calling txt.draw_fps with (SCREEN_WIDTH - 80), 10
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    banish rectangles
+    return 0

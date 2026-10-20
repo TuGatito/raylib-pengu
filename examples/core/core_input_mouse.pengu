@@ -1,0 +1,109 @@
+## examples/core/core_input_mouse.pengu
+## raylib [core] example - input mouse
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.0, last time updated with raylib 5.5
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 port of `examples/core/core_input_mouse.c` using the `raylibx` wrapper
+## families. Mouse button and keyboard presses use typed `raylib.MouseButton`
+## and `raylib.KeyboardKey` values via `raylibx.input`, while zero-argument
+## queries (`GetMousePosition`, `IsCursorHidden`, `ShowCursor`, `HideCursor`)
+## are called directly through `raylib` per wrapper conventions (§9).
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_input_mouse.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Radius of the cursor-following ball, in pixels.
+const BALL_RADIUS as f32 is 40.0
+
+# --- Entry point --------------------------------------------------------
+## Tracks the mouse position with a colored ball, changing its color on mouse
+## button clicks and toggling cursor visibility when `H` is pressed.
+##
+## ## Returns
+## Process exit code: `0` on normal window closure.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - input mouse"
+    defer calling raylib.CloseWindow
+
+    var ball_position as raylib.Vector2 is with x is -100.0, y is -100.0
+    var ball_color as raylib.Color is raylib.DARKBLUE
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling input.is_key_pressed with raylib.KEY_H:
+            if calling raylib.IsCursorHidden:
+                calling raylib.ShowCursor
+            else:
+                calling raylib.HideCursor
+
+        set ball_position is calling raylib.GetMousePosition
+
+        if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT:
+            set ball_color is raylib.MAROON
+        else if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_MIDDLE:
+            set ball_color is raylib.LIME
+        else if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_RIGHT:
+            set ball_color is raylib.DARKBLUE
+        else if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_SIDE:
+            set ball_color is raylib.PURPLE
+        else if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_EXTRA:
+            set ball_color is raylib.YELLOW
+        else if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_FORWARD:
+            set ball_color is raylib.ORANGE
+        else if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_BACK:
+            set ball_color is raylib.BEIGE
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling ball_position.draw_circle with BALL_RADIUS, ball_color
+
+        calling txt.draw_text with "move ball with mouse and click mouse button to change color", 10, 10, 20, raylib.DARKGRAY
+        calling txt.draw_text with "Press 'H' to toggle cursor visibility", 10, 30, 20, raylib.DARKGRAY
+
+        if calling raylib.IsCursorHidden:
+            calling txt.draw_text with "CURSOR HIDDEN", 20, 60, 20, raylib.RED
+        else:
+            calling txt.draw_text with "CURSOR VISIBLE", 20, 60, 20, raylib.LIME
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

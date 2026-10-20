@@ -1,0 +1,129 @@
+## ## raylib [shapes] example - circle sector drawing
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 2.5
+## Example contributed by Vlad Adrian (@demizdor) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2018-2025 Vlad Adrian (@demizdor) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx and rayguix wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_circle_sector_drawing.pengu
+## ```
+
+import pengu.raygui as raygui
+import pengu.rayguix as rayguix
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+
+# --- Helpers ---
+
+## ## Computes ceiling of diff divided by 90
+weave ceil_div90 with diff as f32 into f32:
+    let v as f32 is diff / 90.0
+    var iv as int is v to int
+    if (iv to f32) < v:
+        set iv is iv + 1
+    return iv to f32
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - circle sector drawing"
+    defer calling raylib.CloseWindow
+
+    var center as raylib.Vector2 is with:
+        set .x is ((SCREEN_WIDTH - 300) to f32) / 2.0
+        set .y is (SCREEN_HEIGHT to f32) / 2.0
+
+    var outer_radius as f32 is 180.0
+    var start_angle as f32 is 0.0
+    var end_angle as f32 is 180.0
+    var segments as f32 is 10.0
+    var min_segments as f32 is 4.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update is driven by GUI controls
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        let line_col as raylib.Color is calling colors.fade with colors.LIGHTGRAY, 0.6
+        calling shapes.draw_line with 500, 0, 500, SCREEN_HEIGHT, line_col
+
+        let panel_col as raylib.Color is calling colors.fade with colors.LIGHTGRAY, 0.3
+        calling shapes.draw_rectangle with 500, 0, SCREEN_WIDTH - 500, SCREEN_HEIGHT, panel_col
+
+        let sector_col as raylib.Color is calling colors.fade with colors.MAROON, 0.3
+        let sector_lines_col as raylib.Color is calling colors.fade with colors.MAROON, 0.6
+
+        calling center.draw_circle_sector with outer_radius, start_angle, end_angle, segments to int, sector_col
+        calling center.draw_circle_sector_lines with outer_radius, start_angle, end_angle, segments to int, sector_lines_col
+
+        # Draw GUI controls
+        var rec_start as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 40.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_start as string is "{start_angle to int}"
+        let _r1 as int is calling rayguix.slider_bar with rec_start, "StartAngle", s_start, (sigil of start_angle), 0.0, 720.0
+        banish s_start
+
+        var rec_end as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 70.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_end as string is "{end_angle to int}"
+        let _r2 as int is calling rayguix.slider_bar with rec_end, "EndAngle", s_end, (sigil of end_angle), 0.0, 720.0
+        banish s_end
+
+        var rec_rad as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 140.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_rad as string is "{outer_radius to int}"
+        let _r3 as int is calling rayguix.slider_bar with rec_rad, "Radius", s_rad, (sigil of outer_radius), 0.0, 200.0
+        banish s_rad
+
+        var rec_seg as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 170.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_seg as string is "{segments to int}"
+        let _r4 as int is calling rayguix.slider_bar with rec_seg, "Segments", s_seg, (sigil of segments), 0.0, 100.0
+        banish s_seg
+
+        set min_segments is calling ceil_div90 with end_angle - start_angle
+        let is_manual as bool is segments >= min_segments
+        let mode_text as string is if is_manual then "MODE: MANUAL" else "MODE: AUTO"
+        let mode_color as raylib.Color is if is_manual then colors.MAROON else colors.DARKGRAY
+
+        calling txt.draw_text with mode_text, 600, 200, 10, mode_color
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing

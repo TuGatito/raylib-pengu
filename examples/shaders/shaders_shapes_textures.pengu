@@ -1,0 +1,121 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - shapes textures
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to selectively apply a post-processing/grayscale
+## fragment shader to basic geometric shapes and loaded textures.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_shapes_textures.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - shapes textures"
+    defer calling raylib.CloseWindow
+
+    # Load texture
+    var fudesumi as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/fudesumi.png":
+        set fudesumi is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with fudesumi
+
+    # Load grayscale fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/grayscale.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # 1. Start drawing with default shader
+        calling txt.draw_text with "USING DEFAULT SHADER", 20, 40, 10, raylib.RED
+
+        calling shapes.draw_circle with 80, 120, 35.0, raylib.DARKBLUE
+
+        var grad_center as raylib.Vector2 is with:
+            set .x is 80.0
+            set .y is 220.0
+        calling grad_center.draw_circle_gradient with 60.0, raylib.GREEN, raylib.SKYBLUE
+        calling shapes.draw_circle_lines with 80, 340, 80.0, raylib.DARKBLUE
+
+        # 2. Activate custom shader for shapes
+        calling drawing.begin_shader_mode with shader
+
+        calling txt.draw_text with "USING CUSTOM SHADER", 190, 40, 10, raylib.RED
+
+        calling shapes.draw_rectangle with (250 - 60), 90, 120, 60, raylib.RED
+        calling shapes.draw_rectangle_gradient_h with (250 - 90), 170, 180, 130, raylib.MAROON, raylib.GOLD
+        calling shapes.draw_rectangle_lines with (250 - 40), 320, 80, 60, raylib.ORANGE
+
+        calling drawing.end_shader_mode
+
+        # 3. Default shader again
+        calling txt.draw_text with "USING DEFAULT SHADER", 370, 40, 10, raylib.RED
+
+        var t1_v1 as raylib.Vector2 is with:
+            set .x is 430.0
+            set .y is 80.0
+        var t1_v2 as raylib.Vector2 is with:
+            set .x is 430.0 - 60.0
+            set .y is 150.0
+        var t1_v3 as raylib.Vector2 is with:
+            set .x is 430.0 + 60.0
+            set .y is 150.0
+        calling t1_v1.draw_triangle with t1_v2, t1_v3, raylib.VIOLET
+
+        var t2_v1 as raylib.Vector2 is with:
+            set .x is 430.0
+            set .y is 160.0
+        var t2_v2 as raylib.Vector2 is with:
+            set .x is 430.0 - 20.0
+            set .y is 230.0
+        var t2_v3 as raylib.Vector2 is with:
+            set .x is 430.0 + 20.0
+            set .y is 230.0
+        calling t2_v1.draw_triangle_lines with t2_v2, t2_v3, raylib.DARKBLUE
+
+        var poly_center as raylib.Vector2 is with:
+            set .x is 430.0
+            set .y is 320.0
+        calling poly_center.draw_poly with 6, 80.0, 0.0, raylib.BROWN
+
+        # 4. Custom shader for texture
+        calling drawing.begin_shader_mode with shader
+
+        calling fudesumi.draw with 500, -30, raylib.WHITE
+
+        calling drawing.end_shader_mode
+
+        calling txt.draw_text with "(c) Fudesumi sprite by Eiden Marsal", 380, (screen_height - 20), 10, raylib.GRAY
+
+        calling drawing.end_drawing
+
+    return 0

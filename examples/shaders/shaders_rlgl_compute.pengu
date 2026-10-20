@@ -1,0 +1,181 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - rlgl compute
+##
+## Original example complexity rating: [★★★★] 4/4
+## Contributed by Teddy Astie (@tsnake41) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates Conway's Game of Life running entirely on the GPU via
+## OpenGL 4.3 Compute Shaders and Shader Storage Buffer Objects (SSBOs) using rlgl.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_rlgl_compute.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.files as files
+import raylibx.input as input
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+import rlgl
+import std.ffi as ffi
+
+# --- Constants ----------------------------------------------------------
+## Grid and window width/height in pixels. Must match GOL_WIDTH in gol*.glsl.
+const GOL_WIDTH as int is 768
+
+## Maximum amount of queued draw commands.
+const MAX_BUFFERED_TRANSFERTS as int is 48
+
+# --- Types --------------------------------------------------------------
+## Game of Life interactive paint update command.
+rune GolUpdateCmd:
+    x as u32
+    y as u32
+    w as u32
+    enabled as u32
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with GOL_WIDTH, GOL_WIDTH, "raylib [shaders] example - rlgl compute"
+    defer calling raylib.CloseWindow
+
+    let resolution as raylib.Vector2 is with:
+        set .x is GOL_WIDTH to f32
+        set .y is GOL_WIDTH to f32
+    var brush_size as int is 8
+
+    # Load Game of Life logic compute shader
+    var gol_logic_code as string is ""
+    if s as string is calling files.file_text with "examples/shaders/resources/shaders/glsl430/gol.glsl":
+        set gol_logic_code is s
+    else:
+        return 1
+
+    let c_logic_code as ref to frozen char is calling ffi.cstr_from_string with gol_logic_code
+    let gol_logic_shader as u32 is calling rlgl.rlLoadShader with c_logic_code, (rlgl.RL_COMPUTE_SHADER to int)
+    let gol_logic_program as u32 is calling rlgl.rlLoadShaderProgramCompute with gol_logic_shader
+    banish gol_logic_code
+    defer calling rlgl.rlUnloadShader with gol_logic_shader
+    defer calling rlgl.rlUnloadShaderProgram with gol_logic_program
+
+    # Load Game of Life logic render fragment shader
+    var gol_render_shader as raylib.Shader is with id is 0
+    if loaded as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl430/gol_render.glsl":
+        set gol_render_shader is loaded
+    else:
+        return 1
+    defer calling shaders.unload_shader with gol_render_shader
+
+    var res_uniform_loc as int is 0
+    if loc as int is calling gol_render_shader.location with "resolution":
+        set res_uniform_loc is loc
+
+    # Load Game of Life transfer compute shader
+    var gol_transfer_code as string is ""
+    if s as string is calling files.file_text with "examples/shaders/resources/shaders/glsl430/gol_transfert.glsl":
+        set gol_transfer_code is s
+    else:
+        return 1
+
+    let c_transfer_code as ref to frozen char is calling ffi.cstr_from_string with gol_transfer_code
+    let gol_transfer_shader as u32 is calling rlgl.rlLoadShader with c_transfer_code, (rlgl.RL_COMPUTE_SHADER to int)
+    let gol_transfer_program as u32 is calling rlgl.rlLoadShaderProgramCompute with gol_transfer_shader
+    banish gol_transfer_code
+    defer calling rlgl.rlUnloadShader with gol_transfer_shader
+    defer calling rlgl.rlUnloadShaderProgram with gol_transfer_program
+
+    # Load SSBO buffers
+    let ssbo_cell_size as u32 is (GOL_WIDTH * GOL_WIDTH * 4) to u32
+    var ssbo_a as u32 is calling rlgl.rlLoadShaderBuffer with ssbo_cell_size, (calling ffi.null_void), (rlgl.RL_DYNAMIC_COPY to int)
+    var ssbo_b as u32 is calling rlgl.rlLoadShaderBuffer with ssbo_cell_size, (calling ffi.null_void), (rlgl.RL_DYNAMIC_COPY to int)
+    defer calling rlgl.rlUnloadShaderBuffer with ssbo_a
+    defer calling rlgl.rlUnloadShaderBuffer with ssbo_b
+
+    let ssbo_transfert_size as u32 is (4 + (MAX_BUFFERED_TRANSFERTS * 16)) to u32
+    let ssbo_transfert as u32 is calling rlgl.rlLoadShaderBuffer with ssbo_transfert_size, (calling ffi.null_void), (rlgl.RL_DYNAMIC_COPY to int)
+    defer calling rlgl.rlUnloadShaderBuffer with ssbo_transfert
+
+    var transfer_raw as ref to void is calling raylib.MemAlloc with (ssbo_transfert_size to int)
+    defer calling raylib.MemFree with transfer_raw
+    var count_ptr as ref to u32 is transmute transfer_raw to ref to u32
+    set count_ptr at 0 is 0
+
+    # Create white canvas texture for full-screen fragment shader rendering
+    var white_img as raylib.Image is calling raylib.GenImageColor with GOL_WIDTH, GOL_WIDTH, raylib.WHITE
+    var white_tex as raylib.Texture2D is calling raylib.LoadTextureFromImage with white_img
+    calling raylib.UnloadImage with white_img
+    defer calling textures.unload_texture with white_tex
+
+    calling raylib.SetTargetFPS with 0
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set brush_size is brush_size + ((calling raylib.GetMouseWheelMove) to int)
+        if brush_size < 1:
+            set brush_size is 1
+
+        let l_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT
+        let r_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_RIGHT
+
+        if (l_down or r_down) and ((count_ptr at 0) < (MAX_BUFFERED_TRANSFERTS to u32)):
+            let c as int is (count_ptr at 0) to int
+            let offset_bytes as int is 4 + (c * 16)
+            var cmd_ptr as ref to GolUpdateCmd is transmute ((transmute transfer_raw to u64) + (offset_bytes to u64)) to ref to GolUpdateCmd
+            set cmd_ptr->x is ((calling raylib.GetMouseX) - (brush_size / 2)) to u32
+            set cmd_ptr->y is ((calling raylib.GetMouseY) - (brush_size / 2)) to u32
+            set cmd_ptr->w is brush_size to u32
+            set cmd_ptr->enabled is (if l_down then 1 else 0) to u32
+            set count_ptr at 0 is (count_ptr at 0) + 1
+        else if (count_ptr at 0) > 0:
+            # Send SSBO buffer to GPU
+            calling rlgl.rlUpdateShaderBuffer with ssbo_transfert, (transmute transfer_raw to ref to frozen void), ssbo_transfert_size, 0
+
+            # Process SSBO commands on GPU
+            calling rlgl.rlEnableShader with gol_transfer_program
+            calling rlgl.rlBindShaderBuffer with ssbo_a, 1
+            calling rlgl.rlBindShaderBuffer with ssbo_transfert, 3
+            calling rlgl.rlComputeShaderDispatch with (count_ptr at 0), 1, 1
+            calling rlgl.rlDisableShader
+
+            set count_ptr at 0 is 0
+        else:
+            # Step Game of Life simulation
+            calling rlgl.rlEnableShader with gol_logic_program
+            calling rlgl.rlBindShaderBuffer with ssbo_a, 1
+            calling rlgl.rlBindShaderBuffer with ssbo_b, 2
+            calling rlgl.rlComputeShaderDispatch with ((GOL_WIDTH / 16) to u32), ((GOL_WIDTH / 16) to u32), 1
+            calling rlgl.rlDisableShader
+
+            # Ping-pong swap
+            let temp as u32 is ssbo_a
+            set ssbo_a is ssbo_b
+            set ssbo_b is temp
+
+        calling rlgl.rlBindShaderBuffer with ssbo_a, 1
+        calling gol_render_shader.set_vec2 with res_uniform_loc, resolution
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.BLANK
+
+        calling drawing.begin_shader_mode with gol_render_shader
+        calling white_tex.draw with 0, 0, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling shapes.draw_rectangle_lines with ((calling raylib.GetMouseX) - (brush_size / 2)), ((calling raylib.GetMouseY) - (brush_size / 2)), brush_size, brush_size, raylib.RED
+
+        calling txt.draw_text with "Use Mouse wheel to increase/decrease brush size", 10, 10, 20, raylib.WHITE
+        calling txt.draw_fps with ((calling raylib.GetScreenWidth) - 100), 10
+
+        calling drawing.end_drawing
+
+    return 0

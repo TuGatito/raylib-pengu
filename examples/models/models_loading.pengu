@@ -1,0 +1,174 @@
+## raylib [models] example - loading
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 2.0, last time updated with raylib 4.2
+## Example licensed under an unmodified zlib/libpng license.
+## Castle 3D model by Alberto Cano.
+##
+## ## PenguScript Port
+## - Uses `raylibx.drawing` for frame and 3D mode scopes
+## - Uses `raylibx.models` for model loading, bounding box calculation, ray-box picking, and drawing
+## - Uses `raylibx.textures` for loading and updating material diffuse textures
+## - Uses `raylibx.files` for drag-and-drop file detection and extension filtering
+## - Uses `raylibx.shapes3d` for rendering grid
+## - Uses `raylibx.text` for overlay text and FPS counter
+## - Uses `rcamerax` for 3D camera mouse ray casting
+##
+## ## Example
+## ```pengu
+## pengu run examples/models/models_loading.pengu
+## ```
+
+import raylib
+import raylibx.drawing as drawing
+import raylibx.files as files
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+import rcamerax
+
+# --- Constants ---
+
+## Target window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Target window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## ## Returns
+## Exit status code (0 for success).
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - loading"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D with:
+        set .position is (with x is 50.0, y is 50.0, z is 50.0)
+        set .target is (with x is 0.0, y is 12.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var model as raylib.Model is with meshCount is 0
+    if loaded_m as raylib.Model is calling models.load_model with "resources/models/obj/castle.obj":
+        set model is loaded_m
+    defer calling models.unload_model with model
+
+    var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture is calling textures.load_texture with "resources/models/obj/castle_diffuse.png":
+        set texture is loaded_tex
+    defer calling textures.unload_texture with texture
+
+    if model.materialCount > 0:
+        var mat0 as ref to raylib.Material is sigil of (model.materials at 0)
+        calling mat0.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+
+    var bounds as raylib.BoundingBox with:
+        set .min is (with x is 0.0, y is 0.0, z is 0.0)
+        set .max is (with x is 0.0, y is 0.0, z is 0.0)
+
+    if model.meshCount > 0:
+        var m0 as raylib.Mesh is model.meshes at 0
+        set bounds is calling m0.bounding_box
+
+    var selected as bool is false
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        # Load new models/textures on drag & drop
+        if calling raylib.IsFileDropped:
+            var incoming_files as list of string is calling files.dropped_files
+            if incoming_files.length == 1:
+                let file_path as string is incoming_files at 0
+
+                let is_obj as bool is calling files.is_file_extension with file_path, ".obj"
+                let is_gltf as bool is calling files.is_file_extension with file_path, ".gltf"
+                let is_glb as bool is calling files.is_file_extension with file_path, ".glb"
+                let is_vox as bool is calling files.is_file_extension with file_path, ".vox"
+                let is_iqm as bool is calling files.is_file_extension with file_path, ".iqm"
+                let is_m3d as bool is calling files.is_file_extension with file_path, ".m3d"
+                let is_png as bool is calling files.is_file_extension with file_path, ".png"
+
+                if is_obj or is_gltf or is_glb or is_vox or is_iqm or is_m3d:
+                    calling models.unload_model with model
+                    if new_m as raylib.Model is calling models.load_model with file_path:
+                        set model is new_m
+                        if model.materialCount > 0:
+                            var new_mat0 as ref to raylib.Material is sigil of (model.materials at 0)
+                            calling new_mat0.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+                        if model.meshCount > 0:
+                            var first_mesh as raylib.Mesh is model.meshes at 0
+                            set bounds is calling first_mesh.bounding_box
+                            set camera.position.x is bounds.max.x + 10.0
+                            set camera.position.y is bounds.max.y + 10.0
+                            set camera.position.z is bounds.max.z + 10.0
+                else if is_png:
+                    calling textures.unload_texture with texture
+                    if new_tex as raylib.Texture is calling textures.load_texture with file_path:
+                        set texture is new_tex
+                        if model.materialCount > 0:
+                            var cur_mat0 as ref to raylib.Material is sigil of (model.materials at 0)
+                            calling cur_mat0.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+            for dropped_item in incoming_files:
+                banish dropped_item
+            banish incoming_files
+
+        # Select model on mouse click
+        if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT:
+            let ray as raylib.Ray is calling camera.to_world_ray with (calling raylib.GetMousePosition)
+            let hit as raylib.RayCollision is calling models.ray_box_hit with ray, bounds
+            if hit.hit:
+                set selected is not selected
+            else:
+                set selected is false
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        calling model.draw with position, 1.0, raylib.WHITE
+        calling shapes3d.draw_grid with 20, 10.0
+
+        if selected:
+            calling models.draw_bounding_box with bounds, raylib.GREEN
+
+        calling drawing.end_mode_3d
+
+        calling txt.draw_text with "Drag & drop model to load mesh/texture.", 10, (calling raylib.GetScreenHeight) - 20, 10, raylib.DARKGRAY
+        if selected:
+            calling txt.draw_text with "MODEL SELECTED", (calling raylib.GetScreenWidth) - 110, 10, 10, raylib.GREEN
+
+        calling txt.draw_text with "(c) Castle 3D model by Alberto Cano", SCREEN_WIDTH - 200, SCREEN_HEIGHT - 20, 10, raylib.GRAY
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

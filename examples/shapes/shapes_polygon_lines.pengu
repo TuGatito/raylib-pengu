@@ -1,0 +1,154 @@
+## ## raylib [shapes] example - polygon lines
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 6.1, last time updated with raylib 6.1
+## Example contributed by Matthew Roush (@MatthewRoush) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2026 Matthew Roush (@MatthewRoush)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_polygon_lines.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - polygon lines"
+    defer calling raylib.CloseWindow
+
+    var thick as int is 2
+    var rotation as f32 is 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling input.is_key_pressed with raylib.KEY_UP:
+            set thick is thick + 1
+        if calling input.is_key_pressed with raylib.KEY_DOWN:
+            set thick is thick - 1
+
+        if thick < 1:
+            set thick is 1
+        else if thick > 60:
+            set thick is 60
+
+        set rotation is rotation + ((360.0 / 10.0) * (calling raylib.GetFrameTime))
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        var thick_str as string is "thick = {thick}"
+        calling txt.draw_text with thick_str, 10, 280, 20, colors.LIME
+        banish thick_str
+
+        calling txt.draw_text with "These should look identical!", 10, 10, 20, colors.MAROON
+
+        let f_thick as f32 is thick to f32
+
+        # Outline pair 1
+        calling shapes.draw_rectangle with 10, 40, 50, 50, colors.LIGHTGRAY
+
+        var rec1 as raylib.Rectangle is with:
+            set .x is 10.0
+            set .y is 40.0
+            set .width is 50.0
+            set .height is 50.0
+        calling rec1.draw_outline with f_thick, colors.RED
+
+        calling shapes.draw_circle with 95, 65, 25.0, colors.LIGHTGRAY
+        var c1_center as raylib.Vector2 is with:
+            set .x is 95.0
+            set .y is 65.0
+        calling raylib.DrawCircleLinesEx with c1_center, 25.0, f_thick, colors.RED
+
+        calling txt.draw_text with "DrawRectangleLinesEx() and DrawCircleLinesEx()", 130, 60, 10, colors.BLACK
+
+        # Outline pair 2
+        var p2_center as raylib.Vector2 is with:
+            set .x is 35.0
+            set .y is 125.0
+        calling p2_center.draw_poly with 4, 35.355, 45.0, colors.LIGHTGRAY
+        calling p2_center.draw_poly_lines_ex with 4, 35.355, 45.0, f_thick, colors.RED
+
+        var p3_center as raylib.Vector2 is with:
+            set .x is 95.0
+            set .y is 125.0
+        calling p3_center.draw_poly with 36, 25.0, 0.0, colors.LIGHTGRAY
+        calling p3_center.draw_poly_lines_ex with 36, 25.0, 0.0, f_thick, colors.RED
+
+        calling txt.draw_text with "DrawPolyLinesEx()", 130, 120, 10, colors.BLACK
+
+        # Some other shapes, all outlines should have the same looking thickness
+        var pos_a as raylib.Vector2 is with:
+            set .x is 290.0
+            set .y is 220.0
+        calling pos_a.draw_poly with 3, 60.0, rotation, colors.LIGHTGRAY
+        calling pos_a.draw_poly_lines_ex with 3, 60.0, rotation, f_thick, colors.BLUE
+
+        var pos_b as raylib.Vector2 is with:
+            set .x is 430.0
+            set .y is 220.0
+        calling pos_b.draw_poly with 4, 60.0, rotation, colors.LIGHTGRAY
+        calling pos_b.draw_poly_lines_ex with 4, 60.0, rotation, f_thick, colors.BLUE
+
+        var pos_c as raylib.Vector2 is with:
+            set .x is 570.0
+            set .y is 220.0
+        calling pos_c.draw_poly with 5, 60.0, rotation, colors.LIGHTGRAY
+        calling pos_c.draw_poly_lines_ex with 5, 60.0, rotation, f_thick, colors.BLUE
+
+        var pos_d as raylib.Vector2 is with:
+            set .x is 710.0
+            set .y is 220.0
+        calling pos_d.draw_poly with 6, 60.0, rotation, colors.LIGHTGRAY
+        calling pos_d.draw_poly_lines_ex with 6, 60.0, rotation, f_thick, colors.BLUE
+
+        var pos_e as raylib.Vector2 is with:
+            set .x is 290.0
+            set .y is 360.0
+        calling pos_e.draw_poly with 7, 60.0, rotation, colors.LIGHTGRAY
+        calling pos_e.draw_poly_lines_ex with 7, 60.0, rotation, f_thick, colors.BLUE
+
+        var pos_f as raylib.Vector2 is with:
+            set .x is 430.0
+            set .y is 360.0
+        calling pos_f.draw_poly with 8, 60.0, rotation, colors.LIGHTGRAY
+        calling pos_f.draw_poly_lines_ex with 8, 60.0, rotation, f_thick, colors.BLUE
+
+        var pos_g as raylib.Vector2 is with:
+            set .x is 570.0
+            set .y is 360.0
+        calling pos_g.draw_poly with 9, 60.0, rotation, colors.LIGHTGRAY
+        calling pos_g.draw_poly_lines_ex with 9, 60.0, rotation, f_thick, colors.BLUE
+
+        var pos_h as raylib.Vector2 is with:
+            set .x is 710.0
+            set .y is 360.0
+        calling pos_h.draw_poly with 10, 60.0, rotation, colors.LIGHTGRAY
+        calling pos_h.draw_poly_lines_ex with 10, 60.0, rotation, f_thick, colors.BLUE
+
+        calling drawing.end_drawing

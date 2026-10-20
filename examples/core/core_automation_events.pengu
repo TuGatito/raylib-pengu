@@ -1,0 +1,384 @@
+## examples/core/core_automation_events.pengu
+## raylib [core] example - automation events
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 5.0, last time updated with raylib 5.0
+##
+## Example based on 2d_camera_platformer example by arvyy (@arvyy)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2023-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_automation_events.c` built on top of
+## `raylibx` and `rcamerax`. Combines the 2D platformer scene with raylib's
+## `AutomationEventList` recording, playback, export, and drag-and-drop import
+## (`raylibx.files.dropped_files` + `raylibx.files.is_file_extension`).
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_automation_events.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.files as files
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import rcamerax
+import std.ffi as ffi
+import std.numerus
+import std.spark as spark
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Downward acceleration in pixels per second squared.
+const GRAVITY as f32 is 400.0
+
+## Initial upward velocity when jumping, in pixels per second.
+const PLAYER_JUMP_SPD as f32 is 350.0
+
+## Horizontal movement speed of the player, in pixels per second.
+const PLAYER_HOR_SPD as f32 is 200.0
+
+## Minimum camera zoom factor.
+const MIN_ZOOM as f32 is 0.25
+
+## Maximum camera zoom factor.
+const MAX_ZOOM as f32 is 3.0
+
+# --- Types --------------------------------------------------------------
+## Player state in world coordinates.
+rune Player:
+    position as raylib.Vector2
+    speed as f32
+    can_jump as bool
+
+## Rectangular environment obstacle that can block the player from above.
+rune EnvElement:
+    rect as raylib.Rectangle
+    blocking as int
+    color as raylib.Color
+
+# --- Helpers ------------------------------------------------------------
+## Builds an `EnvElement` from rectangle geometry, blocking flag, and color.
+##
+## ## Parameters
+## - `x`, `y`, `width`, `height`: rectangle geometry in world coordinates.
+## - `blocking`: non-zero if the platform blocks vertical movement from above.
+## - `color`: fill color of the element.
+##
+## ## Returns
+## A new `EnvElement`; allocates no heap memory.
+weave make_env_element with x as f32, y as f32, width as f32, height as f32, blocking as int, color as raylib.Color into EnvElement:
+    return with:
+        set .rect is with x is x, y is y, width is width, height is height
+        set .blocking is blocking
+        set .color is color
+
+# --- Entry point --------------------------------------------------------
+## Program entry point.
+##
+## Runs a 2D platformer where the user can record input automation events with
+## `S`, replay them with `A`, reset the scene with `R`, or drag and drop `.rae`
+## / `.txt` automation event files onto the window.
+##
+## ## Returns
+## Exit code (`0` on clean exit).
+weave main into int:
+    # Initialization
+    #--------------------------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - automation events"
+    defer calling raylib.CloseWindow
+
+    # Define player
+    var player as Player with:
+        set .position is with x is 400.0, y is 280.0
+        set .speed is 0.0
+        set .can_jump is false
+
+    # Define environment elements (platforms)
+    var env_elements as list of EnvElement is list of EnvElement
+    defer banish env_elements
+    calling env_elements.push with (calling make_env_element with 0.0, 0.0, 1000.0, 400.0, 0, raylib.LIGHTGRAY)
+    calling env_elements.push with (calling make_env_element with 0.0, 400.0, 1000.0, 200.0, 1, raylib.GRAY)
+    calling env_elements.push with (calling make_env_element with 300.0, 200.0, 400.0, 10.0, 1, raylib.GRAY)
+    calling env_elements.push with (calling make_env_element with 250.0, 300.0, 100.0, 10.0, 1, raylib.GRAY)
+    calling env_elements.push with (calling make_env_element with 650.0, 300.0, 100.0, 10.0, 1, raylib.GRAY)
+
+    # Define camera
+    var camera as raylib.Camera2D with:
+        set .offset is with x is ((SCREEN_WIDTH to f32) / 2.0), y is ((SCREEN_HEIGHT to f32) / 2.0)
+        set .target is player.position
+        set .rotation is 0.0
+        set .zoom is 1.0
+
+    # Automation events
+    let null_cstr as ref to frozen char is transmute null to ref to frozen char
+    var aelist as raylib.AutomationEventList is calling raylib.LoadAutomationEventList with null_cstr # Initialize list of automation events to record new events
+    calling raylib.SetAutomationEventList with (sigil of aelist)
+    var event_recording as bool is false
+    var event_playing as bool is false
+
+    var frame_counter as u32 is 0
+    var play_frame_counter as u32 is 0
+    var current_play_frame as u32 is 0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    #--------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        #----------------------------------------------------------------------------------
+        let delta_time as f32 is 0.015 # GetFrameTime()
+
+        # Dropped files logic
+        #----------------------------------------------------------------------------------
+        if calling raylib.IsFileDropped:
+            let dropped as list of string is calling files.dropped_files
+            defer banish dropped
+
+            if (dropped length) > 0:
+                let dropped_path as string is (dropped at 0)
+                # Supports loading .rgs style files (text or binary) and .png style palette images
+                if (calling files.is_file_extension with dropped_path, ".txt") or (calling files.is_file_extension with dropped_path, ".rae"):
+                    calling raylib.UnloadAutomationEventList with aelist
+                    let path_cstr as ref to frozen char is transmute (calling ffi.cstr_from_string with dropped_path) to ref to frozen char
+                    set aelist is calling raylib.LoadAutomationEventList with path_cstr
+
+                    set event_recording is false
+
+                    # Reset scene state to play
+                    set event_playing is true
+                    set play_frame_counter is 0
+                    set current_play_frame is 0
+
+                    set player.position is with x is 400.0, y is 280.0
+                    set player.speed is 0.0
+                    set player.can_jump is false
+
+                    set camera.target is player.position
+                    set camera.offset is with x is ((SCREEN_WIDTH to f32) / 2.0), y is ((SCREEN_HEIGHT to f32) / 2.0)
+                    set camera.rotation is 0.0
+                    set camera.zoom is 1.0
+        #----------------------------------------------------------------------------------
+
+        # Update player
+        #----------------------------------------------------------------------------------
+        if calling input.is_key_down with raylib.KEY_LEFT:
+            set player.position.x -= PLAYER_HOR_SPD * delta_time
+        if calling input.is_key_down with raylib.KEY_RIGHT:
+            set player.position.x += PLAYER_HOR_SPD * delta_time
+        if (calling input.is_key_down with raylib.KEY_SPACE) and player.can_jump:
+            set player.speed is -PLAYER_JUMP_SPD
+            set player.can_jump is false
+
+        var hit_obstacle as bool is false
+        for ei in env_elements:
+            let p as raylib.Vector2 is player.position
+            if (ei.blocking != 0) and (ei.rect.x <= p.x) and ((ei.rect.x + ei.rect.width) >= p.x) and (ei.rect.y >= p.y) and (ei.rect.y <= (p.y + (player.speed * delta_time))):
+                set hit_obstacle is true
+                set player.speed is 0.0
+                set player.position.y is ei.rect.y
+
+        if not hit_obstacle:
+            set player.position.y += player.speed * delta_time
+            set player.speed += GRAVITY * delta_time
+            set player.can_jump is false
+        else:
+            set player.can_jump is true
+
+        if calling input.is_key_pressed with raylib.KEY_R:
+            # Reset game state
+            set player.position is with x is 400.0, y is 280.0
+            set player.speed is 0.0
+            set player.can_jump is false
+
+            set camera.target is player.position
+            set camera.offset is with x is ((SCREEN_WIDTH to f32) / 2.0), y is ((SCREEN_HEIGHT to f32) / 2.0)
+            set camera.rotation is 0.0
+            set camera.zoom is 1.0
+        #----------------------------------------------------------------------------------
+
+        # Events playing
+        #NOTE: Logic must be before Camera update because it depends on mouse-wheel value,
+        #that can be set by played event... but some other inputs could be affected
+        #----------------------------------------------------------------------------------
+        if event_playing:
+            # NOTE: Multiple events could be executed in a single frame
+            let events_slice as slice of raylib.AutomationEvent is calling ffi.slice_from_ptr of raylib.AutomationEvent with (transmute aelist.events to ref to void), (aelist.count to int)
+            while (current_play_frame < aelist.count) and (play_frame_counter == (events_slice at (current_play_frame to int)).frame):
+                var ev as raylib.AutomationEvent is (events_slice at (current_play_frame to int))
+                let params_slice as slice of int is calling ffi.slice_from_ptr of int with (transmute (sigil of ev.params) to ref to void), 4
+                let param0 as int is (params_slice at 0)
+                calling spark.println with "PLAYING: PlayFrameCount: {play_frame_counter} | CurrentPlayFrame: {current_play_frame} | Event Frame: {ev.frame}, Param: {param0}"
+                calling raylib.PlayAutomationEvent with ev
+                set current_play_frame += 1
+
+                if current_play_frame == aelist.count:
+                    set event_playing is false
+                    set current_play_frame is 0
+                    set play_frame_counter is 0
+
+                    calling spark.println with "FINISH PLAYING!"
+                    break
+
+            set play_frame_counter += 1
+        #----------------------------------------------------------------------------------
+
+        # Update camera
+        #----------------------------------------------------------------------------------
+        set camera.target is player.position
+        set camera.offset is with x is ((SCREEN_WIDTH to f32) / 2.0), y is ((SCREEN_HEIGHT to f32) / 2.0)
+        var min_x as f32 is 1000.0
+        var min_y as f32 is 1000.0
+        var max_x as f32 is -1000.0
+        var max_y as f32 is -1000.0
+
+        # WARNING: On event replay, mouse-wheel internal value is set
+        set camera.zoom += ((calling raylib.GetMouseWheelMove) * 0.05)
+        if camera.zoom > MAX_ZOOM:
+            set camera.zoom is MAX_ZOOM
+        else if camera.zoom < MIN_ZOOM:
+            set camera.zoom is MIN_ZOOM
+
+        for ei in env_elements:
+            set min_x is (calling min_x.get_min_with with ei.rect.x)
+            set max_x is (calling max_x.get_max_with with (ei.rect.x + ei.rect.width))
+            set min_y is (calling min_y.get_min_with with ei.rect.y)
+            set max_y is (calling max_y.get_max_with with (ei.rect.y + ei.rect.height))
+
+        let max_world as raylib.Vector2 is with x is max_x, y is max_y
+        let min_world as raylib.Vector2 is with x is min_x, y is min_y
+        let max_v as raylib.Vector2 is calling camera.to_screen with max_world
+        let min_v as raylib.Vector2 is calling camera.to_screen with min_world
+
+        let screen_w_f as f32 is SCREEN_WIDTH to f32
+        let screen_h_f as f32 is SCREEN_HEIGHT to f32
+        if max_v.x < screen_w_f:
+            set camera.offset.x is screen_w_f - (max_v.x - (screen_w_f / 2.0))
+        if max_v.y < screen_h_f:
+            set camera.offset.y is screen_h_f - (max_v.y - (screen_h_f / 2.0))
+        if min_v.x > 0.0:
+            set camera.offset.x is (screen_w_f / 2.0) - min_v.x
+        if min_v.y > 0.0:
+            set camera.offset.y is (screen_h_f / 2.0) - min_v.y
+        #----------------------------------------------------------------------------------
+
+        # Events management
+        if calling input.is_key_pressed with raylib.KEY_S: # Toggle events recording
+            if not event_playing:
+                if event_recording:
+                    calling raylib.StopAutomationEventRecording
+                    set event_recording is false
+
+                    calling raylib.ExportAutomationEventList with aelist, "automation.rae"
+
+                    calling spark.println with "RECORDED FRAMES: {aelist.count}"
+                else:
+                    calling raylib.SetAutomationEventBaseFrame with 180
+                    calling raylib.StartAutomationEventRecording
+                    set event_recording is true
+        else if calling input.is_key_pressed with raylib.KEY_A: # Toggle events playing (WARNING: Starts next frame)
+            if (not event_recording) and (aelist.count > 0):
+                # Reset scene state to play
+                set event_playing is true
+                set play_frame_counter is 0
+                set current_play_frame is 0
+
+                set player.position is with x is 400.0, y is 280.0
+                set player.speed is 0.0
+                set player.can_jump is false
+
+                set camera.target is player.position
+                set camera.offset is with x is ((SCREEN_WIDTH to f32) / 2.0), y is ((SCREEN_HEIGHT to f32) / 2.0)
+                set camera.rotation is 0.0
+                set camera.zoom is 1.0
+
+        if event_recording or event_playing:
+            set frame_counter += 1
+        else:
+            set frame_counter is 0
+        #----------------------------------------------------------------------------------
+
+        # Draw
+        #----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.LIGHTGRAY
+
+        calling drawing.begin_mode_2d with camera
+
+        # Draw environment elements
+        for ei in env_elements:
+            calling ei.rect.draw with ei.color
+
+        # Draw player
+        let player_rect as raylib.Rectangle is with:
+            set .x is player.position.x - 20.0
+            set .y is player.position.y - 40.0
+            set .width is 40.0
+            set .height is 40.0
+        calling player_rect.draw with raylib.RED
+
+        calling drawing.end_mode_2d
+
+        # Draw game controls
+        calling shapes.draw_rectangle with 10, 10, 290, 145, (calling colors.fade with raylib.SKYBLUE, 0.5)
+        calling shapes.draw_rectangle_lines with 10, 10, 290, 145, (calling colors.fade with raylib.BLUE, 0.8)
+
+        calling txt.draw_text with "Controls:", 20, 20, 10, raylib.BLACK
+        calling txt.draw_text with "- RIGHT | LEFT: Move", 30, 40, 10, raylib.DARKGRAY
+        calling txt.draw_text with "- SPACE: Jump", 30, 60, 10, raylib.DARKGRAY
+        calling txt.draw_text with "- R: Reset game state", 30, 80, 10, raylib.DARKGRAY
+
+        calling txt.draw_text with "- S: START/STOP RECORDING INPUT EVENTS", 30, 110, 10, raylib.BLACK
+        calling txt.draw_text with "- A: REPLAY LAST RECORDED INPUT EVENTS", 30, 130, 10, raylib.BLACK
+
+        # Draw automation events recording indicator
+        if event_recording:
+            calling shapes.draw_rectangle with 10, 160, 290, 30, (calling colors.fade with raylib.RED, 0.3)
+            calling shapes.draw_rectangle_lines with 10, 160, 290, 30, (calling colors.fade with raylib.MAROON, 0.8)
+            calling shapes.draw_circle with 30, 175, 10.0, raylib.MAROON
+
+            if ((frame_counter / 15) % 2) == 1:
+                let rec_text as string is "RECORDING EVENTS... [{aelist.count}]"
+                defer banish rec_text
+                calling txt.draw_text with rec_text, 50, 170, 10, raylib.MAROON
+        else if event_playing:
+            calling shapes.draw_rectangle with 10, 160, 290, 30, (calling colors.fade with raylib.LIME, 0.3)
+            calling shapes.draw_rectangle_lines with 10, 160, 290, 30, (calling colors.fade with raylib.DARKGREEN, 0.8)
+            let v1 as raylib.Vector2 is with x is 20.0, y is 165.0
+            let v2 as raylib.Vector2 is with x is 20.0, y is 185.0
+            let v3 as raylib.Vector2 is with x is 40.0, y is 175.0
+            calling v1.draw_triangle with v2, v3, raylib.DARKGREEN
+
+            if ((frame_counter / 15) % 2) == 1:
+                let play_text as string is "PLAYING RECORDED EVENTS... [{current_play_frame}]"
+                defer banish play_text
+                calling txt.draw_text with play_text, 50, 170, 10, raylib.DARKGREEN
+
+        calling drawing.end_drawing
+        #----------------------------------------------------------------------------------
+
+    # De-Initialization
+    #--------------------------------------------------------------------------------------
+    calling raylib.UnloadAutomationEventList with aelist
+    #--------------------------------------------------------------------------------------
+
+    return 0

@@ -1,0 +1,104 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - model shader
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to assign a custom fragment shader (grayscale conversion)
+## to a 3D model's material, rendering the textured model with a post-effect filter.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_model_shader.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32)
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - model shader"
+    defer calling raylib.CloseWindow
+
+    # Define camera
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 4.0, y is 4.0, z is 4.0)
+        set .target is (with x is 0.0, y is 1.0, z is -1.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load 3D model
+    var model as raylib.Model is with meshCount is 0
+    if loaded_model as raylib.Model is calling models.load_model with "examples/shaders/resources/models/watermill.obj":
+        set model is loaded_model
+    else:
+        return 1
+    defer calling models.unload_model with model
+
+    # Load texture
+    var texture as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/models/watermill_diffuse.png":
+        set texture is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with texture
+
+    # Load grayscale fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/grayscale.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Assign shader and texture to model material
+    var mat as ref to raylib.Material is sigil of (model.materials at 0)
+    set mat->shader is shader
+    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+
+    calling raylib.DisableCursor
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FREE to int)
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        calling model.draw with position, 0.2, raylib.WHITE
+        calling shapes3d.draw_grid with 10, 1.0
+        calling drawing.end_mode_3d
+
+        calling txt.draw_text with "(c) Watermill 3D model by Alberto Cano", (SCREEN_WIDTH - 210), (SCREEN_HEIGHT - 20), 10, raylib.GRAY
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+
+    return 0

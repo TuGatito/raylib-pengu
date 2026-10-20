@@ -1,0 +1,206 @@
+## examples/core/core_highdpi_demo.pengu
+## raylib [core] example - highdpi demo
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.0, last time updated with raylib 5.5
+##
+## Example contributed by Jonathan Marler (@marler8997) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Jonathan Marler (@marler8997)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_highdpi_demo.c` on top of the `raylibx`
+## wrapper layer. Uses `Font.measure` and `Font.draw` from `raylibx.text` for
+## centered text rendering, and string interpolation with immediate `banish` for
+## per-frame HUD labels.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_highdpi_demo.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Initial window width, in logical points.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height, in logical points.
+const SCREEN_HEIGHT as int is 450
+
+## Minimum window dimension, in logical points.
+const MIN_WINDOW_SIZE as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Y coordinate of the logical grid description text.
+const LOGICAL_GRID_DESC_Y as int is 120
+
+## Y coordinate of the logical grid tick labels.
+const LOGICAL_GRID_LABEL_Y as int is 150
+
+## Top Y coordinate of the logical grid bars.
+const LOGICAL_GRID_TOP as int is 180
+
+## Bottom Y coordinate of the logical grid bars.
+const LOGICAL_GRID_BOTTOM as int is 260
+
+## Top Y coordinate of the physical pixel grid bars.
+const PIXEL_GRID_TOP as int is 240
+
+## Bottom Y coordinate of the physical pixel grid bars.
+const PIXEL_GRID_BOTTOM as int is 320
+
+## Y coordinate of the physical pixel grid tick labels.
+const PIXEL_GRID_LABEL_Y as int is 350
+
+## Y coordinate of the physical pixel grid description text.
+const PIXEL_GRID_DESC_Y as int is 380
+
+## Grid cell width, in units.
+const CELL_SIZE as int is 50
+
+## Minimum horizontal spacing in logical points between physical grid labels.
+const MIN_TEXT_SPACE as int is 30
+
+## Letter spacing used when measuring and drawing text with the default font.
+const TEXT_SPACING as f32 is 3.0
+
+# --- Helpers ------------------------------------------------------------
+## Draws text horizontally and vertically centered at `(x, y)` using the default font.
+##
+## ## Parameters
+## - `text`: string to draw.
+## - `x`, `y`: center coordinates in logical screen space.
+## - `font_size`: font size in pixels.
+## - `color`: text tint color.
+##
+## ## Memory
+## No heap allocation.
+weave draw_text_center with text as string, x as int, y as int, font_size as int, color as raylib.Color into void:
+    let font as raylib.Font is calling txt.default_font
+    let fsize as f32 is font_size to f32
+    let extent as raylib.Vector2 is calling font.measure with text, fsize, TEXT_SPACING
+    let pos as raylib.Vector2 is with:
+        set .x is (x to f32) - (extent.x / 2.0)
+        set .y is (y to f32) - (extent.y / 2.0)
+    calling font.draw with text, pos, fsize, TEXT_SPACING, color
+
+# --- Entry point --------------------------------------------------------
+## Compares logical screen points against physical render pixels on a resizable
+## HighDPI-enabled window.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    let flags as u32 is (raylib.FLAG_WINDOW_HIGHDPI to u32) | (raylib.FLAG_WINDOW_RESIZABLE to u32)
+    calling raylib.SetConfigFlags with flags
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - highdpi demo"
+    defer calling raylib.CloseWindow
+    calling raylib.SetWindowMinSize with MIN_WINDOW_SIZE, MIN_WINDOW_SIZE
+
+    var cell_size_px as f32 is CELL_SIZE to f32
+    let pixel_grid_color as raylib.Color is with r is 0, g is 121, b is 241, a is 100
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        let monitor_count as int is calling raylib.GetMonitorCount
+
+        if (monitor_count > 1) and (calling input.is_key_pressed with raylib.KEY_N):
+            let next_monitor as int is ((calling raylib.GetCurrentMonitor) + 1) % monitor_count
+            calling raylib.SetWindowMonitor with next_monitor
+
+        let current_monitor as int is calling raylib.GetCurrentMonitor
+        let dpi_scale as raylib.Vector2 is calling raylib.GetWindowScaleDPI
+        set cell_size_px is (CELL_SIZE to f32) / dpi_scale.x
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let screen_w as int is calling raylib.GetScreenWidth
+        let screen_h as int is calling raylib.GetScreenHeight
+        let render_w as int is calling raylib.GetRenderWidth
+        let window_center as int is screen_w / 2
+
+        let dpi_label as string is "Dpi Scale: {dpi_scale.x}"
+        calling draw_text_center with dpi_label, window_center, 30, 40, raylib.DARKGRAY
+        banish dpi_label
+
+        let mon_label as string is "Monitor: {current_monitor + 1}/{monitor_count} ([N] next monitor)"
+        calling draw_text_center with mon_label, window_center, 70, 20, raylib.LIGHTGRAY
+        banish mon_label
+
+        let logical_desc as string is "Window is {screen_w} \"logical points\" wide"
+        calling draw_text_center with logical_desc, window_center, LOGICAL_GRID_DESC_Y, 20, raylib.ORANGE
+        banish logical_desc
+
+        var odd as bool is true
+        var i as int is CELL_SIZE
+        while i < screen_w:
+            if odd:
+                calling shapes.draw_rectangle with i, LOGICAL_GRID_TOP, CELL_SIZE, (LOGICAL_GRID_BOTTOM - LOGICAL_GRID_TOP), raylib.ORANGE
+
+            let tick_text as string is "{i}"
+            calling draw_text_center with tick_text, i, LOGICAL_GRID_LABEL_Y, 10, raylib.LIGHTGRAY
+            banish tick_text
+
+            calling shapes.draw_line with i, (LOGICAL_GRID_LABEL_Y + 10), i, LOGICAL_GRID_BOTTOM, raylib.GRAY
+
+            set i += CELL_SIZE
+            set odd is not odd
+
+        set odd is true
+        var last_text_x as int is -MIN_TEXT_SPACE
+        set i is CELL_SIZE
+        while i < render_w:
+            let x as int is ((i to f32) / dpi_scale.x) to int
+            if odd:
+                calling shapes.draw_rectangle with x, PIXEL_GRID_TOP, (cell_size_px to int), (PIXEL_GRID_BOTTOM - PIXEL_GRID_TOP), pixel_grid_color
+
+            calling shapes.draw_line with x, PIXEL_GRID_TOP, x, (PIXEL_GRID_LABEL_Y - 10), raylib.GRAY
+
+            if (x - last_text_x) >= MIN_TEXT_SPACE:
+                let tick_text as string is "{i}"
+                calling draw_text_center with tick_text, x, PIXEL_GRID_LABEL_Y, 10, raylib.LIGHTGRAY
+                banish tick_text
+                set last_text_x is x
+
+            set i += CELL_SIZE
+            set odd is not odd
+
+        let physical_desc as string is "Window is {render_w} \"physical pixels\" wide"
+        calling draw_text_center with physical_desc, window_center, PIXEL_GRID_DESC_Y, 20, raylib.BLUE
+        banish physical_desc
+
+        let corner_text as string is "Can you see this?"
+        let font as raylib.Font is calling txt.default_font
+        let extent as raylib.Vector2 is calling font.measure with corner_text, 20.0, TEXT_SPACING
+        let pos as raylib.Vector2 is with:
+            set .x is (screen_w to f32) - extent.x - 5.0
+            set .y is (screen_h to f32) - extent.y - 5.0
+        calling font.draw with corner_text, pos, 20.0, TEXT_SPACING, raylib.LIGHTGRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

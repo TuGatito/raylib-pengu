@@ -1,0 +1,100 @@
+## ## PenguScript Port
+## Translated from raylib [shapes] example - basic shapes
+##
+## Original example complexity rating: [★☆☆☆] 1/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to draw basic 2D geometric shapes (circles, ellipses,
+## rectangles, triangles, and regular polygons) with solid colors and gradients.
+##
+## ## Example
+## ```bash
+## pengu run examples/shapes/shapes_basic_shapes.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - basic shapes"
+    defer calling raylib.CloseWindow
+
+    var rotation as f32 is 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set rotation is rotation + 0.2
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "some basic shapes available on raylib", 20, 20, 20, raylib.DARKGRAY
+
+        # Circle shapes and lines
+        calling shapes.draw_circle with (screen_width / 5), 120, 35.0, raylib.DARKBLUE
+
+        var grad_pos as raylib.Vector2 is with:
+            set .x is (screen_width to f32) / 5.0
+            set .y is 220.0
+        calling grad_pos.draw_circle_gradient with 60.0, raylib.GREEN, raylib.SKYBLUE
+
+        calling shapes.draw_circle_lines with (screen_width / 5), 340, 80.0, raylib.DARKBLUE
+        calling shapes.draw_ellipse with (screen_width / 5), 120, 25.0, 20.0, raylib.YELLOW
+        calling shapes.draw_ellipse_lines with (screen_width / 5), 120, 30.0, 25.0, raylib.YELLOW
+
+        # Rectangle shapes and lines
+        calling shapes.draw_rectangle with (((screen_width / 4) * 2) - 60), 100, 120, 60, raylib.RED
+        calling shapes.draw_rectangle_gradient_h with (((screen_width / 4) * 2) - 90), 170, 180, 130, raylib.MAROON, raylib.GOLD
+        calling shapes.draw_rectangle_lines with (((screen_width / 4) * 2) - 40), 320, 80, 60, raylib.ORANGE
+
+        # Triangle shapes and lines
+        var tri1_v1 as raylib.Vector2 is with:
+            set .x is ((screen_width to f32) / 4.0) * 3.0
+            set .y is 80.0
+        var tri1_v2 as raylib.Vector2 is with:
+            set .x is (((screen_width to f32) / 4.0) * 3.0) - 60.0
+            set .y is 150.0
+        var tri1_v3 as raylib.Vector2 is with:
+            set .x is (((screen_width to f32) / 4.0) * 3.0) + 60.0
+            set .y is 150.0
+        calling tri1_v1.draw_triangle with tri1_v2, tri1_v3, raylib.VIOLET
+
+        var tri2_v1 as raylib.Vector2 is with:
+            set .x is ((screen_width to f32) / 4.0) * 3.0
+            set .y is 160.0
+        var tri2_v2 as raylib.Vector2 is with:
+            set .x is (((screen_width to f32) / 4.0) * 3.0) - 20.0
+            set .y is 230.0
+        var tri2_v3 as raylib.Vector2 is with:
+            set .x is (((screen_width to f32) / 4.0) * 3.0) + 20.0
+            set .y is 230.0
+        calling tri2_v1.draw_triangle_lines with tri2_v2, tri2_v3, raylib.DARKBLUE
+
+        # Polygon shapes and lines
+        var poly_pos as raylib.Vector2 is with:
+            set .x is ((screen_width to f32) / 4.0) * 3.0
+            set .y is 330.0
+        calling poly_pos.draw_poly with 6, 80.0, rotation, raylib.BROWN
+        calling poly_pos.draw_poly_lines with 6, 90.0, rotation, raylib.BROWN
+        calling poly_pos.draw_poly_lines_ex with 6, 85.0, rotation, 6.0, raylib.BEIGE
+
+        # Render lines together in single pass
+        calling shapes.draw_line with 18, 42, (screen_width - 18), 42, raylib.BLACK
+
+        calling drawing.end_drawing
+
+    return 0

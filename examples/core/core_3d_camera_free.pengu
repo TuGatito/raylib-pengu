@@ -10,15 +10,15 @@
 ##
 ## Copyright (c) 2015-2025 Ramon Santamaria (@raysan5)
 ##
-## ## Port a PenguScript
-## Traducción 1:1 de `examples/core/core_3d_camera_free.c` sobre la capa de
-## wrappers `raylibx`. La ventana se abre con `raylib.InitWindow` porque el
-## wrapper no envuelve `InitWindow`/`CloseWindow` (contrato §9, fila 8), y el
-## resto del ejemplo usa los métodos y funciones de `raylibx`:
-## `Camera3D` se construye con un bloque `with:`, el cubo se dibuja con
-## `shapes3d.draw_cube` y el panel de ayuda con `shapes` + `text` + `colors`.
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_3d_camera_free.c` on top of the
+## `raylibx` wrapper layer. The window is opened with `raylib.InitWindow` because
+## the wrapper does not wrap `InitWindow`/`CloseWindow` (contract §9, row 8), and
+## the rest of the example uses the methods and functions from `raylibx`:
+## `Camera3D` is constructed with a `with:` block, the cube is drawn with
+## `shapes3d.draw_cube`, and the help panel uses `shapes` + `text` + `colors`.
 ##
-## ## Ejemplo
+## ## Example
 ## ```bash
 ## pengu run examples/core/core_3d_camera_free.pengu
 ## ```
@@ -32,48 +32,48 @@ import raylibx.shapes as shapes
 import raylibx.shapes3d as shapes3d
 import raylibx.text as txt
 
-# --- Constantes ---------------------------------------------------------
-## Ancho de la ventana, en píxeles.
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
 const SCREEN_WIDTH as int is 800
 
-## Alto de la ventana, en píxeles.
+## Window height, in pixels.
 const SCREEN_HEIGHT as int is 450
 
-## Fotogramas por segundo a los que corre el bucle principal.
+## Target frames per second for the main game loop.
 const TARGET_FPS as int is 60
 
-## Campo de visión vertical de la cámara, en grados.
+## Vertical field-of-view of the camera, in degrees.
 const CAMERA_FOVY as f32 is 45.0
 
-# --- Punto de entrada ---------------------------------------------------
-## Abre la ventana, dibuja un cubo sobre una rejilla y mueve la cámara libre
-## hasta que el usuario cierre la ventana (botón de cerrar o tecla ESC).
+# --- Entry point --------------------------------------------------------
+## Opens the window, draws a cube on a grid, and updates the free camera until
+## the user closes the window (close button or ESC key).
 ##
-## ## Retorno
-## Código de salida del proceso: `0` cuando la ventana se cierra con normalidad.
+## ## Returns
+## Process exit code: `0` when the window closes normally.
 weave main into int:
-    # Inicialización
+    # Initialization
     # ---------------------------------------------------------------------
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - 3d camera free"
     defer calling raylib.CloseWindow
 
-    # Cámara que mira al mundo 3D
+    # Define the camera to look into our 3D world
     var camera as raylib.Camera3D with:
-        set .position is (with x is 10.0, y is 10.0, z is 10.0)  # Posición de la cámara
-        set .target is (with x is 0.0, y is 0.0, z is 0.0)       # Punto al que mira
-        set .up is (with x is 0.0, y is 1.0, z is 0.0)           # Vector «arriba»
-        set .fovy is CAMERA_FOVY                                # Campo de visión Y
-        set .projection is (raylib.CAMERA_PERSPECTIVE to int)    # Proyección en perspectiva
+        set .position is (with x is 10.0, y is 10.0, z is 10.0)  # Camera position
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)       # Camera looking at point
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)           # Camera up vector (rotation towards target)
+        set .fovy is CAMERA_FOVY                                # Camera field-of-view Y
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)    # Camera projection type
 
     var cube_position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
 
-    calling raylib.DisableCursor          # Limita el cursor al movimiento relativo
+    calling raylib.DisableCursor          # Limit cursor to relative movement inside the window
     calling raylib.SetTargetFPS with TARGET_FPS
     # ---------------------------------------------------------------------
 
-    # Bucle principal
+    # Main game loop
     while not calling raylib.WindowShouldClose:
-        # Actualización
+        # Update
         # -----------------------------------------------------------------
         calling raylib.UpdateCamera with (sigil of camera), raylib.CAMERA_FREE
 
@@ -81,7 +81,7 @@ weave main into int:
             set camera.target is with x is 0.0, y is 0.0, z is 0.0
         # -----------------------------------------------------------------
 
-        # Dibujo
+        # Draw
         # -----------------------------------------------------------------
         calling drawing.begin_drawing
         calling drawing.clear_background with raylib.RAYWHITE

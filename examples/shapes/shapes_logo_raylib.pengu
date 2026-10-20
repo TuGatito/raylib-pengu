@@ -1,0 +1,48 @@
+## ## PenguScript Port
+## Translated from raylib [shapes] example - logo raylib
+##
+## Original example complexity rating: [★☆☆☆] 1/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example renders the official raylib logo purely using shape drawing primitives
+## (rectangles and text) instead of image textures.
+##
+## ## Example
+## ```bash
+## pengu run examples/shapes/shapes_logo_raylib.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - logo raylib"
+    defer calling raylib.CloseWindow
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling shapes.draw_rectangle with ((screen_width / 2) - 128), ((screen_height / 2) - 128), 256, 256, raylib.BLACK
+        calling shapes.draw_rectangle with ((screen_width / 2) - 112), ((screen_height / 2) - 112), 224, 224, raylib.RAYWHITE
+        calling txt.draw_text with "raylib", ((screen_width / 2) - 44), ((screen_height / 2) + 48), 50, raylib.BLACK
+
+        calling txt.draw_text with "this is NOT a texture!", 350, 370, 10, raylib.GRAY
+
+        calling drawing.end_drawing
+
+    return 0

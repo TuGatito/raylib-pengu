@@ -1,0 +1,148 @@
+## examples/models/models_billboard_rendering.pengu
+## raylib [models] example - billboard rendering
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 1.3, last time updated with raylib 3.5
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2015-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/models/models_billboard_rendering.c` using the
+## `raylibx`, `rcamerax`, and `raymathx` wrapper layers. Billboard drawing uses
+## `camera.draw_billboard` and `camera.draw_billboard_pro`, vector scaling and
+## distances use `raymathx` methods, and texture loading uses `raylibx.textures`.
+##
+## ## Example
+## ```bash
+## pengu run examples/models/models_billboard_rendering.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymathx
+import rcamerax
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main game loop.
+const TARGET_FPS as int is 60
+
+## Vertical field-of-view of the 3D camera, in degrees.
+const CAMERA_FOVY as f32 is 45.0
+
+## Angular rotation step per frame for the rotating billboard, in degrees.
+const ROTATION_SPEED as f32 is 0.4
+
+## Scale of the static billboard in world units.
+const STATIC_BILLBOARD_SCALE as f32 is 2.0
+
+# --- Entry point --------------------------------------------------------
+## Renders a static and a rotating 3D billboard sorted by camera distance.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - billboard rendering"
+    defer calling raylib.CloseWindow
+
+    # Define the camera to look into our 3d world
+    var camera as raylib.Camera3D with:
+        set .position is (with x is 5.0, y is 4.0, z is 5.0)    # Camera position
+        set .target is (with x is 0.0, y is 2.0, z is 0.0)      # Camera looking at point
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)          # Camera up vector (rotation towards target)
+        set .fovy is CAMERA_FOVY                                # Camera field-of-view Y
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)   # Camera projection type
+
+    var bill as raylib.Texture with:
+        set .id is 0
+        set .width is 0
+        set .height is 0
+        set .mipmaps is 0
+        set .format is 0
+    if loaded_bill as raylib.Texture is (calling textures.load_texture with "resources/billboard.png"):
+        set bill is loaded_bill
+    defer calling textures.unload_texture with bill
+
+    let bill_position_static as raylib.Vector3 is with x is 0.0, y is 2.0, z is 0.0     # Position of static billboard
+    let bill_position_rotating as raylib.Vector3 is with x is 1.0, y is 2.0, z is 1.0   # Position of rotating billboard
+
+    # Entire billboard texture, source is used to take a segment from a larger texture
+    let source as raylib.Rectangle is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .width is (bill.width to f32)
+        set .height is (bill.height to f32)
+
+    # NOTE: Billboard locked on axis-Y
+    let bill_up as raylib.Vector3 is with x is 0.0, y is 1.0, z is 0.0
+
+    # Set the height of the rotating billboard to 1.0 with the aspect ratio fixed
+    let bill_size as raylib.Vector2 is with:
+        set .x is source.width / source.height
+        set .y is 1.0
+
+    # Rotate around origin
+    # Here we choose to rotate around the image center
+    let origin as raylib.Vector2 is calling bill_size.get_scale with 0.5
+
+    # Distance is needed for the correct billboard draw order
+    # Larger distance (further away from the camera) should be drawn prior to smaller distance
+    var distance_static as f32 is 0.0
+    var distance_rotating as f32 is 0.0
+    var rotation as f32 is 0.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        calling raylib.UpdateCamera with (sigil of camera), raylib.CAMERA_ORBITAL
+
+        set rotation is rotation + ROTATION_SPEED
+        let cam_pos as raylib.Vector3 is camera.position
+        set distance_static is (calling cam_pos.distance_to with bill_position_static)
+        set distance_rotating is (calling cam_pos.distance_to with bill_position_rotating)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        calling shapes3d.draw_grid with 10, 1.0     # Draw a grid
+
+        # Draw order matters!
+        if distance_static > distance_rotating:
+            calling camera.draw_billboard with bill, bill_position_static, STATIC_BILLBOARD_SCALE, raylib.WHITE
+            calling camera.draw_billboard_pro with bill, source, bill_position_rotating, bill_up, bill_size, origin, rotation, raylib.WHITE
+        else:
+            calling camera.draw_billboard_pro with bill, source, bill_position_rotating, bill_up, bill_size, origin, rotation, raylib.WHITE
+            calling camera.draw_billboard with bill, bill_position_static, STATIC_BILLBOARD_SCALE, raylib.WHITE
+
+        calling drawing.end_mode_3d
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

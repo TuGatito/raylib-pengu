@@ -1,0 +1,550 @@
+## raylib [models] example - decals
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example contributed by JP Mortiboys (@themushroompirates) and reviewed by Ramon Santamaria (@raysan5)
+## Based on previous work by @mrdoob
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 JP Mortiboys (@themushroompirates) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates projected decal meshes onto 3D character models using frustum clipping in local decal space.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_decals.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raymath
+import rayguix
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.colors as colors
+import raylibx.images as images
+import raylibx.textures as textures
+import raylibx.models as models
+import raylibx.random as random
+import rcamerax
+import std.ffi
+
+# --- Constants ---
+
+## Large float representing infinity for initial ray collision distance.
+const FLT_MAX as f32 is 340282346638528859811704183484516925440.0
+
+## Maximum number of decals allowed on the scene.
+const MAX_DECALS as int is 256
+
+## Degrees to radians conversion factor.
+const DEG2RAD as f32 is 0.017453292519943295
+
+# --- Helpers ---
+
+## Computes the intersection point between an edge segment and a clipping plane.
+##
+## ## Parameters
+## - `v0`: First edge vertex.
+## - `v1`: Second edge vertex.
+## - `p`: Clipping plane normal.
+## - `s`: Plane distance offset.
+##
+## ## Returns
+## Interpolated 3D intersection position along the segment.
+weave clip_segment with v0 as raylib.Vector3, v1 as raylib.Vector3, p as raylib.Vector3, s as f32 into raylib.Vector3:
+    var d0 as f32 is (calling raymath.Vector3DotProduct with v0, p) - s
+    var d1 as f32 is (calling raymath.Vector3DotProduct with v1, p) - s
+    var s0 as f32 is d0 / (d0 - d1)
+    return calling raymath.Vector3Lerp with v0, v1, s0
+
+## Builds and uploads a `raylib.Mesh` from dynamically gathered vertices and UV coordinates.
+##
+## ## Parameters
+## - `vertices`: List of 3D triangle vertices.
+## - `uvs`: List of 2D texture coordinates matching each vertex.
+##
+## ## Returns
+## Uploaded `raylib.Mesh` ready for rendering.
+weave build_mesh with vertices as list of raylib.Vector3, uvs as list of raylib.Vector2 into raylib.Mesh:
+    var count as int is vertices.length
+    var vertices_ptr as ref to f32 is transmute (calling raylib.MemAlloc with (count * 3 * 4)) to (ref to f32)
+    var texcoords_ptr as ref to f32 is transmute (calling raylib.MemAlloc with (count * 2 * 4)) to (ref to f32)
+
+    for i from 0 to count:
+        var v as raylib.Vector3 is vertices at i
+        set vertices_ptr at (3 * i + 0) is v.x
+        set vertices_ptr at (3 * i + 1) is v.y
+        set vertices_ptr at (3 * i + 2) is v.z
+
+        var uv as raylib.Vector2 is uvs at i
+        set texcoords_ptr at (2 * i + 0) is uv.x
+        set texcoords_ptr at (2 * i + 1) is uv.y
+
+    var out_mesh as raylib.Mesh is with:
+        set .vertexCount is count
+        set .triangleCount is count / 3
+        set .vertices is vertices_ptr
+        set .texcoords is texcoords_ptr
+
+    calling raylib.UploadMesh with (sigil of out_mesh), false
+    return out_mesh
+
+## Generates a projected decal mesh on top of the given model.
+##
+## ## Parameters
+## - `target`: Target model to project the decal onto.
+## - `projection`: Local view projection matrix oriented towards the hit surface.
+## - `decal_size`: Extents of the projected decal cube.
+## - `decal_offset`: Normal offset to prevent z-fighting.
+##
+## ## Returns
+## Generated `raylib.Mesh` containing clipped decal triangles.
+weave gen_mesh_decal with target as raylib.Model, projection as raylib.Matrix, decal_size as f32, decal_offset as f32 into raylib.Mesh:
+    var in_verts as list of raylib.Vector3 is list of raylib.Vector3
+    defer banish in_verts
+
+    var out_verts as list of raylib.Vector3 is list of raylib.Vector3
+    defer banish out_verts
+
+    var inv_proj as raylib.Matrix is calling raymath.MatrixInvert with projection
+
+    # First pass: gather model triangles whose transformed vertices are near the decal box
+    for mesh_idx from 0 to target.meshCount:
+        var current_mesh as raylib.Mesh is target.meshes at mesh_idx
+        var has_indices as bool is not calling ffi.is_null with (transmute current_mesh.indices to ref to void)
+
+        for tri from 0 to current_mesh.triangleCount:
+            var i0 as int is 0
+            var i1 as int is 0
+            var i2 as int is 0
+
+            if has_indices:
+                set i0 is (current_mesh.indices at (3 * tri + 0)) to int
+                set i1 is (current_mesh.indices at (3 * tri + 1)) to int
+                set i2 is (current_mesh.indices at (3 * tri + 2)) to int
+            else:
+                set i0 is 3 * tri
+                set i1 is 3 * tri + 1
+                set i2 is 3 * tri + 2
+
+            var va as raylib.Vector3 is with:
+                set .x is (current_mesh.vertices at (3 * i0 + 0))
+                set .y is (current_mesh.vertices at (3 * i0 + 1))
+                set .z is (current_mesh.vertices at (3 * i0 + 2))
+
+            var vb as raylib.Vector3 is with:
+                set .x is (current_mesh.vertices at (3 * i1 + 0))
+                set .y is (current_mesh.vertices at (3 * i1 + 1))
+                set .z is (current_mesh.vertices at (3 * i1 + 2))
+
+            var vc as raylib.Vector3 is with:
+                set .x is (current_mesh.vertices at (3 * i2 + 0))
+                set .y is (current_mesh.vertices at (3 * i2 + 1))
+                set .z is (current_mesh.vertices at (3 * i2 + 2))
+
+            var tva as raylib.Vector3 is calling raymath.Vector3Transform with va, projection
+            var tvb as raylib.Vector3 is calling raymath.Vector3Transform with vb, projection
+            var tvc as raylib.Vector3 is calling raymath.Vector3Transform with vc, projection
+
+            var inside_count as int is 0
+            var ax as f32 is if tva.x < 0.0 then (-tva.x) else tva.x
+            var ay as f32 is if tva.y < 0.0 then (-tva.y) else tva.y
+            var az as f32 is if tva.z < 0.0 then (-tva.z) else tva.z
+            if (ax < decal_size) or (ay <= decal_size) or (az <= decal_size):
+                set inside_count is inside_count + 1
+
+            var bx as f32 is if tvb.x < 0.0 then (-tvb.x) else tvb.x
+            var by as f32 is if tvb.y < 0.0 then (-tvb.y) else tvb.y
+            var bz as f32 is if tvb.z < 0.0 then (-tvb.z) else tvb.z
+            if (bx < decal_size) or (by <= decal_size) or (bz <= decal_size):
+                set inside_count is inside_count + 1
+
+            var cx as f32 is if tvc.x < 0.0 then (-tvc.x) else tvc.x
+            var cy as f32 is if tvc.y < 0.0 then (-tvc.y) else tvc.y
+            var cz as f32 is if tvc.z < 0.0 then (-tvc.z) else tvc.z
+            if (cx < decal_size) or (cy <= decal_size) or (cz <= decal_size):
+                set inside_count is inside_count + 1
+
+            if inside_count > 0:
+                calling in_verts.push with tva
+                calling in_verts.push with tvb
+                calling in_verts.push with tvc
+
+    # Clipping planes for the 6 cube faces
+    var planes as list of raylib.Vector3 is [
+        (with x is 1.0, y is 0.0, z is 0.0),
+        (with x is -1.0, y is 0.0, z is 0.0),
+        (with x is 0.0, y is 1.0, z is 0.0),
+        (with x is 0.0, y is -1.0, z is 0.0),
+        (with x is 0.0, y is 0.0, z is 1.0),
+        (with x is 0.0, y is 0.0, z is -1.0)
+    ]
+    defer banish planes
+
+    var s as f32 is 0.5 * decal_size
+
+    for face from 0 to 6:
+        calling out_verts.clear
+        var pl as raylib.Vector3 is planes at face
+        var num_verts as int is in_verts.length
+
+        var idx as int is 0
+        while idx < num_verts:
+            var v0 as raylib.Vector3 is in_verts at (idx + 0)
+            var v1 as raylib.Vector3 is in_verts at (idx + 1)
+            var v2 as raylib.Vector3 is in_verts at (idx + 2)
+
+            var d1 as f32 is (calling raymath.Vector3DotProduct with v0, pl) - s
+            var d2 as f32 is (calling raymath.Vector3DotProduct with v1, pl) - s
+            var d3 as f32 is (calling raymath.Vector3DotProduct with v2, pl) - s
+
+            var v1_out as int is if d1 > 0.0 then 1 else 0
+            var v2_out as int is if d2 > 0.0 then 1 else 0
+            var v3_out as int is if d3 > 0.0 then 1 else 0
+
+            var total as int is v1_out + v2_out + v3_out
+
+            if total == 0:
+                calling out_verts.push with v0
+                calling out_verts.push with v1
+                calling out_verts.push with v2
+            else:
+                if total == 1:
+                    if v1_out != 0:
+                        var nv1 as raylib.Vector3 is v1
+                        var nv2 as raylib.Vector3 is v2
+                        var nv3 as raylib.Vector3 is calling clip_segment with v0, nv1, pl, s
+                        var nv4 as raylib.Vector3 is calling clip_segment with v0, nv2, pl, s
+                        calling out_verts.push with nv1
+                        calling out_verts.push with nv2
+                        calling out_verts.push with nv3
+                        calling out_verts.push with nv4
+                        calling out_verts.push with nv3
+                        calling out_verts.push with nv2
+                    else:
+                        if v2_out != 0:
+                            var nv1 as raylib.Vector3 is v0
+                            var nv2 as raylib.Vector3 is v2
+                            var nv3 as raylib.Vector3 is calling clip_segment with v1, nv1, pl, s
+                            var nv4 as raylib.Vector3 is calling clip_segment with v1, nv2, pl, s
+                            calling out_verts.push with nv3
+                            calling out_verts.push with nv2
+                            calling out_verts.push with nv1
+                            calling out_verts.push with nv2
+                            calling out_verts.push with nv3
+                            calling out_verts.push with nv4
+                        else:
+                            var nv1 as raylib.Vector3 is v0
+                            var nv2 as raylib.Vector3 is v1
+                            var nv3 as raylib.Vector3 is calling clip_segment with v2, nv1, pl, s
+                            var nv4 as raylib.Vector3 is calling clip_segment with v2, nv2, pl, s
+                            calling out_verts.push with nv1
+                            calling out_verts.push with nv2
+                            calling out_verts.push with nv3
+                            calling out_verts.push with nv4
+                            calling out_verts.push with nv3
+                            calling out_verts.push with nv2
+                else:
+                    if total == 2:
+                        if v1_out == 0:
+                            var nv1 as raylib.Vector3 is v0
+                            var nv2 as raylib.Vector3 is calling clip_segment with nv1, v1, pl, s
+                            var nv3 as raylib.Vector3 is calling clip_segment with nv1, v2, pl, s
+                            calling out_verts.push with nv1
+                            calling out_verts.push with nv2
+                            calling out_verts.push with nv3
+                        else:
+                            if v2_out == 0:
+                                var nv1 as raylib.Vector3 is v1
+                                var nv2 as raylib.Vector3 is calling clip_segment with nv1, v2, pl, s
+                                var nv3 as raylib.Vector3 is calling clip_segment with nv1, v0, pl, s
+                                calling out_verts.push with nv1
+                                calling out_verts.push with nv2
+                                calling out_verts.push with nv3
+                            else:
+                                var nv1 as raylib.Vector3 is v2
+                                var nv2 as raylib.Vector3 is calling clip_segment with nv1, v0, pl, s
+                                var nv3 as raylib.Vector3 is calling clip_segment with nv1, v1, pl, s
+                                calling out_verts.push with nv1
+                                calling out_verts.push with nv2
+                                calling out_verts.push with nv3
+
+            set idx is idx + 3
+
+        # Copy out_verts to in_verts for next pass
+        calling in_verts.clear
+        for k from 0 to out_verts.length:
+            calling in_verts.push with (out_verts at k)
+
+    if in_verts.length == 0:
+        var empty_mesh as raylib.Mesh is with:
+            set .vertexCount is 0
+            set .triangleCount is 0
+        return empty_mesh
+
+    # Compute UVs and transform back to world space
+    var final_uvs as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish final_uvs
+
+    var final_verts as list of raylib.Vector3 is list of raylib.Vector3
+    defer banish final_verts
+
+    for i from 0 to in_verts.length:
+        var vert as raylib.Vector3 is in_verts at i
+        var uv as raylib.Vector2 is with:
+            set .x is (vert.x / decal_size) + 0.5
+            set .y is (vert.y / decal_size) + 0.5
+        calling final_uvs.push with uv
+
+        set vert.z is vert.z - decal_offset
+        var world_v as raylib.Vector3 is calling raymath.Vector3Transform with vert, inv_proj
+        calling final_verts.push with world_v
+
+    return calling build_mesh with final_verts, final_uvs
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - decals"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 5.0, y is 5.0, z is 5.0)
+        set .target is (with x is 0.0, y is 1.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.6, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load character model
+    var model_opt as maybe raylib.Model is calling models.load_model with "resources/models/obj/character.obj"
+    var model as raylib.Model is with meshCount is 0
+    if loaded_m as raylib.Model is model_opt:
+        set model is loaded_m
+    defer calling models.unload_model with model
+
+    # Apply character skin
+    var skin_opt as maybe raylib.Texture2D is calling textures.load_texture with "resources/models/obj/character_diffuse.png"
+    var model_texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_t as raylib.Texture2D is skin_opt:
+        set model_texture is loaded_t
+    defer calling raylib.UnloadTexture with model_texture
+    calling model_texture.set_filter with raylib.TEXTURE_FILTER_BILINEAR
+
+    var mat as ref to raylib.Material is sigil of (model.materials at 0)
+    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, model_texture
+
+    var first_mesh as raylib.Mesh is model.meshes at 0
+    var model_bbox as raylib.BoundingBox is calling first_mesh.bounding_box
+
+    set camera.target is (calling raymath.Vector3Lerp with model_bbox.min, model_bbox.max, 0.5)
+
+    var dx as f32 is if (model_bbox.max.x - model_bbox.min.x) < 0.0 then (-(model_bbox.max.x - model_bbox.min.x)) else (model_bbox.max.x - model_bbox.min.x)
+    var dy as f32 is if (model_bbox.max.y - model_bbox.min.y) < 0.0 then (-(model_bbox.max.y - model_bbox.min.y)) else (model_bbox.max.y - model_bbox.min.y)
+    var dz as f32 is if (model_bbox.max.z - model_bbox.min.z) < 0.0 then (-(model_bbox.max.z - model_bbox.min.z)) else (model_bbox.max.z - model_bbox.min.z)
+
+    var min_xy as f32 is if dx < dy then dx else dy
+    var model_size as f32 is if min_xy < dz then min_xy else dz
+
+    set camera.position is with:
+        set .x is 0.0
+        set .y is model_bbox.max.y * 1.2
+        set .z is model_size * 3.0
+
+    var decal_size as f32 is model_size * 0.25
+    var decal_offset as f32 is 0.01
+
+    var placement_cube as raylib.Model is calling models.load_model_from_mesh with (calling raylib.GenMeshCube with decal_size, decal_size, decal_size)
+    defer calling models.unload_model with placement_cube
+    var cube_mat as ref to raylib.Material is sigil of (placement_cube.materials at 0)
+    var cube_map as ref to raylib.MaterialMap is sigil of (cube_mat->maps at 0)
+    set cube_map->color is raylib.LIME
+
+    var decal_image_opt as maybe raylib.Image is calling images.load_image with "resources/raylib_logo.png"
+    var decal_image as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_img as raylib.Image is decal_image_opt:
+        set decal_image is loaded_img
+    calling decal_image.resize_nearest with (decal_image.width / 4), (decal_image.height / 4)
+
+    var decal_texture as raylib.Texture2D is calling raylib.LoadTextureFromImage with decal_image
+    calling images.unload_image with decal_image
+    defer calling raylib.UnloadTexture with decal_texture
+    calling decal_texture.set_filter with raylib.TEXTURE_FILTER_BILINEAR
+
+    var show_model as bool is true
+    var decal_models as list of raylib.Model is list of raylib.Model
+    defer:
+        for i from 0 to decal_models.length:
+            var dm as raylib.Model is decal_models at i
+            calling models.unload_model with dm
+        banish decal_models
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling raylib.IsMouseButtonDown with raylib.MOUSE_BUTTON_RIGHT:
+            calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_THIRD_PERSON to int)
+
+        var collision as raylib.RayCollision is with:
+            set .hit is false
+            set .distance is FLT_MAX
+            set .point is (with x is 0.0, y is 0.0, z is 0.0)
+            set .normal is (with x is 0.0, y is 0.0, z is 0.0)
+
+        var mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+        var ray as raylib.Ray is calling camera.to_world_ray with mouse_pos
+
+        var box_hit as raylib.RayCollision is calling models.ray_box_hit with ray, model_bbox
+        if box_hit.hit and (decal_models.length < MAX_DECALS):
+            for m from 0 to model.meshCount:
+                var current_mesh as raylib.Mesh is model.meshes at m
+                var hit_info as raylib.RayCollision is calling models.ray_mesh_hit with ray, current_mesh, model.transform
+                if hit_info.hit:
+                    if (not collision.hit) or (collision.distance > hit_info.distance):
+                        set collision is hit_info
+
+        # Add decal to mesh on hit point
+        if collision.hit and (calling raylib.IsMouseButtonPressed with raylib.MOUSE_BUTTON_LEFT) and (decal_models.length < MAX_DECALS):
+            var origin as raylib.Vector3 is calling raymath.Vector3Add with collision.point, (calling raymath.Vector3Scale with collision.normal, 1.0)
+            var up_vec as raylib.Vector3 is with x is 0.0, y is 1.0, z is 0.0
+            var splat as raylib.Matrix is calling raymath.MatrixLookAt with collision.point, origin, up_vec
+
+            var rand_deg as f32 is (calling random.between with -180, 180) to f32
+            var rot_z as raylib.Matrix is calling raymath.MatrixRotateZ with (DEG2RAD * rand_deg)
+            set splat is calling raymath.MatrixMultiply with splat, rot_z
+
+            var decal_mesh as raylib.Mesh is calling gen_mesh_decal with model, splat, decal_size, decal_offset
+            if decal_mesh.vertexCount > 0:
+                var new_model as raylib.Model is calling models.load_model_from_mesh with decal_mesh
+                var dm_mat as ref to raylib.Material is sigil of (new_model.materials at 0)
+                calling dm_mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, decal_texture
+                var dm_map as ref to raylib.MaterialMap is sigil of (dm_mat->maps at (raylib.MATERIAL_MAP_DIFFUSE to int))
+                set dm_map->color is raylib.RAYWHITE
+                calling decal_models.push with new_model
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        var zero_pos as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+
+        if show_model:
+            calling model.draw with zero_pos, 1.0, raylib.WHITE
+
+        for i from 0 to decal_models.length:
+            var dm as raylib.Model is decal_models at i
+            calling dm.draw with zero_pos, 1.0, raylib.WHITE
+
+        if collision.hit:
+            var origin as raylib.Vector3 is calling raymath.Vector3Add with collision.point, (calling raymath.Vector3Scale with collision.normal, 1.0)
+            var up_vec as raylib.Vector3 is with x is 0.0, y is 1.0, z is 0.0
+            var splat as raylib.Matrix is calling raymath.MatrixLookAt with collision.point, origin, up_vec
+            set placement_cube.transform is (calling raymath.MatrixInvert with splat)
+            calling placement_cube.draw with zero_pos, 1.0, (calling colors.fade with raylib.WHITE, 0.5)
+
+        calling shapes3d.draw_grid with 10, 10.0
+        calling drawing.end_mode_3d
+
+        # UI Stats
+        var x0 as f32 is (screen_width to f32) - 300.0
+        var x1 as f32 is x0 + 100.0
+        var x2 as f32 is x1 + 100.0
+        var y_pos as int is 10
+
+        calling txt.draw_text with "Vertices", x1 to int, y_pos, 10, raylib.LIME
+        calling txt.draw_text with "Triangles", x2 to int, y_pos, 10, raylib.LIME
+        set y_pos is y_pos + 15
+
+        var total_vertices as int is 0
+        var total_triangles as int is 0
+
+        for i from 0 to model.meshCount:
+            var msh as raylib.Mesh is model.meshes at i
+            set total_vertices is total_vertices + msh.vertexCount
+            set total_triangles is total_triangles + msh.triangleCount
+
+        calling txt.draw_text with "Main model", x0 to int, y_pos, 10, raylib.LIME
+
+        var v_str as string is "{total_vertices}"
+        calling txt.draw_text with v_str, x1 to int, y_pos, 10, raylib.LIME
+        banish v_str
+
+        var t_str as string is "{total_triangles}"
+        calling txt.draw_text with t_str, x2 to int, y_pos, 10, raylib.LIME
+        banish t_str
+        set y_pos is y_pos + 15
+
+        var num_decals as int is decal_models.length
+        for i from 0 to num_decals:
+            var dm as raylib.Model is decal_models at i
+            var dm_mesh as raylib.Mesh is dm.meshes at 0
+
+            if i == 20:
+                calling txt.draw_text with "...", x0 to int, y_pos, 10, raylib.LIME
+                set y_pos is y_pos + 15
+
+            if i < 20:
+                var decal_lbl as string is "Decal #{i + 1}"
+                calling txt.draw_text with decal_lbl, x0 to int, y_pos, 10, raylib.LIME
+                banish decal_lbl
+
+                var dv_str as string is "{dm_mesh.vertexCount}"
+                calling txt.draw_text with dv_str, x1 to int, y_pos, 10, raylib.LIME
+                banish dv_str
+
+                var dt_str as string is "{dm_mesh.triangleCount}"
+                calling txt.draw_text with dt_str, x2 to int, y_pos, 10, raylib.LIME
+                banish dt_str
+                set y_pos is y_pos + 15
+
+            set total_vertices is total_vertices + dm_mesh.vertexCount
+            set total_triangles is total_triangles + dm_mesh.triangleCount
+
+        calling txt.draw_text with "TOTAL", x0 to int, y_pos, 10, raylib.LIME
+
+        var tot_v_str as string is "{total_vertices}"
+        calling txt.draw_text with tot_v_str, x1 to int, y_pos, 10, raylib.LIME
+        banish tot_v_str
+
+        var tot_t_str as string is "{total_triangles}"
+        calling txt.draw_text with tot_t_str, x2 to int, y_pos, 10, raylib.LIME
+        banish tot_t_str
+
+        calling txt.draw_text with "Hold RMB to move camera", 10, 430, 10, raylib.GRAY
+        calling txt.draw_text with "(c) Character model and texture from kenney.nl", screen_width - 260, screen_height - 20, 10, raylib.GRAY
+
+        # UI Buttons
+        var btn_show_rec as raylib.Rectangle is with x is 10.0, y is (screen_height to f32) - 100.0, width is 100.0, height is 60.0
+        var btn_clear_rec as raylib.Rectangle is with x is 120.0, y is (screen_height to f32) - 100.0, width is 100.0, height is 60.0
+
+        var show_text as string is if show_model then "Hide Model" else "Show Model"
+        if (calling rayguix.button with btn_show_rec, show_text) != 0:
+            set show_model is not show_model
+
+        if (calling rayguix.button with btn_clear_rec, "Clear Decals") != 0:
+            for i from 0 to decal_models.length:
+                var dm as raylib.Model is decal_models at i
+                calling models.unload_model with dm
+            calling decal_models.clear
+
+        calling txt.draw_fps with 10, 10
+        calling drawing.end_drawing
+
+    return 0

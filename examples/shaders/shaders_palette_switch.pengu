@@ -1,0 +1,157 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - palette switch
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Marco Lizza (@MarcoLizza) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to switch indexed color palettes dynamically
+## on the GPU by passing integer triplet uniform arrays (`ivec3[]`) into a fragment shader.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_palette_switch.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Total number of palette presets.
+const MAX_PALETTES as int is 3
+
+## Number of distinct colors per palette.
+const COLORS_PER_PALETTE as int is 8
+
+# --- Helper Functions ---------------------------------------------------
+
+## Returns the RGB components of a preset palette as a flat list of 24 integers (8 x 3).
+##
+## ## Parameters
+## - `index`: The palette index (0 to 2).
+##
+## ## Returns
+## Flat list of integer RGB triplets.
+weave get_palette with index as int into list of int:
+    if index == 0:
+        return [
+            0, 0, 0,
+            255, 0, 0,
+            0, 255, 0,
+            0, 0, 255,
+            0, 255, 255,
+            255, 0, 255,
+            255, 255, 0,
+            255, 255, 255
+        ]
+    if index == 1:
+        return [
+            4, 12, 6,
+            17, 35, 24,
+            30, 58, 41,
+            48, 93, 66,
+            77, 128, 97,
+            137, 162, 87,
+            190, 220, 127,
+            238, 255, 204
+        ]
+    return [
+        21, 25, 26,
+        138, 76, 88,
+        217, 98, 117,
+        230, 184, 193,
+        69, 107, 115,
+        75, 151, 166,
+        165, 189, 194,
+        255, 245, 247
+    ]
+
+## Returns the human-readable display name of a palette index.
+weave get_palette_name with index as int into string:
+    if index == 0:
+        return "3-BIT RGB"
+    if index == 1:
+        return "AMMO-8 (GameBoy-like)"
+    return "RKBV (2-strip film)"
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - palette switch"
+    defer calling raylib.CloseWindow
+
+    # Load palette switch fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/palette_switch.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    var palette_loc as int is 0
+    if loc as int is calling shader.location with "palette":
+        set palette_loc is loc
+
+    var current_palette as int is 0
+    let line_height as int is SCREEN_HEIGHT / COLORS_PER_PALETTE
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling input.is_key_pressed with raylib.KEY_RIGHT:
+            set current_palette is current_palette + 1
+        else if calling input.is_key_pressed with raylib.KEY_LEFT:
+            set current_palette is current_palette - 1
+
+        if current_palette >= MAX_PALETTES:
+            set current_palette is 0
+        else if current_palette < 0:
+            set current_palette is MAX_PALETTES - 1
+
+        # Upload current palette RGB triplets to shader
+        var palette_data as list of int is calling get_palette with current_palette
+        let ptr as ref to frozen void is transmute (sigil of (palette_data at 0)) to ref to frozen void
+        calling raylib.SetShaderValueV with shader, palette_loc, ptr, (raylib.SHADER_UNIFORM_IVEC3 to int), COLORS_PER_PALETTE
+        banish palette_data
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_shader_mode with shader
+
+        for i from 0 to COLORS_PER_PALETTE:
+            var col as raylib.Color is with:
+                set .r is i to byte
+                set .g is i to byte
+                set .b is i to byte
+                set .a is 255
+            calling shapes.draw_rectangle with 0, (line_height * i), SCREEN_WIDTH, line_height, col
+
+        calling drawing.end_shader_mode
+
+        calling txt.draw_text with "< >", 10, 10, 30, raylib.DARKBLUE
+        calling txt.draw_text with "CURRENT PALETTE:", 60, 15, 20, raylib.RAYWHITE
+        calling txt.draw_text with (calling get_palette_name with current_palette), 300, 15, 20, raylib.RED
+
+        calling txt.draw_fps with 700, 15
+        calling drawing.end_drawing
+
+    return 0

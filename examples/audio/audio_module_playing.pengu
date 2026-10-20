@@ -1,0 +1,211 @@
+## raylib [audio] example - module playing
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.5, last time updated with raylib 3.5
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2016-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.input`,
+## `raylibx.shapes`, `raylibx.colors`, `raylibx.random`, `raylibx.text`, `raylibx.audio`),
+## relative asset paths from project root, animated alpha particles, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/audio/audio_module_playing.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.audio as audio
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.random as random
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Maximum number of animated visual circles.
+const MAX_CIRCLES as int is 64
+
+## Path to the XM tracker module file (relative to project root).
+const MODULE_PATH as string is "examples/audio/resources/mini1111.xm"
+
+# --- Types ---
+
+## Represents an animated pulsing circle rendered in sync with the audio.
+rune CircleWave:
+    ## Center position on screen.
+    position as raylib.Vector2
+    ## Current radius in pixels.
+    radius as f32
+    ## Opacity value in range `[0.0, 1.0]`.
+    alpha as f32
+    ## Pulsing speed factor.
+    speed as f32
+    ## Tint color.
+    color as raylib.Color
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Initializes MSAA 4X, window and audio device, streams an XM module music file,
+## animates expanding visual circles, and provides pitch/speed and pause controls.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if asset loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32) # Try to enable MSAA 4X
+
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [audio] example - module playing"
+    defer calling raylib.CloseWindow
+
+    calling raylib.InitAudioDevice # Initialize audio device
+    defer calling raylib.CloseAudioDevice
+
+    var palette as list of raylib.Color is [
+        raylib.ORANGE, raylib.RED, raylib.GOLD, raylib.LIME, raylib.BLUE,
+        raylib.VIOLET, raylib.BROWN, raylib.LIGHTGRAY, raylib.PINK,
+        raylib.YELLOW, raylib.GREEN, raylib.SKYBLUE, raylib.PURPLE, raylib.BEIGE
+    ]
+    defer banish palette
+
+    # Creates some circles for visual effect
+    var circles as list of CircleWave is list of CircleWave
+    defer banish circles
+
+    for i from 0 to MAX_CIRCLES:
+        let rad as f32 is (calling random.between with 10, 40) to f32
+        let min_x as int is rad to int
+        let max_x as int is SCREEN_WIDTH - (rad to int)
+        let min_y as int is rad to int
+        let max_y as int is SCREEN_HEIGHT - (rad to int)
+        let pos_x as f32 is (calling random.between with min_x, max_x) to f32
+        let pos_y as f32 is (calling random.between with min_y, max_y) to f32
+        let spd as f32 is ((calling random.between with 1, 100) to f32) / 2000.0
+        let col_idx as int is calling random.between with 0, 13
+
+        var cw as CircleWave is with:
+            set .position is (with x is pos_x, y is pos_y)
+            set .radius is rad
+            set .alpha is 0.0
+            set .speed is spd
+            set .color is palette at col_idx
+
+        calling circles.push with cw
+
+    let loaded_music as maybe raylib.Music is calling audio.load_music_stream with MODULE_PATH
+    if m as raylib.Music is loaded_music:
+        var music as raylib.Music is m
+        defer calling audio.unload_music_stream with music
+
+        set music.looping is false
+        var pitch as f32 is 1.0
+
+        calling music.play
+
+        var time_played as f32 is 0.0
+        var pause as bool is false
+
+        calling raylib.SetTargetFPS with TARGET_FPS # Set our game to run at 60 frames-per-second
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+            # Update
+            calling music.update # Update music buffer with new stream data
+
+            # Restart music playing (stop and play)
+            if calling input.is_key_pressed with raylib.KEY_SPACE:
+                calling music.stop
+                calling music.play
+                set pause is false
+
+            # Pause/Resume music playing
+            if calling input.is_key_pressed with raylib.KEY_P:
+                set pause is not pause
+
+                if pause:
+                    calling music.pause
+                else:
+                    calling music.resume
+
+            if calling input.is_key_down with raylib.KEY_DOWN:
+                set pitch is pitch - 0.01
+            else if calling input.is_key_down with raylib.KEY_UP:
+                set pitch is pitch + 0.01
+
+            calling music.set_pitch with pitch
+
+            # Get timePlayed scaled to bar dimensions
+            let total_len as f32 is calling music.time_length
+            if total_len > 0.0:
+                set time_played is ((calling music.time_played) / total_len) * ((SCREEN_WIDTH - 40) to f32)
+
+            # Color circles animation
+            if not pause:
+                for i from 0 to MAX_CIRCLES:
+                    var cw as CircleWave is circles at i
+                    set cw.alpha is cw.alpha + cw.speed
+                    set cw.radius is cw.radius + (cw.speed * 10.0)
+
+                    if cw.alpha > 1.0:
+                        set cw.speed is -cw.speed
+
+                    if cw.alpha <= 0.0:
+                        set cw.alpha is 0.0
+                        set cw.radius is (calling random.between with 10, 40) to f32
+                        let mx_x as int is SCREEN_WIDTH - (cw.radius to int)
+                        let mx_y as int is SCREEN_HEIGHT - (cw.radius to int)
+                        set cw.position.x is (calling random.between with (cw.radius to int), mx_x) to f32
+                        set cw.position.y is (calling random.between with (cw.radius to int), mx_y) to f32
+                        let c_idx as int is calling random.between with 0, 13
+                        set cw.color is palette at c_idx
+                        set cw.speed is ((calling random.between with 1, 100) to f32) / 2000.0
+
+                    set circles at i is cw
+
+            # Draw
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            for i from 0 to MAX_CIRCLES:
+                var cw as CircleWave is circles at i
+                let col as raylib.Color is calling colors.fade with cw.color, cw.alpha
+                calling cw.position.draw_circle with cw.radius, col
+
+            # Draw time bar
+            calling shapes.draw_rectangle with 20, SCREEN_HEIGHT - 20 - 12, SCREEN_WIDTH - 40, 12, raylib.LIGHTGRAY
+            calling shapes.draw_rectangle with 20, SCREEN_HEIGHT - 20 - 12, (time_played to int), 12, raylib.MAROON
+            calling shapes.draw_rectangle_lines with 20, SCREEN_HEIGHT - 20 - 12, SCREEN_WIDTH - 40, 12, raylib.GRAY
+
+            # Draw help instructions
+            calling shapes.draw_rectangle with 20, 20, 425, 145, raylib.WHITE
+            calling shapes.draw_rectangle_lines with 20, 20, 425, 145, raylib.GRAY
+            calling txt.draw_text with "PRESS SPACE TO RESTART MUSIC", 40, 40, 20, raylib.BLACK
+            calling txt.draw_text with "PRESS P TO PAUSE/RESUME", 40, 70, 20, raylib.BLACK
+            calling txt.draw_text with "PRESS UP/DOWN TO CHANGE SPEED", 40, 100, 20, raylib.BLACK
+            let speed_txt as string is "SPEED: {pitch}"
+            calling txt.draw_text with speed_txt, 40, 130, 20, raylib.MAROON
+            banish speed_txt
+
+            calling drawing.end_drawing
+
+        return 0
+
+    return 1

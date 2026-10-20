@@ -1,0 +1,155 @@
+## examples/shaders/shaders_ascii_rendering.pengu
+## raylib [shaders] example - ascii rendering
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 6.0
+##
+## Example contributed by Maicon Santana (@maiconpintoabreu) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Maicon Santana (@maiconpintoabreu)
+##
+## ## PenguScript Port
+## Port of `examples/shaders/shaders_ascii_rendering.c` demonstrating post-processing
+## using a custom ASCII fragment shader. A 2D scene is first rendered into an
+## offscreen `RenderTexture2D`, then drawn fullscreen through the post-processing shader.
+##
+## Uses wrappers from `raylibx.textures`, `raylibx.shaders`, `raylibx.drawing`,
+## `raylibx.shapes`, `raylibx.input`, and `raylibx.text`.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_ascii_rendering.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry Point --------------------------------------------------------
+## Program main entry point.
+##
+## Initializes the window, loads textures and the ASCII fragment shader, sets
+## up the offscreen render texture, and runs the interactive post-processing loop.
+##
+## ## Returns
+## Exit status code (`0` on clean shutdown, `1` if asset loading fails).
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - ascii rendering"
+    defer calling raylib.CloseWindow
+
+    # Texture to test static drawing
+    let fudesumi_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/fudesumi.png"
+    if fudesumi as raylib.Texture2D is fudesumi_opt:
+        defer calling textures.unload_texture with fudesumi
+
+        # Texture to test moving drawing
+        let raysan_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/raysan.png"
+        if raysan as raylib.Texture2D is raysan_opt:
+            defer calling textures.unload_texture with raysan
+
+            # Load shader to be used on postprocessing
+            let shader_path as string is "examples/shaders/resources/shaders/glsl330/ascii.fs"
+            let shader_opt as maybe raylib.Shader is calling shaders.load_fragment_shader with shader_path
+            if shader as raylib.Shader is shader_opt:
+                defer calling shaders.unload_shader with shader
+
+                # Query uniform locations
+                var resolution_loc as int is -1
+                if loc as int is calling shader.location with "resolution":
+                    set resolution_loc is loc
+
+                var font_size_loc as int is -1
+                if loc as int is calling shader.location with "fontSize":
+                    set font_size_loc is loc
+
+                # Set the character size for the ASCII effect (minimum 9.0)
+                var font_size as f32 is 9.0
+
+                # Send the resolution vector to the shader
+                let res_vec as raylib.Vector2 is with:
+                    set .x is SCREEN_WIDTH to f32
+                    set .y is SCREEN_HEIGHT to f32
+                calling shader.set_vec2 with resolution_loc, res_vec
+
+                var circle_pos as raylib.Vector2 is with:
+                    set .x is 40.0
+                    set .y is (SCREEN_HEIGHT to f32) * 0.5
+                var circle_speed as f32 is 1.0
+
+                # RenderTexture to apply the postprocessing later
+                let target_opt as maybe raylib.RenderTexture2D is calling textures.load_render_texture with SCREEN_WIDTH, SCREEN_HEIGHT
+                if target as raylib.RenderTexture2D is target_opt:
+                    defer calling textures.unload_render_texture with target
+
+                    calling raylib.SetTargetFPS with TARGET_FPS
+
+                    # Main game loop
+                    while not calling raylib.WindowShouldClose:
+                        # Update
+                        set circle_pos.x is circle_pos.x + circle_speed
+                        if (circle_pos.x > 200.0) or (circle_pos.x < 40.0):
+                            set circle_speed is circle_speed * -1.0
+
+                        if (calling input.is_key_pressed with raylib.KEY_LEFT) and (font_size > 9.0):
+                            set font_size is font_size - 1.0
+
+                        if (calling input.is_key_pressed with raylib.KEY_RIGHT) and (font_size < 15.0):
+                            set font_size is font_size + 1.0
+
+                        # Send updated font size to the shader
+                        calling shader.set_float with font_size_loc, font_size
+
+                        # Draw offscreen scene into render texture
+                        calling drawing.begin_texture_mode with target
+                        calling drawing.clear_background with raylib.WHITE
+                        calling fudesumi.draw with 500, -30, raylib.WHITE
+                        calling raysan.draw_at with circle_pos, raylib.WHITE
+                        calling drawing.end_texture_mode
+
+                        # Draw post-processed scene to screen
+                        calling drawing.begin_drawing
+                        calling drawing.clear_background with raylib.RAYWHITE
+
+                        calling drawing.begin_shader_mode with shader
+                        var src_rec as raylib.Rectangle is with:
+                            set .x is 0.0
+                            set .y is 0.0
+                            set .width is target.texture.width to f32
+                            set .height is -(target.texture.height to f32)
+                        var dst_pos as raylib.Vector2 is with:
+                            set .x is 0.0
+                            set .y is 0.0
+                        calling target.texture.draw_rec with src_rec, dst_pos, raylib.WHITE
+                        calling drawing.end_shader_mode
+
+                        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, 40, raylib.BLACK
+                        let info_text as string is "Ascii effect - FontSize:{(font_size to int)} - [Left] -1 [Right] +1 "
+                        defer banish info_text
+                        calling txt.draw_text with info_text, 120, 10, 20, raylib.LIGHTGRAY
+                        calling txt.draw_fps with 10, 10
+
+                        calling drawing.end_drawing
+
+                    return 0
+
+    return 1

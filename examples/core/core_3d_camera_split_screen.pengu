@@ -1,0 +1,211 @@
+## examples/core/core_3d_camera_split_screen.pengu
+## raylib [core] example - 3d camera split screen
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 3.7, last time updated with raylib 4.0
+##
+## Example contributed by Jeffery Myers (@JeffM2501) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2021-2025 Jeffery Myers (@JeffM2501)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_3d_camera_split_screen.c` on top of the
+## `raylibx` wrapper layer. The two identical 3D views of the original are factored
+## into `draw_player_view`, which receives the active camera, both player positions,
+## and the top-bar label for that half. `load_render_texture` returns `maybe`; the
+## example unwraps both render targets with `if ... as ... is ...:` and exits with
+## code `1` if the GPU cannot create either target, releasing both with `defer`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_3d_camera_split_screen.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main game loop.
+const TARGET_FPS as int is 60
+
+## Vertical field-of-view of each player camera, in degrees.
+const CAMERA_FOVY as f32 is 45.0
+
+## Movement speed of each player, in world units per second.
+const MOVE_SPEED as f32 is 10.0
+
+## Half-extent of the tree grid, in number of steps along each axis.
+const GRID_COUNT as int is 5
+
+## Spacing between adjacent cube trees, in world units.
+const GRID_SPACING as f32 is 4.0
+
+# --- Helpers ------------------------------------------------------------
+## Draws the 3D scene (ground plane, grid of cube trees, and both players) and
+## the top info bar from a single player's camera.
+##
+## ## Parameters
+## - `camera`: 3D camera for this half of the screen.
+## - `player1_pos`, `player2_pos`: world positions of the two players.
+## - `label`: top-bar text for this half.
+## - `label_color`: color for that text.
+##
+## ## Notes
+## Called inside a `begin_texture_mode` block; `GetScreenWidth` is read at runtime
+## to match the original C layout.
+##
+## ## Memory
+## Allocates no memory. `label` is borrowed and not freed.
+weave draw_player_view with camera as raylib.Camera3D, player1_pos as raylib.Vector3, player2_pos as raylib.Vector3, label as string, label_color as raylib.Color into void:
+    calling drawing.clear_background with raylib.SKYBLUE
+
+    calling drawing.begin_mode_3d with camera
+
+    # Draw scene: grid of cube trees on a plane to make a "world"
+    let ground_center as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    calling ground_center.draw_plane with (with x is 50.0, y is 50.0), raylib.BEIGE  # Simple world plane
+
+    for ix from -GRID_COUNT to (GRID_COUNT + 1):
+        let x as f32 is (ix to f32) * GRID_SPACING
+        for iz from -GRID_COUNT to (GRID_COUNT + 1):
+            let z as f32 is (iz to f32) * GRID_SPACING
+            calling shapes3d.draw_cube with (with x is x, y is 1.5, z is z), 1.0, 1.0, 1.0, raylib.LIME
+            calling shapes3d.draw_cube with (with x is x, y is 0.5, z is z), 0.25, 1.0, 0.25, raylib.BROWN
+
+    # Draw a cube at each player's position
+    calling shapes3d.draw_cube with player1_pos, 1.0, 1.0, 1.0, raylib.RED
+    calling shapes3d.draw_cube with player2_pos, 1.0, 1.0, 1.0, raylib.BLUE
+
+    calling drawing.end_mode_3d
+
+    let bar_color as raylib.Color is calling colors.fade with raylib.RAYWHITE, 0.8
+    calling shapes.draw_rectangle with 0, 0, ((calling raylib.GetScreenWidth) / 2), 40, bar_color
+    calling txt.draw_text with label, 10, 10, 20, label_color
+
+## Runs the split-screen update and draw loop until the window closes.
+##
+## ## Parameters
+## - `screen1`, `screen2`: render targets for each player's half of the screen.
+## - `camera1`, `camera2`: 3D cameras for player 1 and player 2, mutated in place.
+##
+## ## Notes
+## The loop ends when the user closes the window; the render targets are unloaded
+## by `main` via `defer`, not by this function.
+##
+## ## Memory
+## Borrows both render targets and cameras; does not free them.
+weave run_demo with screen1 as raylib.RenderTexture, screen2 as raylib.RenderTexture, camera1 as ref to raylib.Camera3D, camera2 as ref to raylib.Camera3D into void:
+    # Build a flipped rectangle the size of the split view to use for drawing later
+    let split_screen_rect as raylib.Rectangle is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .width is (screen1.texture.width to f32)
+        set .height is -(screen1.texture.height to f32)
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        # If anyone moves this frame, how far will they move based on the time since the last frame
+        # this moves things at 10 world units per second, regardless of the actual FPS
+        let offset_this_frame as f32 is MOVE_SPEED * (calling raylib.GetFrameTime)
+
+        # Move Player1 forward and backwards (no turning)
+        if calling input.is_key_down with raylib.KEY_W:
+            set camera1->position.z += offset_this_frame
+            set camera1->target.z += offset_this_frame
+        else if calling input.is_key_down with raylib.KEY_S:
+            set camera1->position.z -= offset_this_frame
+            set camera1->target.z -= offset_this_frame
+
+        # Move Player2 forward and backwards (no turning)
+        if calling input.is_key_down with raylib.KEY_UP:
+            set camera2->position.x += offset_this_frame
+            set camera2->target.x += offset_this_frame
+        else if calling input.is_key_down with raylib.KEY_DOWN:
+            set camera2->position.x -= offset_this_frame
+            set camera2->target.x -= offset_this_frame
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        # Draw Player1 view to the render texture
+        calling drawing.begin_texture_mode with screen1
+        calling draw_player_view with (essence of camera1), camera1->position, camera2->position, "PLAYER1: W/S to move", raylib.MAROON
+        calling drawing.end_texture_mode
+
+        # Draw Player2 view to the render texture
+        calling drawing.begin_texture_mode with screen2
+        calling draw_player_view with (essence of camera2), camera1->position, camera2->position, "PLAYER2: UP/DOWN to move", raylib.DARKBLUE
+        calling drawing.end_texture_mode
+
+        # Draw both views render textures to the screen side by side
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.BLACK
+
+        calling screen1.texture.draw_rec with split_screen_rect, (with x is 0.0, y is 0.0), raylib.WHITE
+        calling screen2.texture.draw_rec with split_screen_rect, (with x is ((SCREEN_WIDTH to f32) / 2.0), y is 0.0), raylib.WHITE
+
+        calling shapes.draw_rectangle with (((calling raylib.GetScreenWidth) / 2) - 2), 0, 4, (calling raylib.GetScreenHeight), raylib.LIGHTGRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+# --- Entry point --------------------------------------------------------
+## Sets up both 3D cameras and render targets, then hands control to `run_demo`.
+##
+## ## Returns
+## `0` when the window closes normally; `1` if either render target cannot be
+## created.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - 3d camera split screen"
+    defer calling raylib.CloseWindow
+
+    # Setup player 1 camera and screen
+    var camera_player1 as raylib.Camera3D with:
+        set .position is with x is 0.0, y is 1.0, z is -3.0
+        set .target is with x is 0.0, y is 1.0, z is 0.0
+        set .up is with x is 0.0, y is 1.0, z is 0.0
+        set .fovy is CAMERA_FOVY
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Setup player 2 camera and screen
+    var camera_player2 as raylib.Camera3D with:
+        set .position is with x is -3.0, y is 3.0, z is 0.0
+        set .target is with x is 0.0, y is 3.0, z is 0.0
+        set .up is with x is 0.0, y is 1.0, z is 0.0
+        set .fovy is CAMERA_FOVY
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    let first_target as maybe raylib.RenderTexture is calling textures.load_render_texture with (SCREEN_WIDTH / 2), SCREEN_HEIGHT
+    if screen_player1 as raylib.RenderTexture is first_target:
+        defer calling textures.unload_render_texture with screen_player1
+
+        let second_target as maybe raylib.RenderTexture is calling textures.load_render_texture with (SCREEN_WIDTH / 2), SCREEN_HEIGHT
+        if screen_player2 as raylib.RenderTexture is second_target:
+            defer calling textures.unload_render_texture with screen_player2
+
+            calling raylib.SetTargetFPS with TARGET_FPS
+            calling run_demo with screen_player1, screen_player2, (sigil of camera_player1), (sigil of camera_player2)
+            return 0
+
+    return 1

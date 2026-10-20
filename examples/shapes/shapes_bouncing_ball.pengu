@@ -1,0 +1,96 @@
+## ## PenguScript Port
+## Translated from raylib [shapes] example - bouncing ball
+##
+## Original example complexity rating: [★☆☆☆] 1/4
+## Contributed by Ramon Santamaria (@raysan5) and reviewed by Jopestpe (@jopestpe)
+##
+## This example demonstrates a basic 2D bouncing ball physics simulation with
+## toggleable gravity and pause states.
+##
+## ## Example
+## ```bash
+## pengu run examples/shapes/shapes_bouncing_ball.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32)
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - bouncing ball"
+    defer calling raylib.CloseWindow
+
+    var ball_position as raylib.Vector2 is with:
+        set .x is (screen_width to f32) / 2.0
+        set .y is (screen_height to f32) / 2.0
+
+    var ball_speed as raylib.Vector2 is with:
+        set .x is 5.0
+        set .y is 4.0
+
+    const ball_radius as int is 20
+    const gravity as f32 is 0.2
+
+    var use_gravity as bool is true
+    var pause as bool is false
+    var frames_counter as int is 0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling input.is_key_pressed with raylib.KEY_G:
+            set use_gravity is not use_gravity
+
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set pause is not pause
+
+        if not pause:
+            set ball_position.x is ball_position.x + ball_speed.x
+            set ball_position.y is ball_position.y + ball_speed.y
+
+            if use_gravity:
+                set ball_speed.y is ball_speed.y + gravity
+
+            # Check walls collision for bouncing
+            if (ball_position.x >= ((screen_width - ball_radius) to f32)) or (ball_position.x <= (ball_radius to f32)):
+                set ball_speed.x is ball_speed.x * -1.0
+
+            if (ball_position.y >= ((screen_height - ball_radius) to f32)) or (ball_position.y <= (ball_radius to f32)):
+                set ball_speed.y is ball_speed.y * -0.95
+        else:
+            set frames_counter is frames_counter + 1
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling ball_position.draw_circle with (ball_radius to f32), raylib.MAROON
+        calling txt.draw_text with "PRESS SPACE to PAUSE BALL MOVEMENT", 10, (screen_height - 25), 20, raylib.LIGHTGRAY
+
+        if use_gravity:
+            calling txt.draw_text with "GRAVITY: ON (Press G to disable)", 10, (screen_height - 50), 20, raylib.DARKGREEN
+        else:
+            calling txt.draw_text with "GRAVITY: OFF (Press G to enable)", 10, (screen_height - 50), 20, raylib.RED
+
+        # On pause, draw blinking message
+        if pause and (((frames_counter / 30) % 2) != 0):
+            calling txt.draw_text with "PAUSED", 350, 200, 30, raylib.GRAY
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+
+    return 0

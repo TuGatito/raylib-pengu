@@ -1,0 +1,285 @@
+## raylib [models] example - skybox rendering
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 1.8, last time updated with raylib 4.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2017-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates skybox rendering using cube meshes and GPU equirectangular-to-cubemap conversion.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_skybox_rendering.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import rlgl
+import raymath
+import raylibx.drawing as drawing
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.images as images
+import raylibx.textures as textures
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.files as files
+import rcamerax
+import std.ffi
+
+# --- Constants ---
+
+## Degrees to radians conversion factor.
+const DEG2RAD as f64 is 0.017453292519943295
+
+# --- Helpers ---
+
+## Generates a cubemap texture from an equirectangular panorama texture using an offscreen FBO.
+##
+## ## Parameters
+## - `shader`: Cubemap generation shader converting spherical coordinates to cube face projections.
+## - `panorama`: Source 2D equirectangular panorama texture.
+## - `cubemap_size`: Resolution of each square face of the cubemap.
+## - `format`: Pixel format for the allocated cubemap faces.
+##
+## ## Returns
+## Allocated `raylib.Texture` containing the 6 cubemap faces.
+weave gen_texture_cubemap with shader as raylib.Shader, panorama as raylib.Texture2D, cubemap_size as int, format as int into raylib.Texture:
+    var cubemap as raylib.Texture is with:
+        set .id is 0
+        set .width is cubemap_size
+        set .height is cubemap_size
+        set .mipmaps is 1
+        set .format is format
+
+    calling rlgl.rlDisableBackfaceCulling
+
+    # Step 1: Setup framebuffer
+    var rbo as u32 is calling rlgl.rlLoadTextureDepth with cubemap_size, cubemap_size, true
+    set cubemap.id is calling rlgl.rlLoadTextureCubemap with (calling ffi.null_void), cubemap_size, format, 1
+
+    var fbo as u32 is calling rlgl.rlLoadFramebuffer
+    calling rlgl.rlFramebufferAttach with fbo, rbo, (rlgl.RL_ATTACHMENT_DEPTH to int), (rlgl.RL_ATTACHMENT_RENDERBUFFER to int), 0
+    calling rlgl.rlFramebufferAttach with fbo, cubemap.id, (rlgl.RL_ATTACHMENT_COLOR_CHANNEL0 to int), (rlgl.RL_ATTACHMENT_CUBEMAP_POSITIVE_X to int), 0
+
+    let _complete as bool is calling rlgl.rlFramebufferComplete with fbo
+
+    # Step 2: Draw to framebuffer
+    calling rlgl.rlEnableShader with shader.id
+
+    var near_dist as f64 is calling rlgl.rlGetCullDistanceNear
+    var far_dist as f64 is calling rlgl.rlGetCullDistanceFar
+    var mat_fbo_proj as raylib.Matrix is calling raymath.MatrixPerspective with (90.0 * DEG2RAD), 1.0, near_dist, far_dist
+
+    var proj_loc as int is shader.locs at (raylib.SHADER_LOC_MATRIX_PROJECTION to int)
+    calling rlgl.rlSetUniformMatrix with proj_loc, mat_fbo_proj
+
+    var zero_v3 as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    var view_views as list of raylib.Matrix is [
+        (calling raymath.MatrixLookAt with zero_v3, (with x is 1.0, y is 0.0, z is 0.0), (with x is 0.0, y is -1.0, z is 0.0)),
+        (calling raymath.MatrixLookAt with zero_v3, (with x is -1.0, y is 0.0, z is 0.0), (with x is 0.0, y is -1.0, z is 0.0)),
+        (calling raymath.MatrixLookAt with zero_v3, (with x is 0.0, y is 1.0, z is 0.0), (with x is 0.0, y is 0.0, z is 1.0)),
+        (calling raymath.MatrixLookAt with zero_v3, (with x is 0.0, y is -1.0, z is 0.0), (with x is 0.0, y is 0.0, z is -1.0)),
+        (calling raymath.MatrixLookAt with zero_v3, (with x is 0.0, y is 0.0, z is 1.0), (with x is 0.0, y is -1.0, z is 0.0)),
+        (calling raymath.MatrixLookAt with zero_v3, (with x is 0.0, y is 0.0, z is -1.0), (with x is 0.0, y is -1.0, z is 0.0))
+    ]
+    defer banish view_views
+
+    calling rlgl.rlViewport with 0, 0, cubemap_size, cubemap_size
+
+    calling rlgl.rlActiveTextureSlot with 0
+    calling rlgl.rlEnableTexture with panorama.id
+
+    var view_loc as int is shader.locs at (raylib.SHADER_LOC_MATRIX_VIEW to int)
+
+    for i from 0 to 6:
+        var view_mat as raylib.Matrix is view_views at i
+        calling rlgl.rlSetUniformMatrix with view_loc, view_mat
+
+        calling rlgl.rlFramebufferAttach with fbo, cubemap.id, (rlgl.RL_ATTACHMENT_COLOR_CHANNEL0 to int), ((rlgl.RL_ATTACHMENT_CUBEMAP_POSITIVE_X to int) + i), 0
+        calling rlgl.rlEnableFramebuffer with fbo
+
+        calling rlgl.rlClearScreenBuffers
+        calling rlgl.rlLoadDrawCube
+
+    # Step 3: Unload framebuffer and restore default state
+    calling rlgl.rlDisableShader
+    calling rlgl.rlDisableTexture
+    calling rlgl.rlDisableFramebuffer
+    calling rlgl.rlUnloadFramebuffer with fbo
+
+    calling rlgl.rlViewport with 0, 0, (calling rlgl.rlGetFramebufferWidth), (calling rlgl.rlGetFramebufferHeight)
+    calling rlgl.rlEnableBackfaceCulling
+
+    return cubemap
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - skybox rendering"
+    defer calling raylib.CloseWindow
+
+    # Define camera to look into our 3D world
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 1.0, y is 1.0, z is 1.0)
+        set .target is (with x is 4.0, y is 1.0, z is 4.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load skybox model
+    var cube_mesh as raylib.Mesh is calling raylib.GenMeshCube with 1.0, 1.0, 1.0
+    var skybox as raylib.Model is calling models.load_model_from_mesh with cube_mesh
+    defer calling models.unload_model with skybox
+
+    var use_hdr as bool is false
+
+    # Load skybox shader
+    var skybox_shader_opt as maybe raylib.Shader is calling shaders.load_shader with "resources/shaders/glsl330/skybox.vs", "resources/shaders/glsl330/skybox.fs"
+    var skybox_shader as raylib.Shader is with id is 0
+    if loaded_sh as raylib.Shader is skybox_shader_opt:
+        set skybox_shader is loaded_sh
+    defer calling shaders.unload_shader with skybox_shader
+
+    var env_map_val as int is raylib.MATERIAL_MAP_CUBEMAP to int
+    var do_gamma_val as int is if use_hdr then 1 else 0
+    var vflipped_val as int is if use_hdr then 1 else 0
+
+    var env_loc as maybe int is calling skybox_shader.location with "environmentMap"
+    if l as int is env_loc:
+        calling skybox_shader.set_int with l, env_map_val
+
+    var gamma_loc as maybe int is calling skybox_shader.location with "doGamma"
+    if l as int is gamma_loc:
+        calling skybox_shader.set_int with l, do_gamma_val
+
+    var vflip_loc as maybe int is calling skybox_shader.location with "vflipped"
+    if l as int is vflip_loc:
+        calling skybox_shader.set_int with l, vflipped_val
+
+    var mat as ref to raylib.Material is sigil of (skybox.materials at 0)
+    set mat->shader is skybox_shader
+
+    # Load cubemap generation shader
+    var shdr_cubemap_opt as maybe raylib.Shader is calling shaders.load_shader with "resources/shaders/glsl330/cubemap.vs", "resources/shaders/glsl330/cubemap.fs"
+    var shdr_cubemap as raylib.Shader is with id is 0
+    if loaded_sh as raylib.Shader is shdr_cubemap_opt:
+        set shdr_cubemap is loaded_sh
+    defer calling shaders.unload_shader with shdr_cubemap
+
+    var eq_loc as maybe int is calling shdr_cubemap.location with "equirectangularMap"
+    if l as int is eq_loc:
+        calling shdr_cubemap.set_int with l, 0
+
+    var skybox_file_name as string is ""
+
+    var cubemap_tex as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+
+    if use_hdr:
+        set skybox_file_name is "resources/dresden_square_2k.hdr"
+        var panorama_opt as maybe raylib.Texture2D is calling textures.load_texture with skybox_file_name
+        var panorama as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+        if loaded_p as raylib.Texture2D is panorama_opt:
+            set panorama is loaded_p
+
+        set cubemap_tex is (calling gen_texture_cubemap with shdr_cubemap, panorama, 1024, (raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 to int))
+        calling raylib.UnloadTexture with panorama
+    else:
+        set skybox_file_name is "resources/skybox.png"
+        var img_opt as maybe raylib.Image is calling images.load_image with skybox_file_name
+        var img as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+        if loaded_i as raylib.Image is img_opt:
+            set img is loaded_i
+
+        var cm_opt as maybe raylib.Texture2D is calling textures.load_texture_cubemap with img, (raylib.CUBEMAP_LAYOUT_AUTO_DETECT to int)
+        if loaded_cm as raylib.Texture2D is cm_opt:
+            set cubemap_tex is loaded_cm
+        calling images.unload_image with img
+
+    defer calling raylib.UnloadTexture with cubemap_tex
+
+    var map_cubemap as ref to raylib.MaterialMap is sigil of (mat->maps at (raylib.MATERIAL_MAP_CUBEMAP to int))
+    set map_cubemap->texture is cubemap_tex
+
+    calling raylib.DisableCursor
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FIRST_PERSON to int)
+
+        # Load new cubemap texture on drag and drop
+        if calling raylib.IsFileDropped:
+            var dropped as list of string is calling files.dropped_files
+            if dropped.length == 1:
+                var file_path as string is dropped at 0
+                if calling files.is_file_extension with file_path, ".png;.jpg;.hdr;.bmp;.tga":
+                    calling raylib.UnloadTexture with cubemap_tex
+
+                    if use_hdr:
+                        var pan_opt as maybe raylib.Texture2D is calling textures.load_texture with file_path
+                        var pan as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+                        if loaded_pan as raylib.Texture2D is pan_opt:
+                            set pan is loaded_pan
+
+                        set cubemap_tex is (calling gen_texture_cubemap with shdr_cubemap, pan, 1024, (raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 to int))
+                        calling raylib.UnloadTexture with pan
+                    else:
+                        var drop_img_opt as maybe raylib.Image is calling images.load_image with file_path
+                        var drop_img as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+                        if loaded_di as raylib.Image is drop_img_opt:
+                            set drop_img is loaded_di
+
+                        var drop_cm_opt as maybe raylib.Texture2D is calling textures.load_texture_cubemap with drop_img, (raylib.CUBEMAP_LAYOUT_AUTO_DETECT to int)
+                        if loaded_dcm as raylib.Texture2D is drop_cm_opt:
+                            set cubemap_tex is loaded_dcm
+                        calling images.unload_image with drop_img
+
+                    set map_cubemap->texture is cubemap_tex
+                    set skybox_file_name is file_path
+
+            for d in dropped:
+                banish d
+            banish dropped
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        # Render skybox inside cube (disable backface culling and depth write)
+        calling rlgl.rlDisableBackfaceCulling
+        calling rlgl.rlDisableDepthMask
+
+        var zero_pos as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+        calling skybox.draw with zero_pos, 1.0, raylib.WHITE
+
+        calling rlgl.rlEnableBackfaceCulling
+        calling rlgl.rlEnableDepthMask
+
+        calling shapes3d.draw_grid with 10, 1.0
+        calling drawing.end_mode_3d
+
+        var fname as string is calling files.file_name with skybox_file_name
+        var info_str as string is if use_hdr then "Panorama image from hdrihaven.com: {fname}" else ": {fname}"
+        calling txt.draw_text with info_str, 10, screen_height - 20, 10, raylib.BLACK
+        banish fname
+        banish info_str
+
+        calling txt.draw_fps with 10, 10
+        calling drawing.end_drawing
+
+    return 0

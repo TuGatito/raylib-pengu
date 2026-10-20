@@ -1,0 +1,275 @@
+## raylib [models] example - textured cube
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 4.5, last time updated with raylib 4.5
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2022-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates drawing textured 3D cubes using rlgl immediate-mode vertex rendering.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_textured_cube.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import rlgl
+import raylibx.drawing as drawing
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+import rcamerax
+
+# --- Helpers ---
+
+## Draws a textured 3D cube using immediate-mode rlgl quad calls.
+##
+## ## Parameters
+## - `texture`: Texture applied to all cube faces.
+## - `position`: Center position of the cube.
+## - `width`: Cube width along the X axis.
+## - `height`: Cube height along the Y axis.
+## - `length`: Cube length along the Z axis.
+## - `color`: Tint color for vertex modulation.
+weave draw_cube_texture with texture as raylib.Texture2D, position as raylib.Vector3, width as f32, height as f32, length as f32, color as raylib.Color into void:
+    var x as f32 is position.x
+    var y as f32 is position.y
+    var z as f32 is position.z
+
+    var hw as f32 is width / 2.0
+    var hh as f32 is height / 2.0
+    var hl as f32 is length / 2.0
+
+    calling rlgl.rlSetTexture with texture.id
+
+    calling rlgl.rlBegin with (rlgl.RL_QUADS to int)
+    calling rlgl.rlColor4ub with color.r, color.g, color.b, color.a
+
+    # Front Face
+    calling rlgl.rlNormal3f with 0.0, 0.0, 1.0
+    calling rlgl.rlTexCoord2f with 0.0, 0.0
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z + hl)
+    calling rlgl.rlTexCoord2f with 1.0, 0.0
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z + hl)
+    calling rlgl.rlTexCoord2f with 1.0, 1.0
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z + hl)
+    calling rlgl.rlTexCoord2f with 0.0, 1.0
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z + hl)
+
+    # Back Face
+    calling rlgl.rlNormal3f with 0.0, 0.0, -1.0
+    calling rlgl.rlTexCoord2f with 1.0, 0.0
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z - hl)
+    calling rlgl.rlTexCoord2f with 1.0, 1.0
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z - hl)
+    calling rlgl.rlTexCoord2f with 0.0, 1.0
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z - hl)
+    calling rlgl.rlTexCoord2f with 0.0, 0.0
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z - hl)
+
+    # Top Face
+    calling rlgl.rlNormal3f with 0.0, 1.0, 0.0
+    calling rlgl.rlTexCoord2f with 0.0, 1.0
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z - hl)
+    calling rlgl.rlTexCoord2f with 0.0, 0.0
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z + hl)
+    calling rlgl.rlTexCoord2f with 1.0, 0.0
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z + hl)
+    calling rlgl.rlTexCoord2f with 1.0, 1.0
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z - hl)
+
+    # Bottom Face
+    calling rlgl.rlNormal3f with 0.0, -1.0, 0.0
+    calling rlgl.rlTexCoord2f with 1.0, 1.0
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z - hl)
+    calling rlgl.rlTexCoord2f with 0.0, 1.0
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z - hl)
+    calling rlgl.rlTexCoord2f with 0.0, 0.0
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z + hl)
+    calling rlgl.rlTexCoord2f with 1.0, 0.0
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z + hl)
+
+    # Right Face
+    calling rlgl.rlNormal3f with 1.0, 0.0, 0.0
+    calling rlgl.rlTexCoord2f with 1.0, 0.0
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z - hl)
+    calling rlgl.rlTexCoord2f with 1.0, 1.0
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z - hl)
+    calling rlgl.rlTexCoord2f with 0.0, 1.0
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z + hl)
+    calling rlgl.rlTexCoord2f with 0.0, 0.0
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z + hl)
+
+    # Left Face
+    calling rlgl.rlNormal3f with -1.0, 0.0, 0.0
+    calling rlgl.rlTexCoord2f with 0.0, 0.0
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z - hl)
+    calling rlgl.rlTexCoord2f with 1.0, 0.0
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z + hl)
+    calling rlgl.rlTexCoord2f with 1.0, 1.0
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z + hl)
+    calling rlgl.rlTexCoord2f with 0.0, 1.0
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z - hl)
+
+    calling rlgl.rlEnd
+    calling rlgl.rlSetTexture with 0
+
+## Draws a 3D cube mapped to a specific sub-rectangle of a texture.
+##
+## ## Parameters
+## - `texture`: Source texture containing the region to sample.
+## - `source`: Sub-rectangle in pixel space.
+## - `position`: Center position of the cube.
+## - `width`: Cube width along the X axis.
+## - `height`: Cube height along the Y axis.
+## - `length`: Cube length along the Z axis.
+## - `color`: Tint color for vertex modulation.
+weave draw_cube_texture_rec with texture as raylib.Texture2D, source as raylib.Rectangle, position as raylib.Vector3, width as f32, height as f32, length as f32, color as raylib.Color into void:
+    var x as f32 is position.x
+    var y as f32 is position.y
+    var z as f32 is position.z
+    var tex_width as f32 is texture.width to f32
+    var tex_height as f32 is texture.height to f32
+
+    var hw as f32 is width / 2.0
+    var hh as f32 is height / 2.0
+    var hl as f32 is length / 2.0
+
+    calling rlgl.rlSetTexture with texture.id
+
+    calling rlgl.rlBegin with (rlgl.RL_QUADS to int)
+    calling rlgl.rlColor4ub with color.r, color.g, color.b, color.a
+
+    # Front face
+    calling rlgl.rlNormal3f with 0.0, 0.0, 1.0
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z + hl)
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z + hl)
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z + hl)
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z + hl)
+
+    # Back face
+    calling rlgl.rlNormal3f with 0.0, 0.0, -1.0
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z - hl)
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z - hl)
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z - hl)
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z - hl)
+
+    # Top face
+    calling rlgl.rlNormal3f with 0.0, 1.0, 0.0
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z - hl)
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z + hl)
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z + hl)
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z - hl)
+
+    # Bottom face
+    calling rlgl.rlNormal3f with 0.0, -1.0, 0.0
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z - hl)
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z - hl)
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z + hl)
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z + hl)
+
+    # Right face
+    calling rlgl.rlNormal3f with 1.0, 0.0, 0.0
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z - hl)
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z - hl)
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y + hh), (z + hl)
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x + hw), (y - hh), (z + hl)
+
+    # Left face
+    calling rlgl.rlNormal3f with -1.0, 0.0, 0.0
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z - hl)
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), ((source.y + source.height) / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y - hh), (z + hl)
+    calling rlgl.rlTexCoord2f with ((source.x + source.width) / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z + hl)
+    calling rlgl.rlTexCoord2f with (source.x / tex_width), (source.y / tex_height)
+    calling rlgl.rlVertex3f with (x - hw), (y + hh), (z - hl)
+
+    calling rlgl.rlEnd
+    calling rlgl.rlSetTexture with 0
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - textured cube"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 0.0, y is 10.0, z is 10.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load texture to be applied to the cube sides
+    var texture_opt as maybe raylib.Texture2D is calling textures.load_texture with "resources/cubicmap_atlas.png"
+    var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture2D is texture_opt:
+        set texture is loaded_tex
+    defer calling raylib.UnloadTexture with texture
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        # Draw cube with an applied texture
+        var cube1_pos as raylib.Vector3 is with x is -2.0, y is 2.0, z is 0.0
+        calling draw_cube_texture with texture, cube1_pos, 2.0, 4.0, 2.0, raylib.WHITE
+
+        # Draw cube with an applied texture, but only a defined rectangle piece of the texture
+        var src_rec as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is (texture.height to f32) / 2.0
+            set .width is (texture.width to f32) / 2.0
+            set .height is (texture.height to f32) / 2.0
+
+        var cube2_pos as raylib.Vector3 is with x is 2.0, y is 1.0, z is 0.0
+        calling draw_cube_texture_rec with texture, src_rec, cube2_pos, 2.0, 2.0, 2.0, raylib.WHITE
+
+        calling shapes3d.draw_grid with 10, 1.0
+
+        calling drawing.end_mode_3d
+
+        calling txt.draw_fps with 10, 10
+        calling drawing.end_drawing
+
+    return 0

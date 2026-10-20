@@ -1,0 +1,126 @@
+## raylib [models] example - cubicmap rendering
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 1.8, last time updated with raylib 3.5
+## Example licensed under an unmodified zlib/libpng license.
+##
+## ## PenguScript Port
+## - Uses `raylibx.drawing` for frame and 3D mode scopes
+## - Uses `raylibx.models` for model loading and drawing
+## - Uses `raylibx.images` and `raylibx.textures` for loading cubicmap image and texture atlas
+## - Uses `raylibx.shapes` for drawing minimap outline
+## - Uses `raylibx.text` for UI annotations and FPS counter
+##
+## ## Example
+## ```pengu
+## pengu run examples/models/models_cubicmap_rendering.pengu
+## ```
+
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ---
+
+## Target window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Target window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## ## Returns
+## Exit status code (0 for success).
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - cubicmap rendering"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D with:
+        set .position is (with x is 16.0, y is 14.0, z is 16.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var image as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+
+    if loaded_img as raylib.Image is calling images.load_image with "resources/cubicmap.png":
+        set image is loaded_img
+
+    var cubicmap as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture is calling textures.load_texture_from_image with image:
+        set cubicmap is loaded_tex
+    defer calling textures.unload_texture with cubicmap
+
+    let mesh_size as raylib.Vector3 is with x is 1.0, y is 1.0, z is 1.0
+    let mesh as raylib.Mesh is calling raylib.GenMeshCubicmap with image, mesh_size
+    var model as raylib.Model is calling models.load_model_from_mesh with mesh
+    defer calling models.unload_model with model
+
+    # Unload cubicmap image from RAM as it has been uploaded to VRAM and mesh is generated
+    calling images.unload_image with image
+
+    var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_atlas as raylib.Texture is calling textures.load_texture with "resources/cubicmap_atlas.png":
+        set texture is loaded_atlas
+    defer calling textures.unload_texture with texture
+
+    var mat0 as ref to raylib.Material is sigil of (model.materials at 0)
+    calling mat0.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    let map_pos as raylib.Vector3 is with x is -16.0, y is 0.0, z is -8.0
+    var pause as bool is false
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling input.is_key_pressed with raylib.KEY_P:
+            set pause is not pause
+
+        if not pause:
+            calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        calling model.draw with map_pos, 1.0, raylib.WHITE
+        calling drawing.end_mode_3d
+
+        let preview_x as f32 is (SCREEN_WIDTH to f32) - (cubicmap.width to f32) * 4.0 - 20.0
+        let preview_pos as raylib.Vector2 is with x is preview_x, y is 20.0
+        calling cubicmap.draw_ex with preview_pos, 0.0, 4.0, raylib.WHITE
+
+        let rect_x as int is SCREEN_WIDTH - cubicmap.width * 4 - 20
+        calling shapes.draw_rectangle_lines with rect_x, 20, cubicmap.width * 4, cubicmap.height * 4, raylib.GREEN
+
+        calling txt.draw_text with "cubicmap image used to", 658, 90, 10, raylib.GRAY
+        calling txt.draw_text with "generate map 3d model", 658, 104, 10, raylib.GRAY
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

@@ -1,0 +1,206 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - julia set
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Josh Colclough (@joshcol9232) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to render the Julia fractal set in real time
+## using a custom fragment shader, allowing interactive exploration, zooming,
+## panning, and cycling through preset points of interest.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_julia_set.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Multiplier for zooming speed.
+const ZOOM_SPEED as f32 is 1.01
+
+## Multiplier for panning offset speed.
+const OFFSET_SPEED_MUL as f32 is 2.0
+
+## Default starting zoom level.
+const STARTING_ZOOM as f32 is 0.75
+
+# --- Helper Functions ---------------------------------------------------
+
+## Returns a predefined point of interest in the complex parameter plane.
+##
+## ## Parameters
+## - `index`: Preset index (0 to 5).
+##
+## ## Returns
+## The complex constant `c` as a `raylib.Vector2`.
+weave point_of_interest with index as int into raylib.Vector2:
+    if index == 0:
+        return (with x is -0.348827, y is 0.607167)
+    if index == 1:
+        return (with x is -0.786268, y is 0.169728)
+    if index == 2:
+        return (with x is -0.8, y is 0.156)
+    if index == 3:
+        return (with x is 0.285, y is 0.0)
+    if index == 4:
+        return (with x is -0.835, y is -0.2321)
+    return (with x is -0.70176, y is -0.3842)
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - julia set"
+    defer calling raylib.CloseWindow
+
+    # Load julia set fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/julia_set.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Create render texture
+    var target as raylib.RenderTexture2D is with id is 0
+    if loaded_target as raylib.RenderTexture2D is calling textures.load_render_texture with SCREEN_WIDTH, SCREEN_HEIGHT:
+        set target is loaded_target
+    else:
+        return 1
+    defer calling textures.unload_render_texture with target
+
+    # Complex constant c for z^2 + c
+    var c as raylib.Vector2 is calling point_of_interest with 0
+    var offset as raylib.Vector2 is with x is 0.0, y is 0.0
+    var zoom as f32 is STARTING_ZOOM
+
+    # Query shader uniform locations
+    var c_loc as int is 0
+    if loc as int is calling shader.location with "c":
+        set c_loc is loc
+
+    var zoom_loc as int is 0
+    if loc as int is calling shader.location with "zoom":
+        set zoom_loc is loc
+
+    var offset_loc as int is 0
+    if loc as int is calling shader.location with "offset":
+        set offset_loc is loc
+
+    calling shader.set_vec2 with c_loc, c
+    calling shader.set_float with zoom_loc, zoom
+    calling shader.set_vec2 with offset_loc, offset
+
+    var increment_speed as int is 0
+    var show_controls as bool is true
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # Number keys [1 - 6] to select preset
+        if calling input.is_key_pressed with raylib.KEY_ONE:
+            set c is calling point_of_interest with 0
+            calling shader.set_vec2 with c_loc, c
+        else if calling input.is_key_pressed with raylib.KEY_TWO:
+            set c is calling point_of_interest with 1
+            calling shader.set_vec2 with c_loc, c
+        else if calling input.is_key_pressed with raylib.KEY_THREE:
+            set c is calling point_of_interest with 2
+            calling shader.set_vec2 with c_loc, c
+        else if calling input.is_key_pressed with raylib.KEY_FOUR:
+            set c is calling point_of_interest with 3
+            calling shader.set_vec2 with c_loc, c
+        else if calling input.is_key_pressed with raylib.KEY_FIVE:
+            set c is calling point_of_interest with 4
+            calling shader.set_vec2 with c_loc, c
+        else if calling input.is_key_pressed with raylib.KEY_SIX:
+            set c is calling point_of_interest with 5
+            calling shader.set_vec2 with c_loc, c
+
+        # Reset camera
+        if calling input.is_key_pressed with raylib.KEY_R:
+            set zoom is STARTING_ZOOM
+            set offset is with x is 0.0, y is 0.0
+            calling shader.set_float with zoom_loc, zoom
+            calling shader.set_vec2 with offset_loc, offset
+
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set increment_speed is 0
+
+        if calling input.is_key_pressed with raylib.KEY_F1:
+            set show_controls is not show_controls
+
+        if calling input.is_key_pressed with raylib.KEY_RIGHT:
+            set increment_speed is increment_speed + 1
+        else if calling input.is_key_pressed with raylib.KEY_LEFT:
+            set increment_speed is increment_speed - 1
+
+        # Zoom in/out with mouse buttons
+        let l_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT
+        let r_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_RIGHT
+        if l_down or r_down:
+            let z_factor as f32 is if l_down then ZOOM_SPEED else (1.0 / ZOOM_SPEED)
+            set zoom is zoom * z_factor
+
+            let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+            let vel_x as f32 is (((mouse_pos.x / (SCREEN_WIDTH to f32)) - 0.5) * OFFSET_SPEED_MUL) / zoom
+            let vel_y as f32 is (((mouse_pos.y / (SCREEN_HEIGHT to f32)) - 0.5) * OFFSET_SPEED_MUL) / zoom
+
+            let dt as f32 is calling raylib.GetFrameTime
+            set offset.x is offset.x + (dt * vel_x)
+            set offset.y is offset.y + (dt * vel_y)
+
+            calling shader.set_float with zoom_loc, zoom
+            calling shader.set_vec2 with offset_loc, offset
+
+        # Increment c value over time
+        let dc as f32 is (calling raylib.GetFrameTime) * (increment_speed to f32) * 0.0005
+        set c.x is c.x + dc
+        set c.y is c.y + dc
+        calling shader.set_vec2 with c_loc, c
+
+        # Draw to render texture
+        calling drawing.begin_texture_mode with target
+        calling drawing.clear_background with raylib.BLACK
+        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.BLACK
+        calling drawing.end_texture_mode
+
+        # Draw to screen
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.BLACK
+
+        calling drawing.begin_shader_mode with shader
+        calling target.texture.draw_ex with (with x is 0.0, y is 0.0), 0.0, 1.0, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        if show_controls:
+            calling txt.draw_text with "Press Mouse buttons right/left to zoom in/out and move", 10, 15, 10, raylib.RAYWHITE
+            calling txt.draw_text with "Press KEY_F1 to toggle these controls", 10, 30, 10, raylib.RAYWHITE
+            calling txt.draw_text with "Press KEYS [1 - 6] to change point of interest", 10, 45, 10, raylib.RAYWHITE
+            calling txt.draw_text with "Press KEY_LEFT | KEY_RIGHT to change speed", 10, 60, 10, raylib.RAYWHITE
+            calling txt.draw_text with "Press KEY_SPACE to stop movement animation", 10, 75, 10, raylib.RAYWHITE
+            calling txt.draw_text with "Press KEY_R to recenter the camera", 10, 90, 10, raylib.RAYWHITE
+
+        calling drawing.end_drawing
+
+    return 0

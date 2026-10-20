@@ -1,0 +1,260 @@
+## raylib [shapes] example - penrose tile
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 6.0
+## Based on: https://processing.org/examples/penrosetile.html
+##
+## Example contributed by David Buzatto (@davidbuzatto) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 David Buzatto (@davidbuzatto)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and dynamic L-system production.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_penrose_tile.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import pengu.raymathx as raymathx
+import std.fractio as fractio
+
+# --- Constants ---
+
+## Maximum capacity of the turtle state stack
+const TURTLE_STACK_MAX_SIZE as int is 50
+
+# --- Types ---
+
+## Represents the turtle graphics position and heading angle
+rune TurtleState:
+    origin as raylib.Vector2
+    angle as f32
+
+## Represents the Penrose L-System state and rules
+rune PenroseLSystem:
+    steps as int
+    production as list of byte
+    draw_length as f32
+    theta as f32
+
+# --- Helpers ---
+
+## Creates a new Penrose L-System with default initial axiom
+##
+## ## Parameters
+## - `draw_length`: length of segments drawn by the turtle
+##
+## ## Returns
+## Initialized PenroseLSystem
+weave create_penrose_l_system with draw_length as f32 into PenroseLSystem:
+    var initial_prod as list of byte is list of byte
+    let axiom as string is "[X]++[X]++[X]++[X]++[X]"
+    let raw_axiom as ref to frozen byte is bytes of axiom
+    let axiom_len as int is (calling txt.text_length with axiom) to int
+    for i from 0 to axiom_len - 1:
+        calling initial_prod.push with ((raw_axiom at i) to byte)
+
+    return with:
+        set .steps is 0
+        set .production is initial_prod
+        set .draw_length is draw_length
+        set .theta is 36.0
+
+## Advances the L-System by one production step according to Penrose rules
+##
+## ## Parameters
+## - `ls`: reference to the Penrose L-System to expand
+weave build_production_step with ls as ref to PenroseLSystem into void:
+    var new_prod as list of byte is list of byte
+
+    let rule_w as string is "YF++ZF4-XF[-YF4-WF]++"
+    let raw_w as ref to frozen byte is bytes of rule_w
+    let len_w as int is (calling txt.text_length with rule_w) to int
+
+    let rule_x as string is "+YF--ZF[3-WF--XF]+"
+    let raw_x as ref to frozen byte is bytes of rule_x
+    let len_x as int is (calling txt.text_length with rule_x) to int
+
+    let rule_y as string is "-WF++XF[+++YF++ZF]-"
+    let raw_y as ref to frozen byte is bytes of rule_y
+    let len_y as int is (calling txt.text_length with rule_y) to int
+
+    let rule_z as string is "--YF++++WF[+ZF++++XF]--XF"
+    let raw_z as ref to frozen byte is bytes of rule_z
+    let len_z as int is (calling txt.text_length with rule_z) to int
+
+    let prod_len as int is ls->production.length
+    for i from 0 to prod_len - 1:
+        let step as int is (ls->production at i) to int
+        if step == 87: # 'W'
+            for k from 0 to len_w - 1:
+                calling new_prod.push with ((raw_w at k) to byte)
+        else if step == 88: # 'X'
+            for k from 0 to len_x - 1:
+                calling new_prod.push with ((raw_x at k) to byte)
+        else if step == 89: # 'Y'
+            for k from 0 to len_y - 1:
+                calling new_prod.push with ((raw_y at k) to byte)
+        else if step == 90: # 'Z'
+            for k from 0 to len_z - 1:
+                calling new_prod.push with ((raw_z at k) to byte)
+        else:
+            if step != 70: # skip 'F'
+                calling new_prod.push with (step to byte)
+
+    set ls->draw_length is ls->draw_length * 0.5
+    banish ls->production
+    set ls->production is new_prod
+
+## Draws the Penrose tile lines using turtle graphics
+##
+## ## Parameters
+## - `ls`: reference to the Penrose L-System to render
+weave draw_penrose_l_system with ls as ref to PenroseLSystem into void:
+    let screen_center as raylib.Vector2 is with:
+        set .x is ((calling raylib.GetScreenWidth) to f32) / 2.0
+        set .y is ((calling raylib.GetScreenHeight) to f32) / 2.0
+
+    var turtle as TurtleState is with:
+        set .origin is with:
+            set .x is 0.0
+            set .y is 0.0
+        set .angle is -90.0
+
+    var turtle_stack as list of TurtleState is list of TurtleState
+    defer banish turtle_stack
+    for k from 0 to TURTLE_STACK_MAX_SIZE - 1:
+        calling turtle_stack.push with with:
+            set .origin is with:
+                set .x is 0.0
+                set .y is 0.0
+            set .angle is 0.0
+
+    var turtle_top as int is -1
+
+    var repeats as int is 1
+    let prod_len as int is ls->production.length
+    set ls->steps is ls->steps + 12
+    if ls->steps > prod_len:
+        set ls->steps is prod_len
+
+    for i from 0 to ls->steps - 1:
+        let step as int is (ls->production at i) to int
+        if step == 70: # 'F'
+            for j from 0 to repeats - 1:
+                let start_pos_world as raylib.Vector2 is turtle.origin
+                let rad_angle as f32 is raymathx.DEG2RAD * turtle.angle
+                set turtle.origin.x is turtle.origin.x + (ls->draw_length * (calling rad_angle.get_cos))
+                set turtle.origin.y is turtle.origin.y + (ls->draw_length * (calling rad_angle.get_sin))
+
+                let start_pos_screen as raylib.Vector2 is with:
+                    set .x is start_pos_world.x + screen_center.x
+                    set .y is start_pos_world.y + screen_center.y
+                let end_pos_screen as raylib.Vector2 is with:
+                    set .x is turtle.origin.x + screen_center.x
+                    set .y is turtle.origin.y + screen_center.y
+
+                let line_color as raylib.Color is calling colors.fade with raylib.BLACK, 0.2
+                calling start_pos_screen.draw_line_ex with end_pos_screen, 2.0, line_color
+            set repeats is 1
+        else if step == 43: # '+'
+            for j from 0 to repeats - 1:
+                set turtle.angle is turtle.angle + ls->theta
+            set repeats is 1
+        else if step == 45: # '-'
+            for j from 0 to repeats - 1:
+                set turtle.angle is turtle.angle - ls->theta
+            set repeats is 1
+        else if step == 91: # '['
+            if turtle_top < (TURTLE_STACK_MAX_SIZE - 1):
+                set turtle_top is turtle_top + 1
+                set turtle_stack at turtle_top is turtle
+        else if step == 93: # ']'
+            if turtle_top >= 0:
+                set turtle is turtle_stack at turtle_top
+                set turtle_top is turtle_top - 1
+        else if (step >= 48) and (step <= 57): # '0'..'9'
+            set repeats is step - 48
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32)
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - penrose tile"
+    defer calling raylib.CloseWindow
+
+    let draw_length as f32 is 460.0
+    let min_generations as int is 0
+    let max_generations as int is 4
+    var generations as int is 0
+
+    # Initialize new penrose tile
+    let initial_scale as f32 is if max_generations > 0 then (generations to f32) / (max_generations to f32) else 0.0
+    var ls as PenroseLSystem is calling create_penrose_l_system with (draw_length * initial_scale)
+    defer banish ls.production
+
+    for i from 0 to generations - 1:
+        calling build_production_step with (sigil of ls)
+
+    calling raylib.SetTargetFPS with 120
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        var rebuild as bool is false
+        if calling input.is_key_pressed with raylib.KEY_UP:
+            if generations < max_generations:
+                set generations is generations + 1
+                set rebuild is true
+        else if calling input.is_key_pressed with raylib.KEY_DOWN:
+            if generations > min_generations:
+                set generations is generations - 1
+                if generations > 0:
+                    set rebuild is true
+
+        if rebuild:
+            banish ls.production
+            let scale as f32 is (generations to f32) / (max_generations to f32)
+            set ls is calling create_penrose_l_system with (draw_length * scale)
+            for i from 0 to generations - 1:
+                calling build_production_step with (sigil of ls)
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        if generations > 0:
+            calling draw_penrose_l_system with (sigil of ls)
+
+        calling txt.draw_text with "penrose l-system", 10, 10, 20, raylib.DARKGRAY
+        calling txt.draw_text with "press up or down to change generations", 10, 30, 20, raylib.DARKGRAY
+
+        var gen_msg as string is "generations: {generations}"
+        calling txt.draw_text with gen_msg, 10, 50, 20, raylib.DARKGRAY
+        banish gen_msg
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

@@ -1,0 +1,259 @@
+## examples/core/core_window_flags.pengu
+## raylib [core] example - window flags
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 3.5, last time updated with raylib 3.5
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2020-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_window_flags.c` on top of the
+## `raylibx` wrapper layer. Window state queries and updates go through
+## `raylibx.window` (`is_window_state`, `set_window_state`,
+## `clear_window_state`), while the repeated flag toggle and status-line drawing
+## patterns are factored into small helpers using PenguScript `if ... then ... else ...`
+## value expressions.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_window_flags.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.window as window
+
+# --- Constants ----------------------------------------------------------
+## Initial window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Radius of the bouncing ball, in pixels.
+const BALL_RADIUS as f32 is 20.0
+
+## Number of frames before a hidden or minimized window restores itself.
+const AUTO_RESTORE_FRAMES as int is 240
+
+# --- Helpers ------------------------------------------------------------
+## Enables a single window configuration flag through `raylibx.window`.
+##
+## ## Parameters
+## - `flag`: the `raylib.ConfigFlags` bit to enable.
+##
+## ## Memory
+## Allocates and immediately frees a 1-element list to build the slice.
+weave set_flag with flag as raylib.ConfigFlags into void:
+    var flags as list of raylib.ConfigFlags is list of raylib.ConfigFlags
+    defer banish flags
+    calling flags.push with flag
+    calling window.set_window_state with (flags at 0 to (flags.length))
+
+## Clears a single window configuration flag through `raylibx.window`.
+##
+## ## Parameters
+## - `flag`: the `raylib.ConfigFlags` bit to clear.
+##
+## ## Memory
+## Allocates and immediately frees a 1-element list to build the slice.
+weave clear_flag with flag as raylib.ConfigFlags into void:
+    var flags as list of raylib.ConfigFlags is list of raylib.ConfigFlags
+    defer banish flags
+    calling flags.push with flag
+    calling window.clear_window_state with (flags at 0 to (flags.length))
+
+## Toggles a single window configuration flag on or off.
+##
+## ## Parameters
+## - `flag`: the `raylib.ConfigFlags` bit to toggle.
+##
+## ## Memory
+## No persistent allocation.
+weave toggle_flag with flag as raylib.ConfigFlags into void:
+    if calling window.is_window_state with flag:
+        calling clear_flag with flag
+    else:
+        calling set_flag with flag
+
+## Draws a status line for a window flag, colored lime when active and maroon
+## when inactive.
+##
+## ## Parameters
+## - `flag`: the `raylib.ConfigFlags` bit to query.
+## - `on_text`: text drawn when `flag` is set.
+## - `off_text`: text drawn when `flag` is clear.
+## - `y`: vertical pixel coordinate of the line.
+##
+## ## Memory
+## Borrows `on_text` and `off_text`; does not allocate.
+weave draw_flag_status with flag as raylib.ConfigFlags, on_text as string, off_text as string, y as int into void:
+    let is_on as bool is calling window.is_window_state with flag
+    let label as string is if is_on then on_text else off_text
+    let col as raylib.Color is if is_on then raylib.LIME else raylib.MAROON
+    calling txt.draw_text with label, 10, y, 10, col
+
+# --- Entry point --------------------------------------------------------
+## Opens a window, bounces a circle inside its bounds, and lets the user toggle
+## window flags interactively with the keyboard.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    # Possible window flags:
+    # FLAG_VSYNC_HINT
+    # FLAG_FULLSCREEN_MODE    -> not working properly -> wrong scaling!
+    # FLAG_WINDOW_RESIZABLE
+    # FLAG_WINDOW_UNDECORATED
+    # FLAG_WINDOW_TRANSPARENT
+    # FLAG_WINDOW_HIDDEN
+    # FLAG_WINDOW_MINIMIZED   -> Not supported on window creation
+    # FLAG_WINDOW_MAXIMIZED   -> Not supported on window creation
+    # FLAG_WINDOW_UNFOCUSED
+    # FLAG_WINDOW_TOPMOST
+    # FLAG_WINDOW_HIGHDPI     -> errors after minimize-resize, fb size is recalculated
+    # FLAG_WINDOW_ALWAYS_RUN
+    # FLAG_MSAA_4X_HINT
+
+    # Set configuration flags for window creation
+    # calling raylib.SetConfigFlags with ((raylib.FLAG_VSYNC_HINT to u32) | (raylib.FLAG_MSAA_4X_HINT to u32) | (raylib.FLAG_WINDOW_HIGHDPI to u32))
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - window flags"
+    defer calling raylib.CloseWindow
+
+    var ball_position as raylib.Vector2 with:
+        set .x is ((calling raylib.GetScreenWidth) to f32) / 2.0
+        set .y is ((calling raylib.GetScreenHeight) to f32) / 2.0
+    var ball_speed as raylib.Vector2 is with x is 5.0, y is 4.0
+
+    var frames_counter as int is 0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling input.is_key_pressed with raylib.KEY_F:
+            calling raylib.ToggleFullscreen
+
+        if calling input.is_key_pressed with raylib.KEY_R:
+            calling toggle_flag with raylib.FLAG_WINDOW_RESIZABLE
+
+        if calling input.is_key_pressed with raylib.KEY_D:
+            calling toggle_flag with raylib.FLAG_WINDOW_UNDECORATED
+
+        if calling input.is_key_pressed with raylib.KEY_H:
+            if not (calling window.is_window_state with raylib.FLAG_WINDOW_HIDDEN):
+                calling set_flag with raylib.FLAG_WINDOW_HIDDEN
+            set frames_counter is 0
+
+        if calling window.is_window_state with raylib.FLAG_WINDOW_HIDDEN:
+            set frames_counter += 1
+            if frames_counter >= AUTO_RESTORE_FRAMES:
+                calling clear_flag with raylib.FLAG_WINDOW_HIDDEN
+
+        if calling input.is_key_pressed with raylib.KEY_N:
+            if not (calling window.is_window_state with raylib.FLAG_WINDOW_MINIMIZED):
+                calling raylib.MinimizeWindow
+            set frames_counter is 0
+
+        if calling window.is_window_state with raylib.FLAG_WINDOW_MINIMIZED:
+            set frames_counter += 1
+            if frames_counter >= AUTO_RESTORE_FRAMES:
+                calling raylib.RestoreWindow
+                set frames_counter is 0
+
+        if calling input.is_key_pressed with raylib.KEY_M:
+            # NOTE: Requires FLAG_WINDOW_RESIZABLE enabled!
+            if calling window.is_window_state with raylib.FLAG_WINDOW_MAXIMIZED:
+                calling raylib.RestoreWindow
+            else:
+                calling raylib.MaximizeWindow
+
+        if calling input.is_key_pressed with raylib.KEY_U:
+            calling toggle_flag with raylib.FLAG_WINDOW_UNFOCUSED
+
+        if calling input.is_key_pressed with raylib.KEY_T:
+            calling toggle_flag with raylib.FLAG_WINDOW_TOPMOST
+
+        if calling input.is_key_pressed with raylib.KEY_A:
+            calling toggle_flag with raylib.FLAG_WINDOW_ALWAYS_RUN
+
+        if calling input.is_key_pressed with raylib.KEY_V:
+            calling toggle_flag with raylib.FLAG_VSYNC_HINT
+
+        if calling input.is_key_pressed with raylib.KEY_B:
+            calling raylib.ToggleBorderlessWindowed
+
+        # Bouncing ball logic
+        let screen_w_int as int is calling raylib.GetScreenWidth
+        let screen_h_int as int is calling raylib.GetScreenHeight
+        let screen_w as f32 is (screen_w_int to f32)
+        let screen_h as f32 is (screen_h_int to f32)
+
+        set ball_position.x += ball_speed.x
+        set ball_position.y += ball_speed.y
+        if (ball_position.x >= (screen_w - BALL_RADIUS)) or (ball_position.x <= BALL_RADIUS):
+            set ball_speed.x *= -1.0
+        if (ball_position.y >= (screen_h - BALL_RADIUS)) or (ball_position.y <= BALL_RADIUS):
+            set ball_speed.y *= -1.0
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        let bg_color as raylib.Color is if (calling window.is_window_state with raylib.FLAG_WINDOW_TRANSPARENT) then raylib.BLANK else raylib.RAYWHITE
+        calling drawing.clear_background with bg_color
+
+        calling ball_position.draw_circle with BALL_RADIUS, raylib.MAROON
+
+        let screen_border as raylib.Rectangle is with x is 0.0, y is 0.0, width is screen_w, height is screen_h
+        calling screen_border.draw_outline with 4.0, raylib.RAYWHITE
+
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+        calling mouse_pos.draw_circle with 10.0, raylib.DARKBLUE
+
+        calling txt.draw_fps with 10, 10
+
+        let size_label as string is "Screen Size: [{screen_w_int}, {screen_h_int}]"
+        calling txt.draw_text with size_label, 10, 40, 10, raylib.GREEN
+        banish size_label
+
+        # Draw window state info
+        calling txt.draw_text with "Following flags can be set after window creation:", 10, 60, 10, raylib.GRAY
+        calling draw_flag_status with raylib.FLAG_FULLSCREEN_MODE, "[F] FLAG_FULLSCREEN_MODE: on", "[F] FLAG_FULLSCREEN_MODE: off", 80
+        calling draw_flag_status with raylib.FLAG_WINDOW_RESIZABLE, "[R] FLAG_WINDOW_RESIZABLE: on", "[R] FLAG_WINDOW_RESIZABLE: off", 100
+        calling draw_flag_status with raylib.FLAG_WINDOW_UNDECORATED, "[D] FLAG_WINDOW_UNDECORATED: on", "[D] FLAG_WINDOW_UNDECORATED: off", 120
+        calling draw_flag_status with raylib.FLAG_WINDOW_HIDDEN, "[H] FLAG_WINDOW_HIDDEN: on", "[H] FLAG_WINDOW_HIDDEN: off (hides for 3 seconds)", 140
+        calling draw_flag_status with raylib.FLAG_WINDOW_MINIMIZED, "[N] FLAG_WINDOW_MINIMIZED: on", "[N] FLAG_WINDOW_MINIMIZED: off (restores after 3 seconds)", 160
+        calling draw_flag_status with raylib.FLAG_WINDOW_MAXIMIZED, "[M] FLAG_WINDOW_MAXIMIZED: on", "[M] FLAG_WINDOW_MAXIMIZED: off", 180
+        calling draw_flag_status with raylib.FLAG_WINDOW_UNFOCUSED, "[G] FLAG_WINDOW_UNFOCUSED: on", "[U] FLAG_WINDOW_UNFOCUSED: off", 200
+        calling draw_flag_status with raylib.FLAG_WINDOW_TOPMOST, "[T] FLAG_WINDOW_TOPMOST: on", "[T] FLAG_WINDOW_TOPMOST: off", 220
+        calling draw_flag_status with raylib.FLAG_WINDOW_ALWAYS_RUN, "[A] FLAG_WINDOW_ALWAYS_RUN: on", "[A] FLAG_WINDOW_ALWAYS_RUN: off", 240
+        calling draw_flag_status with raylib.FLAG_VSYNC_HINT, "[V] FLAG_VSYNC_HINT: on", "[V] FLAG_VSYNC_HINT: off", 260
+        calling draw_flag_status with raylib.FLAG_BORDERLESS_WINDOWED_MODE, "[B] FLAG_BORDERLESS_WINDOWED_MODE: on", "[B] FLAG_BORDERLESS_WINDOWED_MODE: off", 280
+
+        calling txt.draw_text with "Following flags can only be set before window creation:", 10, 320, 10, raylib.GRAY
+        calling draw_flag_status with raylib.FLAG_WINDOW_HIGHDPI, "FLAG_WINDOW_HIGHDPI: on", "FLAG_WINDOW_HIGHDPI: off", 340
+        calling draw_flag_status with raylib.FLAG_WINDOW_TRANSPARENT, "FLAG_WINDOW_TRANSPARENT: on", "FLAG_WINDOW_TRANSPARENT: off", 360
+        calling draw_flag_status with raylib.FLAG_MSAA_4X_HINT, "FLAG_MSAA_4X_HINT: on", "FLAG_MSAA_4X_HINT: off", 380
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

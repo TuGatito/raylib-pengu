@@ -1,0 +1,106 @@
+## ## PenguScript Port
+## Translated from raylib [shapes] example - dashed line
+##
+## Original example complexity rating: [★☆☆☆] 1/4
+## Contributed by Luis Almeida (@luis605)
+##
+## This example demonstrates drawing configurable dashed lines with custom dash
+## length, spacing, and dynamic interactive mouse-following endpoints.
+##
+## ## Example
+## ```bash
+## pengu run examples/shapes/shapes_dashed_line.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - dashed line"
+    defer calling raylib.CloseWindow
+
+    # Line properties
+    var line_start as raylib.Vector2 is with:
+        set .x is 20.0
+        set .y is 50.0
+
+    var line_end as raylib.Vector2 is with:
+        set .x is 780.0
+        set .y is 400.0
+
+    var dash_length as f32 is 25.0
+    var blank_length as f32 is 15.0
+
+    # Color selection
+    let line_colors as list of raylib.Color is [
+        raylib.RED, raylib.ORANGE, raylib.GOLD, raylib.GREEN,
+        raylib.BLUE, raylib.VIOLET, raylib.PINK, raylib.BLACK
+    ]
+    defer banish line_colors
+
+    let colors_count as int is line_colors.length
+    var color_index as int is 0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set line_end is calling raylib.GetMousePosition
+
+        # Change dash length (UP/DOWN arrows)
+        if calling input.is_key_down with raylib.KEY_UP:
+            set dash_length is dash_length + 1.0
+
+        if (calling input.is_key_down with raylib.KEY_DOWN) and (dash_length > 1.0):
+            set dash_length is dash_length - 1.0
+
+        # Change space length (LEFT/RIGHT arrows)
+        if calling input.is_key_down with raylib.KEY_RIGHT:
+            set blank_length is blank_length + 1.0
+
+        if (calling input.is_key_down with raylib.KEY_LEFT) and (blank_length > 1.0):
+            set blank_length is blank_length - 1.0
+
+        # Cycle through colors ('C' key)
+        if calling input.is_key_pressed with raylib.KEY_C:
+            set color_index is (color_index + 1) % colors_count
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Draw dashed line with current properties
+        calling line_start.draw_line_dashed with line_end, (dash_length to int), (blank_length to int), (line_colors at color_index)
+
+        # Draw UI and instructions
+        let box_tint as raylib.Color is calling colors.fade with raylib.SKYBLUE, 0.5
+        calling shapes.draw_rectangle with 5, 5, 265, 95, box_tint
+        calling shapes.draw_rectangle_lines with 5, 5, 265, 95, raylib.BLUE
+
+        calling txt.draw_text with "CONTROLS:", 15, 15, 10, raylib.BLACK
+        calling txt.draw_text with "UP/DOWN: Change Dash Length", 15, 35, 10, raylib.BLACK
+        calling txt.draw_text with "LEFT/RIGHT: Change Space Length", 15, 55, 10, raylib.BLACK
+        calling txt.draw_text with "C: Cycle Color", 15, 75, 10, raylib.BLACK
+
+        let info_str as string is "Dash: {dash_length to int} | Space: {blank_length to int}"
+        defer banish info_str
+        calling txt.draw_text with info_str, 15, 115, 10, raylib.DARKGRAY
+
+        calling txt.draw_fps with (screen_width - 80), 10
+
+        calling drawing.end_drawing
+
+    return 0

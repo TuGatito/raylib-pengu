@@ -1,0 +1,128 @@
+## raylib [models] example - directional billboard
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+## Example contributed by Robin (@RobinsAviary) and reviewed by Ramon Santamaria (@raysan5)
+## Example licensed under an unmodified zlib/libpng license.
+## Killbot art by patvanmackelberg under CC0.
+##
+## ## PenguScript Port
+## - Uses `raylibx.drawing` for frame and 3D mode scopes
+## - Uses `raylibx.textures` for loading and unloading billboard texture
+## - Uses `raylibx.shapes3d` for rendering grid geometry
+## - Uses `raylibx.text` for variable display overlay
+## - Uses `rcamerax` for 3D billboard projection (`draw_billboard_pro`)
+## - Uses `raymath` for `Vector2Angle`
+##
+## ## Example
+## ```pengu
+## pengu run examples/models/models_directional_billboard.pengu
+## ```
+
+import raylib
+import raymath
+import raylibx.drawing as drawing
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+import rcamerax
+import raymathx
+
+# --- Constants ---
+
+## Target window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Target window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## ## Returns
+## Exit status code (0 for success).
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - directional billboard"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D with:
+        set .position is (with x is 2.0, y is 1.0, z is 2.0)
+        set .target is (with x is 0.0, y is 0.5, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var skillbot as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture is calling textures.load_texture with "resources/skillbot.png":
+        set skillbot is loaded_tex
+    defer calling textures.unload_texture with skillbot
+
+    var anim_timer as f32 is 0.0
+    var anim as int is 0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        set anim_timer += calling raylib.GetFrameTime
+
+        if anim_timer > 0.5:
+            set anim_timer is 0.0
+            set anim += 1
+
+        if anim >= 4:
+            set anim is 0
+
+        # Find current direction frame based on camera position relative to origin
+        let base_v as raylib.Vector2 is with x is 2.0, y is 0.0
+        let cam_xz as raylib.Vector2 is with x is camera.position.x, y is camera.position.z
+        let angle as f32 is calling raymath.Vector2Angle with base_v, cam_xz
+        let raw_dir as int is ((angle / raymathx.PI) * 4.0 + 0.25) to int
+        var dir as f32 is raw_dir to f32
+
+        if dir < 0.0:
+            let abs_dir as int is if (dir to int) < 0 then -(dir to int) else (dir to int)
+            set dir is 8.0 - (abs_dir to f32)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        calling shapes3d.draw_grid with 10, 1.0
+
+        let src_rec as raylib.Rectangle is with x is (anim to f32) * 24.0, y is dir * 24.0, width is 24.0, height is 24.0
+        let pos as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+        let up_vec as raylib.Vector3 is with x is 0.0, y is 1.0, z is 0.0
+        let quad_sz as raylib.Vector2 is with x is 1.0, y is 1.0
+        let origin as raylib.Vector2 is with x is 0.5, y is 0.0
+
+        calling camera.draw_billboard_pro with skillbot, src_rec, pos, up_vec, quad_sz, origin, 0.0, raylib.WHITE
+        calling drawing.end_mode_3d
+
+        var anim_txt as string is "animation: {(anim to string)}"
+        calling txt.draw_text with anim_txt, 10, 10, 20, raylib.DARKGRAY
+        banish anim_txt
+
+        var dir_txt as string is "direction frame: {((dir to int) to string)}"
+        calling txt.draw_text with dir_txt, 10, 40, 20, raylib.DARKGRAY
+        banish dir_txt
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

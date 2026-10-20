@@ -1,0 +1,410 @@
+## examples/core/core_keyboard_testbed.pengu
+## raylib [core] example - keyboard testbed
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## NOTE: raylib defined keys refer to ENG-US Keyboard layout,
+## mapping to other layouts is up to the user
+##
+## Example originally created with raylib 5.6, last time updated with raylib 5.6
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2026 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 port of `examples/core/core_keyboard_testbed.c` built on top of `raylibx`.
+## Each keyboard row is represented as a `list of KeyCell` pairing key width and
+## keycode, with key labels resolved through a `judge` expression in
+## `get_key_text`. Key and character input queues are read via
+## `raylibx.input.key_pressed` and `raylibx.input.char_pressed`, and key
+## rectangles use `Rectangle.draw`, `Rectangle.draw_outline`, and
+## `Rectangle.contains_point` from `raylibx.shapes`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_keyboard_testbed.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import std.ffi
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Space in pixels between key rectangles.
+const KEY_REC_SPACING as int is 4
+
+## Default width of a standard key cap, in pixels.
+const DEFAULT_KEY_WIDTH as int is 45
+
+## Raw keycode for the ISO extra key on row 6 (not part of `raylib.KeyboardKey`).
+const RAW_KEY_ISO_EXTRA as int is 162
+
+# --- Types --------------------------------------------------------------
+## One key cell in a keyboard row: its pixel width and raylib keycode.
+rune KeyCell:
+    width as int
+    key as raylib.KeyboardKey
+    raw_code as int
+
+# --- Helpers ------------------------------------------------------------
+## Creates a `KeyCell` for a standard `raylib.KeyboardKey`.
+##
+## ## Parameters
+## - `width`: key cap width in pixels.
+## - `key`: raylib keyboard key constant.
+##
+## ## Returns
+## A new `KeyCell`.
+weave make_key_cell with width as int, key as raylib.KeyboardKey into KeyCell:
+    return with width is width, key is key, raw_code is (key to int)
+
+## Creates a `KeyCell` for a raw integer keycode not present in `raylib.KeyboardKey`.
+##
+## ## Parameters
+## - `width`: key cap width in pixels.
+## - `raw_code`: raw integer keycode.
+##
+## ## Returns
+## A new `KeyCell`.
+weave make_raw_key_cell with width as int, raw_code as int into KeyCell:
+    return with width is width, key is raylib.KEY_NULL, raw_code is raw_code
+
+## Returns the US-layout label for a `raylib.KeyboardKey`.
+##
+## ## Parameters
+## - `key`: the keyboard key to describe.
+##
+## ## Returns
+## Static label string for the key, or `""` when unmapped.
+weave get_key_text with key as raylib.KeyboardKey into string:
+    return judge key:
+        when KeyboardKey.KEY_APOSTROPHE -> "'"
+        when KeyboardKey.KEY_COMMA -> ","
+        when KeyboardKey.KEY_MINUS -> "-"
+        when KeyboardKey.KEY_PERIOD -> "."
+        when KeyboardKey.KEY_SLASH -> "/"
+        when KeyboardKey.KEY_ZERO -> "0"
+        when KeyboardKey.KEY_ONE -> "1"
+        when KeyboardKey.KEY_TWO -> "2"
+        when KeyboardKey.KEY_THREE -> "3"
+        when KeyboardKey.KEY_FOUR -> "4"
+        when KeyboardKey.KEY_FIVE -> "5"
+        when KeyboardKey.KEY_SIX -> "6"
+        when KeyboardKey.KEY_SEVEN -> "7"
+        when KeyboardKey.KEY_EIGHT -> "8"
+        when KeyboardKey.KEY_NINE -> "9"
+        when KeyboardKey.KEY_SEMICOLON -> ";"
+        when KeyboardKey.KEY_EQUAL -> "="
+        when KeyboardKey.KEY_A -> "A"
+        when KeyboardKey.KEY_B -> "B"
+        when KeyboardKey.KEY_C -> "C"
+        when KeyboardKey.KEY_D -> "D"
+        when KeyboardKey.KEY_E -> "E"
+        when KeyboardKey.KEY_F -> "F"
+        when KeyboardKey.KEY_G -> "G"
+        when KeyboardKey.KEY_H -> "H"
+        when KeyboardKey.KEY_I -> "I"
+        when KeyboardKey.KEY_J -> "J"
+        when KeyboardKey.KEY_K -> "K"
+        when KeyboardKey.KEY_L -> "L"
+        when KeyboardKey.KEY_M -> "M"
+        when KeyboardKey.KEY_N -> "N"
+        when KeyboardKey.KEY_O -> "O"
+        when KeyboardKey.KEY_P -> "P"
+        when KeyboardKey.KEY_Q -> "Q"
+        when KeyboardKey.KEY_R -> "R"
+        when KeyboardKey.KEY_S -> "S"
+        when KeyboardKey.KEY_T -> "T"
+        when KeyboardKey.KEY_U -> "U"
+        when KeyboardKey.KEY_V -> "V"
+        when KeyboardKey.KEY_W -> "W"
+        when KeyboardKey.KEY_X -> "X"
+        when KeyboardKey.KEY_Y -> "Y"
+        when KeyboardKey.KEY_Z -> "Z"
+        when KeyboardKey.KEY_LEFT_BRACKET -> "["
+        when KeyboardKey.KEY_BACKSLASH -> "\\"
+        when KeyboardKey.KEY_RIGHT_BRACKET -> "]"
+        when KeyboardKey.KEY_GRAVE -> "`"
+        when KeyboardKey.KEY_SPACE -> "SPACE"
+        when KeyboardKey.KEY_ESCAPE -> "ESC"
+        when KeyboardKey.KEY_ENTER -> "ENTER"
+        when KeyboardKey.KEY_TAB -> "TAB"
+        when KeyboardKey.KEY_BACKSPACE -> "BACK"
+        when KeyboardKey.KEY_INSERT -> "INS"
+        when KeyboardKey.KEY_DELETE -> "DEL"
+        when KeyboardKey.KEY_RIGHT -> "RIGHT"
+        when KeyboardKey.KEY_LEFT -> "LEFT"
+        when KeyboardKey.KEY_DOWN -> "DOWN"
+        when KeyboardKey.KEY_UP -> "UP"
+        when KeyboardKey.KEY_PAGE_UP -> "PGUP"
+        when KeyboardKey.KEY_PAGE_DOWN -> "PGDOWN"
+        when KeyboardKey.KEY_HOME -> "HOME"
+        when KeyboardKey.KEY_END -> "END"
+        when KeyboardKey.KEY_CAPS_LOCK -> "CAPS"
+        when KeyboardKey.KEY_SCROLL_LOCK -> "LOCK"
+        when KeyboardKey.KEY_NUM_LOCK -> "NUMLOCK"
+        when KeyboardKey.KEY_PRINT_SCREEN -> "PRINTSCR"
+        when KeyboardKey.KEY_PAUSE -> "PAUSE"
+        when KeyboardKey.KEY_F1 -> "F1"
+        when KeyboardKey.KEY_F2 -> "F2"
+        when KeyboardKey.KEY_F3 -> "F3"
+        when KeyboardKey.KEY_F4 -> "F4"
+        when KeyboardKey.KEY_F5 -> "F5"
+        when KeyboardKey.KEY_F6 -> "F6"
+        when KeyboardKey.KEY_F7 -> "F7"
+        when KeyboardKey.KEY_F8 -> "F8"
+        when KeyboardKey.KEY_F9 -> "F9"
+        when KeyboardKey.KEY_F10 -> "F10"
+        when KeyboardKey.KEY_F11 -> "F11"
+        when KeyboardKey.KEY_F12 -> "F12"
+        when KeyboardKey.KEY_LEFT_SHIFT -> "LSHIFT"
+        when KeyboardKey.KEY_LEFT_CONTROL -> "LCTRL"
+        when KeyboardKey.KEY_LEFT_ALT -> "LALT"
+        when KeyboardKey.KEY_LEFT_SUPER -> "WIN"
+        when KeyboardKey.KEY_RIGHT_SHIFT -> "RSHIFT"
+        when KeyboardKey.KEY_RIGHT_CONTROL -> "RCTRL"
+        when KeyboardKey.KEY_RIGHT_ALT -> "ALTGR"
+        when KeyboardKey.KEY_RIGHT_SUPER -> "RSUPER"
+        when KeyboardKey.KEY_KB_MENU -> "KBMENU"
+        when KeyboardKey.KEY_KP_0 -> "KP0"
+        when KeyboardKey.KEY_KP_1 -> "KP1"
+        when KeyboardKey.KEY_KP_2 -> "KP2"
+        when KeyboardKey.KEY_KP_3 -> "KP3"
+        when KeyboardKey.KEY_KP_4 -> "KP4"
+        when KeyboardKey.KEY_KP_5 -> "KP5"
+        when KeyboardKey.KEY_KP_6 -> "KP6"
+        when KeyboardKey.KEY_KP_7 -> "KP7"
+        when KeyboardKey.KEY_KP_8 -> "KP8"
+        when KeyboardKey.KEY_KP_9 -> "KP9"
+        when KeyboardKey.KEY_KP_DECIMAL -> "KPDEC"
+        when KeyboardKey.KEY_KP_DIVIDE -> "KPDIV"
+        when KeyboardKey.KEY_KP_MULTIPLY -> "KPMUL"
+        when KeyboardKey.KEY_KP_SUBTRACT -> "KPSUB"
+        when KeyboardKey.KEY_KP_ADD -> "KPADD"
+        when KeyboardKey.KEY_KP_ENTER -> "KPENTER"
+        when KeyboardKey.KEY_KP_EQUAL -> "KPEQU"
+        else -> ""
+
+## Draws a single key cap rectangle, its label, held state, and mouse hover highlight.
+##
+## ## Parameters
+## - `bounds`: screen rectangle of the key cap.
+## - `cell`: key metadata (`KeyCell`).
+weave gui_keyboard_key with bounds as raylib.Rectangle, cell as KeyCell into void:
+    if cell.raw_code == (raylib.KEY_NULL to int):
+        calling bounds.draw_outline with 2.0, raylib.LIGHTGRAY
+    else:
+        let is_down as bool is if cell.key != raylib.KEY_NULL:
+            calling input.is_key_down with cell.key
+        else:
+            calling raylib.IsKeyDown with cell.raw_code
+
+        let key_color as raylib.Color is if is_down then raylib.MAROON else raylib.DARKGRAY
+        let label as string is calling get_key_text with cell.key
+        calling bounds.draw_outline with 2.0, key_color
+        calling txt.draw_text with label, ((bounds.x + 4.0) to int), ((bounds.y + 4.0) to int), 10, key_color
+
+    if calling bounds.contains_point with (calling raylib.GetMousePosition):
+        calling bounds.draw with (calling colors.fade with raylib.RED, 0.2)
+        calling bounds.draw_outline with 3.0, raylib.RED
+
+## Draws an entire row of keys starting at `(start_x, row_y)` with height `row_height`.
+##
+## ## Parameters
+## - `row`: list of `KeyCell` entries for the row.
+## - `start_x`: left X coordinate of the row.
+## - `row_y`: top Y coordinate of the row.
+## - `row_height`: height of each key in pixels.
+weave draw_keyboard_row with row as list of KeyCell, start_x as f32, row_y as f32, row_height as f32 into void:
+    var rec_offset_x as int is 0
+    for cell in row:
+        let bounds as raylib.Rectangle is with:
+            set .x is start_x + (rec_offset_x to f32)
+            set .y is row_y
+            set .width is (cell.width to f32)
+            set .height is row_height
+        calling gui_keyboard_key with bounds, cell
+        set rec_offset_x += cell.width + KEY_REC_SPACING
+
+# --- Entry point --------------------------------------------------------
+## Displays an interactive US-layout keyboard testbed highlighting pressed and hovered keys.
+##
+## ## Returns
+## Process exit code: `0` on normal window closure.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - keyboard testbed"
+    defer calling raylib.CloseWindow
+
+    calling raylib.SetExitKey with (raylib.KEY_NULL to int)  # Avoid exit on KEY_ESCAPE
+
+    # Keyboard line 01 - 15 keys
+    var line_01 as list of KeyCell is list of KeyCell
+    defer banish line_01
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_ESCAPE)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F1)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F2)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F3)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F4)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F5)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F6)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F7)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F8)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F9)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F10)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F11)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F12)
+    calling line_01.push with (calling make_key_cell with 62, raylib.KEY_PRINT_SCREEN)
+    calling line_01.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_PAUSE)
+
+    # Keyboard line 02 - 15 keys
+    var line_02 as list of KeyCell is list of KeyCell
+    defer banish line_02
+    calling line_02.push with (calling make_key_cell with 25, raylib.KEY_GRAVE)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_ONE)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_TWO)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_THREE)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_FOUR)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_FIVE)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_SIX)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_SEVEN)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_EIGHT)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_NINE)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_ZERO)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_MINUS)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_EQUAL)
+    calling line_02.push with (calling make_key_cell with 82, raylib.KEY_BACKSPACE)
+    calling line_02.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_DELETE)
+
+    # Keyboard line 03 - 15 keys
+    var line_03 as list of KeyCell is list of KeyCell
+    defer banish line_03
+    calling line_03.push with (calling make_key_cell with 50, raylib.KEY_TAB)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_Q)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_W)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_E)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_R)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_T)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_Y)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_U)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_I)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_O)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_P)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_LEFT_BRACKET)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_RIGHT_BRACKET)
+    calling line_03.push with (calling make_key_cell with 57, raylib.KEY_BACKSLASH)
+    calling line_03.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_INSERT)
+
+    # Keyboard line 04 - 14 keys
+    var line_04 as list of KeyCell is list of KeyCell
+    defer banish line_04
+    calling line_04.push with (calling make_key_cell with 68, raylib.KEY_CAPS_LOCK)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_A)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_S)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_D)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_F)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_G)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_H)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_J)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_K)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_L)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_SEMICOLON)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_APOSTROPHE)
+    calling line_04.push with (calling make_key_cell with 88, raylib.KEY_ENTER)
+    calling line_04.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_PAGE_UP)
+
+    # Keyboard line 05 - 14 keys
+    var line_05 as list of KeyCell is list of KeyCell
+    defer banish line_05
+    calling line_05.push with (calling make_key_cell with 80, raylib.KEY_LEFT_SHIFT)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_Z)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_X)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_C)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_V)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_B)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_N)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_M)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_COMMA)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_PERIOD)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_SLASH)
+    calling line_05.push with (calling make_key_cell with 76, raylib.KEY_RIGHT_SHIFT)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_UP)
+    calling line_05.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_PAGE_DOWN)
+
+    # Keyboard line 06 - 11 keys
+    var line_06 as list of KeyCell is list of KeyCell
+    defer banish line_06
+    calling line_06.push with (calling make_key_cell with 80, raylib.KEY_LEFT_CONTROL)
+    calling line_06.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_LEFT_SUPER)
+    calling line_06.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_LEFT_ALT)
+    calling line_06.push with (calling make_key_cell with 208, raylib.KEY_SPACE)
+    calling line_06.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_RIGHT_ALT)
+    calling line_06.push with (calling make_raw_key_cell with DEFAULT_KEY_WIDTH, RAW_KEY_ISO_EXTRA)
+    calling line_06.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_NULL)
+    calling line_06.push with (calling make_key_cell with 60, raylib.KEY_RIGHT_CONTROL)
+    calling line_06.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_LEFT)
+    calling line_06.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_DOWN)
+    calling line_06.push with (calling make_key_cell with DEFAULT_KEY_WIDTH, raylib.KEY_RIGHT)
+
+    let keyboard_offset as raylib.Vector2 is with x is 26.0, y is 80.0
+    let spacing_f as f32 is (KEY_REC_SPACING to f32)
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        let key_opt as maybe int is calling input.key_pressed
+        if key_opt is present:
+            let key_code as int is calling key_opt.unwrap
+            let key_msg as string is "KEYBOARD TESTBED: KEY PRESSED:    {key_code}"
+            defer banish key_msg
+            calling raylib.TraceLog with (raylib.LOG_INFO to int), (calling ffi.cstr_from_string with key_msg)
+
+        let ch_opt as maybe int is calling input.char_pressed
+        if ch_opt is present:
+            let ch_code as int is calling ch_opt.unwrap
+            let ch_text as string is calling txt.codepoint_to_text with ch_code
+            defer banish ch_text
+            let ch_msg as string is "KEYBOARD TESTBED: CHAR PRESSED:   {ch_text} ({ch_code})"
+            defer banish ch_msg
+            calling raylib.TraceLog with (raylib.LOG_INFO to int), (calling ffi.cstr_from_string with ch_msg)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "KEYBOARD LAYOUT: ENG-US", 26, 38, 20, raylib.LIGHTGRAY
+
+        calling draw_keyboard_row with line_01, keyboard_offset.x, keyboard_offset.y, 30.0
+        calling draw_keyboard_row with line_02, keyboard_offset.x, (keyboard_offset.y + 30.0 + spacing_f), 38.0
+        calling draw_keyboard_row with line_03, keyboard_offset.x, (keyboard_offset.y + 30.0 + 38.0 + (spacing_f * 2.0)), 38.0
+        calling draw_keyboard_row with line_04, keyboard_offset.x, (keyboard_offset.y + 30.0 + (38.0 * 2.0) + (spacing_f * 3.0)), 38.0
+        calling draw_keyboard_row with line_05, keyboard_offset.x, (keyboard_offset.y + 30.0 + (38.0 * 3.0) + (spacing_f * 4.0)), 38.0
+        calling draw_keyboard_row with line_06, keyboard_offset.x, (keyboard_offset.y + 30.0 + (38.0 * 4.0) + (spacing_f * 5.0)), 38.0
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

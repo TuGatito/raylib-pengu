@@ -1,0 +1,249 @@
+## raylib [audio] example - amp envelope
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example contributed by Arbinda Rizki Muhammad (@arbipink) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2026 Arbinda Rizki Muhammad (@arbipink) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.input`,
+## `raylibx.shapes`, `raylibx.colors`, `raylibx.text`, `raylibx.audio`, `rayguix`, `std.fractio`),
+## state machine ADSR volume envelope synthesis, interactive GUI sliders, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/audio/audio_amp_envelope.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raygui
+import rayguix
+import raylibx.audio as audio
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import std.fractio
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Audio buffer frame capacity.
+const BUFFER_SIZE as int is 4096
+
+## Stream audio sample rate in Hz.
+const SAMPLE_RATE as int is 44100
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Types ---
+
+## Stages of an ADSR (Attack, Decay, Sustain, Release) envelope generator.
+omen ADSRState:
+    ## No audio output; silent.
+    IDLE
+    ## Amplitude rising from 0 to peak (1.0).
+    ATTACK
+    ## Amplitude falling from peak to sustain level.
+    DECAY
+    ## Constant amplitude held while note is sustained.
+    SUSTAIN
+    ## Amplitude fading out from sustain level to 0 after key release.
+    RELEASE
+
+## Holds timing and amplitude parameters for an ADSR amplitude envelope.
+rune Envelope:
+    ## Duration of the attack stage in seconds.
+    attackTime as f32
+    ## Duration of the decay stage in seconds.
+    decayTime as f32
+    ## Normalized sustain amplitude in range `[0.0, 1.0]`.
+    sustainLevel as f32
+    ## Duration of the release stage in seconds.
+    releaseTime as f32
+    ## Current calculated envelope gain.
+    currentValue as f32
+    ## Active envelope stage.
+    state as ADSRState
+
+# --- Helpers ---
+
+## Advances the ADSR envelope state machine by one audio sample duration.
+##
+## ## Parameters
+## - `env`: reference to the envelope generator to update in place.
+weave update_envelope with env as ref to Envelope into void:
+    let sample_time as f32 is 1.0 / (SAMPLE_RATE to f32)
+    judge env->state:
+        when ADSRState.ATTACK ->
+            set env->currentValue is env->currentValue + ((1.0 / env->attackTime) * sample_time)
+            if env->currentValue >= 1.0:
+                set env->currentValue is 1.0
+                set env->state is ADSRState.DECAY
+        when ADSRState.DECAY ->
+            set env->currentValue is env->currentValue - (((1.0 - env->sustainLevel) / env->decayTime) * sample_time)
+            if env->currentValue <= env->sustainLevel:
+                set env->currentValue is env->sustainLevel
+                set env->state is ADSRState.SUSTAIN
+        when ADSRState.SUSTAIN ->
+            set env->currentValue is env->sustainLevel
+        when ADSRState.RELEASE ->
+            set env->currentValue is env->currentValue - ((env->sustainLevel / env->releaseTime) * sample_time)
+            if env->currentValue <= 0.001:
+                set env->currentValue is 0.0
+                set env->state is ADSRState.IDLE
+        when ADSRState.IDLE ->
+            set env->currentValue is 0.0
+
+## Draws a visual diagram of the ADSR envelope stages inside `bounds`.
+##
+## ## Parameters
+## - `env`: reference to the envelope generator whose curve is visualized.
+## - `bounds`: screen rectangle enclosing the curve.
+weave draw_adsr_graph with env as ref to Envelope, bounds as raylib.Rectangle into void:
+    let bg_color as raylib.Color is calling colors.fade with raylib.LIGHTGRAY, 0.3
+    calling bounds.draw with bg_color
+    calling bounds.draw_outline with 1.0, raylib.GRAY
+
+    # Fixed visual width for sustain stage since it's an amplitude not a time value
+    let sustain_width as f32 is 1.0
+
+    # Total time to visualize (sum of A, D, R + padding for Sustain)
+    let total_time as f32 is env->attackTime + env->decayTime + sustain_width + env->releaseTime
+
+    let scale_x as f32 is bounds.width / total_time
+    let scale_y as f32 is bounds.height
+
+    var start as raylib.Vector2 is with x is bounds.x, y is bounds.y + bounds.height
+    var peak as raylib.Vector2 is with x is start.x + (env->attackTime * scale_x), y is bounds.y
+    var sustain as raylib.Vector2 is with x is peak.x + (env->decayTime * scale_x), y is bounds.y + ((1.0 - env->sustainLevel) * scale_y)
+    var rel as raylib.Vector2 is with x is sustain.x + (sustain_width * scale_x), y is sustain.y
+    var end_pt as raylib.Vector2 is with x is rel.x + (env->releaseTime * scale_x), y is bounds.y + bounds.height
+
+    calling start.draw_line_to with peak, raylib.SKYBLUE
+    calling peak.draw_line_to with sustain, raylib.BLUE
+    calling sustain.draw_line_to with rel, raylib.DARKBLUE
+    calling rel.draw_line_to with end_pt, raylib.ORANGE
+
+    calling txt.draw_text with "ADSR Visualizer", bounds.x to int, (bounds.y - 20.0) to int, 10, raylib.DARKGRAY
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Sets up real-time audio stream synthesis modulated by an interactive ADSR amplitude envelope.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if stream initialization fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [audio] example - amp envelope"
+    defer calling raylib.CloseWindow
+
+    calling raylib.InitAudioDevice
+    defer calling raylib.CloseAudioDevice
+
+    # Set the number of samples the stream will keep in memory at a time to BUFFER_SIZE
+    calling raylib.SetAudioStreamBufferSizeDefault with BUFFER_SIZE
+
+    var buffer as list of f32 is list of f32
+    defer banish buffer
+    for i from 0 to BUFFER_SIZE:
+        calling buffer.push with 0.0
+
+    # Init raw audio stream (sample rate: 44100, sample size: 32bit-float, channels: 1-mono)
+    let loaded_stream as maybe raylib.AudioStream is calling audio.load_audio_stream with SAMPLE_RATE, 32, 1
+    if stream as raylib.AudioStream is loaded_stream:
+        defer calling audio.unload_audio_stream with stream
+
+        # Audio synthesis phase accumulator
+        var audio_time as f32 is 0.0
+
+        # Initialize the envelope struct
+        var env as Envelope is with:
+            set .attackTime is 1.0
+            set .decayTime is 1.0
+            set .sustainLevel is 0.5
+            set .releaseTime is 1.0
+            set .currentValue is 0.0
+            set .state is ADSRState.IDLE
+
+        calling raylib.SetTargetFPS with TARGET_FPS
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            if calling input.is_key_pressed with raylib.KEY_SPACE:
+                set env.state is ADSRState.ATTACK
+
+            if (calling input.is_key_released with raylib.KEY_SPACE) and (env.state != ADSRState.IDLE):
+                set env.state is ADSRState.RELEASE
+
+            if calling stream.is_processed:
+                if (env.state != ADSRState.IDLE) or (env.currentValue > 0.0):
+                    for i from 0 to BUFFER_SIZE:
+                        calling update_envelope with (sigil of env)
+                        let frequency as f32 is 440.0
+                        let angle as f32 is 2.0 * raylib.PI * frequency * audio_time
+                        set buffer at i is env.currentValue * (calling angle.get_sin)
+                        set audio_time is audio_time + (1.0 / (SAMPLE_RATE to f32))
+                else:
+                    for i from 0 to BUFFER_SIZE:
+                        set buffer at i is 0.0
+                    set audio_time is 0.0
+
+                let buf_ptr as ref to frozen void is transmute (sigil of (buffer at 0)) to ref to frozen void
+                calling raylib.UpdateAudioStream with stream, buf_ptr, BUFFER_SIZE
+
+            if not (calling stream.is_playing):
+                calling stream.play
+
+            # Draw
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            let att_txt as string is "{env.attackTime}s"
+            let _s1 as int is calling rayguix.slider_bar with (with x is 100.0, y is 60.0, width is 400.0, height is 30.0), "Attack (s)", att_txt, (sigil of env.attackTime), 0.1, 3.0
+            banish att_txt
+
+            let dec_txt as string is "{env.decayTime}s"
+            let _s2 as int is calling rayguix.slider_bar with (with x is 100.0, y is 100.0, width is 400.0, height is 30.0), "Decay (s)", dec_txt, (sigil of env.decayTime), 0.1, 3.0
+            banish dec_txt
+
+            let sus_txt as string is "{env.sustainLevel}"
+            let _s3 as int is calling rayguix.slider_bar with (with x is 100.0, y is 140.0, width is 400.0, height is 30.0), "Sustain", sus_txt, (sigil of env.sustainLevel), 0.0, 1.0
+            banish sus_txt
+
+            let rel_txt as string is "{env.releaseTime}s"
+            let _s4 as int is calling rayguix.slider_bar with (with x is 100.0, y is 180.0, width is 400.0, height is 30.0), "Release (s)", rel_txt, (sigil of env.releaseTime), 0.1, 3.0
+            banish rel_txt
+
+            calling draw_adsr_graph with (sigil of env), (with x is 100.0, y is 250.0, width is 400.0, height is 100.0)
+
+            var marker_pos as raylib.Vector2 is with x is 520.0, y is 350.0 - (env.currentValue * 100.0)
+            calling marker_pos.draw_circle with 5.0, raylib.MAROON
+
+            let gain_txt as string is "Current Gain: {env.currentValue}"
+            calling txt.draw_text with gain_txt, 535, (345.0 - (env.currentValue * 100.0)) to int, 10, raylib.MAROON
+            banish gain_txt
+
+            calling txt.draw_text with "Press SPACE to PLAY the sound!", 200, 400, 20, raylib.LIGHTGRAY
+
+            calling drawing.end_drawing
+
+        return 0
+
+    return 1

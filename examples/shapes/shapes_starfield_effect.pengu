@@ -1,0 +1,160 @@
+## raylib [shapes] example - starfield effect
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 6.0
+## Example contributed by JP Mortiboys (@themushroompirates) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 JP Mortiboys (@themushroompirates)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and raymathx.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_starfield_effect.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import pengu.raylibx.random as random
+import pengu.raymathx as raymathx
+
+# --- Constants ---
+
+## Total count of simulated stars
+const STAR_COUNT as int is 420
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - starfield effect"
+    defer calling raylib.CloseWindow
+
+    let bg_color as raylib.Color is calling raylib.ColorLerp with raylib.DARKBLUE, raylib.BLACK, 0.69
+
+    # Speed at which we fly forward
+    var speed as f32 is 10.0 / 9.0
+
+    # We're either drawing lines or circles
+    var draw_lines as bool is true
+
+    var stars as list of raylib.Vector3 is list of raylib.Vector3
+    defer banish stars
+
+    var stars_screen_pos as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish stars_screen_pos
+
+    # Setup the stars with a random position
+    let half_w as int is screen_width / 2
+    let half_h as int is screen_height / 2
+    for i from 0 to STAR_COUNT - 1:
+        let rx as f32 is (calling random.between with -half_w, half_w) to f32
+        let ry as f32 is (calling random.between with -half_h, half_h) to f32
+        calling stars.push with with:
+            set .x is rx
+            set .y is ry
+            set .z is 1.0
+        calling stars_screen_pos.push with with:
+            set .x is 0.0
+            set .y is 0.0
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        # Change speed based on mouse
+        let mouse_move as f32 is calling raylib.GetMouseWheelMove
+        if (mouse_move to int) != 0:
+            set speed is speed + ((2.0 * mouse_move) / 9.0)
+
+        if speed < 0.0:
+            set speed is 0.1
+        else if speed > 2.0:
+            set speed is 2.0
+
+        # Toggle lines / points with space bar
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set draw_lines is not draw_lines
+
+        let dt as f32 is calling raylib.GetFrameTime
+        for i from 0 to STAR_COUNT - 1:
+            var star as raylib.Vector3 is stars at i
+            set star.z is star.z - (dt * speed)
+
+            # Calculate the screen position
+            let sx as f32 is ((screen_width to f32) * 0.5) + (star.x / star.z)
+            let sy as f32 is ((screen_height to f32) * 0.5) + (star.y / star.z)
+            let screen_pos as raylib.Vector2 is with:
+                set .x is sx
+                set .y is sy
+
+            set stars_screen_pos at i is screen_pos
+
+            # If the star is too old, or offscreen, it dies and we make a new random one
+            let off_x as bool is (sx < 0.0) or (sx > (screen_width to f32))
+            let off_y as bool is (sy < 0.0) or (sy > (screen_height to f32))
+            if (star.z < 0.0) or off_x or off_y:
+                set star.x is (calling random.between with -half_w, half_w) to f32
+                set star.y is (calling random.between with -half_h, half_h) to f32
+                set star.z is 1.0
+
+            set stars at i is star
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with bg_color
+
+        for i from 0 to STAR_COUNT - 1:
+            let star as raylib.Vector3 is stars at i
+            let cur_screen_pos as raylib.Vector2 is stars_screen_pos at i
+
+            if draw_lines:
+                # Get the time a little while ago for this star, but clamp it
+                let t as f32 is calling raymathx.clamp with (star.z + (1.0 / 32.0)), 0.0, 1.0
+
+                # If it's different enough from the current time, we proceed
+                if (t - star.z) > 0.001:
+                    let start_pos as raylib.Vector2 is with:
+                        set .x is ((screen_width to f32) * 0.5) + (star.x / t)
+                        set .y is ((screen_height to f32) * 0.5) + (star.y / t)
+                    calling start_pos.draw_line_to with cur_screen_pos, raylib.RAYWHITE
+            else:
+                # Make the radius grow as the star ages
+                let radius as f32 is calling raymathx.lerp with star.z, 1.0, 5.0
+                calling cur_screen_pos.draw_circle with radius, raylib.RAYWHITE
+
+        let speed_int as int is (((9.0 * speed) / 2.0) + 0.5) to int
+        var speed_msg as string is "[MOUSE WHEEL] Current Speed: {speed_int}"
+        calling txt.draw_text with speed_msg, 10, 40, 20, raylib.RAYWHITE
+        banish speed_msg
+
+        var mode_name as string is if draw_lines then "Lines" else "Circles"
+        var mode_msg as string is "[SPACE] Current draw mode: {mode_name}"
+        calling txt.draw_text with mode_msg, 10, 70, 20, raylib.RAYWHITE
+        banish mode_msg
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

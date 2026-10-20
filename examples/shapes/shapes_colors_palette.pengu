@@ -1,0 +1,127 @@
+## ## PenguScript Port
+## Translated from raylib [shapes] example - colors palette
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example displays the default raylib 21-color palette grid with interactive
+## hover detection and detailed color label popups.
+##
+## ## Example
+## ```bash
+## pengu run examples/shapes/shapes_colors_palette.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+const MAX_COLORS_COUNT as int is 21
+
+# --- Types --------------------------------------------------------------
+## Information for a single color palette entry.
+rune PaletteColor:
+    name as string
+    color as raylib.Color
+    rec as raylib.Rectangle
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - colors palette"
+    defer calling raylib.CloseWindow
+
+    var palette as list of PaletteColor is list of PaletteColor
+    defer banish palette
+
+    let raw_colors as list of raylib.Color is [
+        raylib.DARKGRAY, raylib.MAROON, raylib.ORANGE, raylib.DARKGREEN, raylib.DARKBLUE, raylib.DARKPURPLE, raylib.DARKBROWN,
+        raylib.GRAY, raylib.RED, raylib.GOLD, raylib.LIME, raylib.BLUE, raylib.VIOLET, raylib.BROWN,
+        raylib.LIGHTGRAY, raylib.PINK, raylib.YELLOW, raylib.GREEN, raylib.SKYBLUE, raylib.PURPLE, raylib.BEIGE
+    ]
+    defer banish raw_colors
+
+    let raw_names as list of string is [
+        "DARKGRAY", "MAROON", "ORANGE", "DARKGREEN", "DARKBLUE", "DARKPURPLE", "DARKBROWN",
+        "GRAY", "RED", "GOLD", "LIME", "BLUE", "VIOLET", "BROWN",
+        "LIGHTGRAY", "PINK", "YELLOW", "GREEN", "SKYBLUE", "PURPLE", "BEIGE"
+    ]
+    defer banish raw_names
+
+    for i from 0 to MAX_COLORS_COUNT:
+        let col_idx as int is i % 7
+        let row_idx as int is i / 7
+
+        var rec as raylib.Rectangle is with:
+            set .x is 20.0 + (100.0 * (col_idx to f32)) + (10.0 * (col_idx to f32))
+            set .y is 80.0 + (100.0 * (row_idx to f32)) + (10.0 * (row_idx to f32))
+            set .width is 100.0
+            set .height is 100.0
+
+        var entry as PaletteColor is with:
+            set .name is raw_names at i
+            set .color is raw_colors at i
+            set .rec is rec
+
+        calling palette.push with entry
+
+    var color_state as list of bool is list of bool
+    defer banish color_state
+    for _ from 0 to MAX_COLORS_COUNT:
+        calling color_state.push with false
+
+    var mouse_point as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set mouse_point is calling raylib.GetMousePosition
+
+        for i from 0 to MAX_COLORS_COUNT:
+            let entry as PaletteColor is palette at i
+            let hovered as bool is calling entry.rec.contains_point with mouse_point
+            set color_state at i is hovered
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "raylib colors palette", 28, 42, 20, raylib.BLACK
+        calling txt.draw_text with "press SPACE to see all colors", (screen_width - 180), (screen_height - 40), 10, raylib.GRAY
+
+        let space_down as bool is calling input.is_key_down with raylib.KEY_SPACE
+
+        for i from 0 to MAX_COLORS_COUNT:
+            let entry as PaletteColor is palette at i
+            let is_hovered as bool is color_state at i
+            let alpha as f32 is if is_hovered then 0.6 else 1.0
+            let tint as raylib.Color is calling colors.fade with entry.color, alpha
+
+            calling entry.rec.draw with tint
+
+            if space_down or is_hovered:
+                calling shapes.draw_rectangle with (entry.rec.x to int), ((entry.rec.y + entry.rec.height - 26.0) to int), (entry.rec.width to int), 20, raylib.BLACK
+                calling entry.rec.draw_outline with 6.0, (calling colors.fade with raylib.BLACK, 0.3)
+
+                let text_w as int is calling txt.measure_text with entry.name, 10
+                let text_x as int is ((entry.rec.x + entry.rec.width) to int) - text_w - 12
+                let text_y as int is ((entry.rec.y + entry.rec.height) to int) - 20
+                calling txt.draw_text with entry.name, text_x, text_y, 10, entry.color
+
+        calling drawing.end_drawing
+
+    return 0

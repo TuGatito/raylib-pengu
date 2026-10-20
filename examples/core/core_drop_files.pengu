@@ -1,0 +1,114 @@
+## examples/core/core_drop_files.pengu
+## raylib [core] example - drop files
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## NOTE: This example only works on platforms that support drag & drop (Windows, Linux, OSX, Html5?)
+##
+## Example originally created with raylib 1.3, last time updated with raylib 4.2
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2015-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_drop_files.c` on top of the `raylibx`
+## wrapper layer. Instead of pre-allocating 4096 fixed-size `char*` buffers with
+## `RL_CALLOC`, dropped paths are collected via `files.dropped_files` into a
+## dynamic `list of string` up to `MAX_FILEPATH_RECORDED` entries and released
+## on exit.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_drop_files.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.files as files
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Maximum number of dropped file paths recorded by the example.
+const MAX_FILEPATH_RECORDED as int is 4096
+
+# --- Helpers ------------------------------------------------------------
+## Releases all strings stored in a path list and then the list itself.
+##
+## ## Parameters
+## - `paths`: reference to the `list of string` to release.
+##
+## ## Memory
+## Frees every owned string element and the list's backing array.
+weave release_path_list with paths as ref to (list of string) into void:
+    for item in (essence of paths):
+        banish item
+    banish (essence of paths)
+
+# --- Entry point --------------------------------------------------------
+## Displays a window that records and lists all files dragged and dropped onto it.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - drop files"
+    defer calling raylib.CloseWindow
+
+    var file_paths as list of string is list of string
+    defer calling release_path_list with (sigil of file_paths)
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling raylib.IsFileDropped:
+            var dropped_files as list of string is calling files.dropped_files
+            for item in dropped_files:
+                if (file_paths length) < (MAX_FILEPATH_RECORDED - 1):
+                    calling file_paths.push with item
+                else:
+                    banish item
+            banish dropped_files
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let count as int is file_paths length
+        if count == 0:
+            calling txt.draw_text with "Drop your files to this window!", 100, 40, 20, raylib.DARKGRAY
+        else:
+            calling txt.draw_text with "Dropped files:", 100, 40, 20, raylib.DARKGRAY
+
+            for i, path in file_paths:
+                let alpha as f32 is if (i % 2) == 0 then 0.5 else 0.3
+                let row_color as raylib.Color is calling colors.fade with raylib.LIGHTGRAY, alpha
+                calling shapes.draw_rectangle with 0, (85 + (40 * i)), SCREEN_WIDTH, 40, row_color
+                calling txt.draw_text with path, 120, (100 + (40 * i)), 10, raylib.GRAY
+
+            calling txt.draw_text with "Drop new files...", 100, (110 + (40 * count)), 20, raylib.DARKGRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

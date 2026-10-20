@@ -1,0 +1,211 @@
+## raylib [audio] example - mixed processor
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 4.2, last time updated with raylib 4.2
+##
+## Example contributed by hkc (@hatkidchan) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2023-2025 hkc (@hatkidchan)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.input`,
+## `raylibx.shapes`, `raylibx.text`, `raylibx.audio`), relative asset paths from project root,
+## real-time post-mix DSP processing callback, history visualization, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/audio/audio_mixed_processor.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.audio as audio
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import std.ffi
+
+# --- External C functions ---
+declare powf with base as f32, exp as f32 into f32
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Length of the rolling volume history buffer.
+const HISTORY_SIZE as int is 400
+
+## Path to the background music file (relative to project root).
+const MUSIC_PATH as string is "examples/audio/resources/country.mp3"
+
+## Path to the sound effect file (relative to project root).
+const SOUND_PATH as string is "examples/audio/resources/coin.wav"
+
+# --- State Helpers ---
+
+## Manages the persistent distortion exponent across audio callbacks.
+##
+## ## Parameters
+## - `new_val`: the new exponent value to store when `should_set` is true.
+## - `should_set`: whether to write `new_val` or keep the current exponent.
+##
+## ## Returns
+## The current exponent value.
+weave audio_state_exponent with new_val as f32, should_set as bool into f32:
+    static var exponent as f32 is 1.0
+    if should_set:
+        set exponent is new_val
+    return exponent
+
+## Returns the shared 400-entry volume history buffer.
+##
+## ## Returns
+## Pointer to the persistent float history array.
+weave audio_state_history into ref to f32:
+    static var history as ref to f32 is null
+    if calling ffi.is_null with (transmute history to ref to void):
+        set history is transmute (calling raylib.MemAlloc with HISTORY_SIZE * 4) to ref to f32
+        for i from 0 to HISTORY_SIZE:
+            set history at i is 0.0
+    return history
+
+# --- Callbacks ---
+
+## Real-time mixed audio post-processor callback.
+##
+## Applies non-linear power distortion to stereo frames and tracks the average volume.
+##
+## ## Parameters
+## - `buffer_data`: pointer to interleaved 32-bit floating point audio samples.
+## - `frames`: number of audio frames in the buffer.
+weave process_audio with buffer_data as ref to void, frames as u32 into void:
+    var samples as ref to f32 is transmute buffer_data to ref to f32
+    let exponent as f32 is calling audio_state_exponent with 0.0, false
+    var average as f32 is 0.0
+
+    var frame as u32 is 0
+    while frame < frames:
+        let left_idx as int is ((frame * 2) + 0) to int
+        let right_idx as int is ((frame * 2) + 1) to int
+
+        let left_val as f32 is samples at left_idx
+        let right_val as f32 is samples at right_idx
+
+        let abs_l as f32 is if left_val < 0.0 then -left_val else left_val
+        let sign_l as f32 is if left_val < 0.0 then -1.0 else 1.0
+        let new_l as f32 is (calling powf with abs_l, exponent) * sign_l
+        set samples at left_idx is new_l
+
+        let abs_r as f32 is if right_val < 0.0 then -right_val else right_val
+        let sign_r as f32 is if right_val < 0.0 then -1.0 else 1.0
+        let new_r as f32 is (calling powf with abs_r, exponent) * sign_r
+        set samples at right_idx is new_r
+
+        let f_frames as f32 is frames to f32
+        set average is average + (abs_l / f_frames)
+        set average is average + (abs_r / f_frames)
+
+        set frame is frame + 1
+
+    var history as ref to f32 is calling audio_state_history
+    for i from 0 to 399:
+        set history at i is history at (i + 1)
+    set history at 399 is average
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Initializes the audio device, registers `process_audio` as the mixed audio processor,
+## streams music alongside sound effects, and renders real-time waveform volume visualization.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if asset loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [audio] example - mixed processor"
+    defer calling raylib.CloseWindow
+
+    calling raylib.InitAudioDevice # Initialize audio device
+    defer calling raylib.CloseAudioDevice
+
+    # Connect audio processor callback
+    calling raylib.AttachAudioMixedProcessor with process_audio
+    defer calling raylib.DetachAudioMixedProcessor with process_audio
+
+    # Initialize history buffer
+    let hist_buf as ref to f32 is calling audio_state_history
+    defer calling raylib.MemFree with (transmute hist_buf to ref to void)
+
+    let loaded_music as maybe raylib.Music is calling audio.load_music_stream with MUSIC_PATH
+    if music as raylib.Music is loaded_music:
+        defer calling audio.unload_music_stream with music
+
+        let loaded_sound as maybe raylib.Sound is calling audio.load_sound with SOUND_PATH
+        if sound as raylib.Sound is loaded_sound:
+            defer calling audio.unload_sound with sound
+
+            calling music.play
+
+            var exponent as f32 is 1.0
+
+            calling raylib.SetTargetFPS with TARGET_FPS # Set our game to run at 60 frames-per-second
+
+            # Main game loop
+            while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+                # Update
+                calling music.update # Update music buffer with new stream data
+
+                # Modify processing variables
+                if calling input.is_key_pressed with raylib.KEY_LEFT:
+                    set exponent is exponent - 0.05
+                if calling input.is_key_pressed with raylib.KEY_RIGHT:
+                    set exponent is exponent + 0.05
+
+                if exponent <= 0.5:
+                    set exponent is 0.5
+                if exponent >= 3.0:
+                    set exponent is 3.0
+
+                calling audio_state_exponent with exponent, true
+
+                if calling input.is_key_pressed with raylib.KEY_SPACE:
+                    calling sound.play
+
+                # Draw
+                calling drawing.begin_drawing
+                calling drawing.clear_background with raylib.RAYWHITE
+
+                calling txt.draw_text with "MUSIC SHOULD BE PLAYING!", 255, 150, 20, raylib.LIGHTGRAY
+
+                let exp_txt as string is "EXPONENT = {exponent}"
+                calling txt.draw_text with exp_txt, 215, 180, 20, raylib.LIGHTGRAY
+                banish exp_txt
+
+                calling shapes.draw_rectangle with 199, 199, 402, 34, raylib.LIGHTGRAY
+                var history as ref to f32 is calling audio_state_history
+                for i from 0 to HISTORY_SIZE:
+                    let bar_h as int is ((history at i) * 32.0) to int
+                    calling shapes.draw_line with 201 + i, 232 - bar_h, 201 + i, 232, raylib.MAROON
+
+                calling shapes.draw_rectangle_lines with 199, 199, 402, 34, raylib.GRAY
+
+                calling txt.draw_text with "PRESS SPACE TO PLAY OTHER SOUND", 200, 250, 20, raylib.LIGHTGRAY
+                calling txt.draw_text with "USE LEFT AND RIGHT ARROWS TO ALTER DISTORTION", 140, 280, 20, raylib.LIGHTGRAY
+
+                calling drawing.end_drawing
+
+            return 0
+
+    return 1

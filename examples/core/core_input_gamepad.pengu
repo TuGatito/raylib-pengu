@@ -1,0 +1,411 @@
+## examples/core/core_input_gamepad.pengu
+## raylib [core] example - input gamepad
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## NOTE: This example requires a Gamepad connected to the system
+##       raylib is configured to work with the following gamepads:
+##              - Xbox 360 Controller (Xbox 360, Xbox One)
+##              - PLAYSTATION(R)3 Controller
+##       Check raylib.h for buttons configuration
+##
+## Example originally created with raylib 1.1, last time updated with raylib 4.2
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2013-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_input_gamepad.c` on top of the
+## `raylibx` wrapper layer. Controller identification is modeled as a `PadKind`
+## `omen` classified via `txt.text_lower` and `txt.text_find`, and dispatched
+## with `judge`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_input_gamepad.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Lowercase substring aliases used to identify Xbox controllers.
+const XBOX_ALIAS_1 as string is "xbox"
+const XBOX_ALIAS_2 as string is "x-box"
+
+## Lowercase substring aliases used to identify PlayStation controllers.
+const PS_ALIAS_1 as string is "playstation"
+const PS_ALIAS_2 as string is "sony"
+
+## Axis deadzones for sticks and triggers.
+const LEFT_STICK_DEADZONE_X as f32 is 0.1
+const LEFT_STICK_DEADZONE_Y as f32 is 0.1
+const RIGHT_STICK_DEADZONE_X as f32 is 0.1
+const RIGHT_STICK_DEADZONE_Y as f32 is 0.1
+const LEFT_TRIGGER_DEADZONE as f32 is -0.9
+const RIGHT_TRIGGER_DEADZONE as f32 is -0.9
+
+# --- Types --------------------------------------------------------------
+## Controller visual layout family detected from the gamepad name.
+omen PadKind:
+    Xbox
+    PlayStation
+    Generic
+
+# --- Helpers ------------------------------------------------------------
+## Loads a texture from `path`, falling back to a zeroed handle if absent.
+##
+## ## Parameters
+## - `path`: texture file path.
+##
+## ## Returns
+## Loaded `raylib.Texture2D` or a zeroed texture when loading fails.
+##
+## ## Memory
+## Caller releases the returned texture with `textures.unload_texture`.
+weave load_texture_or_empty with path as string into raylib.Texture2D:
+    let loaded as maybe raylib.Texture is calling textures.load_texture with path
+    if tex as raylib.Texture is loaded:
+        return tex
+    return with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+
+## Classifies a gamepad's layout kind from its reported driver name.
+##
+## ## Parameters
+## - `name`: gamepad name string from `input.gamepad_name`.
+##
+## ## Returns
+## `PadKind.Xbox`, `PadKind.PlayStation`, or `PadKind.Generic`.
+weave classify_gamepad with name as string into PadKind:
+    let lower_name as string is calling txt.text_lower with name
+    defer banish lower_name
+
+    if ((calling txt.text_find with lower_name, XBOX_ALIAS_1) is present) or ((calling txt.text_find with lower_name, XBOX_ALIAS_2) is present):
+        return PadKind.Xbox
+    if ((calling txt.text_find with lower_name, PS_ALIAS_1) is present) or ((calling txt.text_find with lower_name, PS_ALIAS_2) is present):
+        return PadKind.PlayStation
+    return PadKind.Generic
+
+## Draws the Xbox controller overlay and button/axis states.
+weave draw_xbox_pad with gamepad as int, tex_xbox_pad as raylib.Texture2D, left_stick_x as f32, left_stick_y as f32, right_stick_x as f32, right_stick_y as f32, left_trigger as f32, right_trigger as f32 into void:
+    calling tex_xbox_pad.draw with 0, 0, raylib.DARKGRAY
+
+    # Draw buttons: xbox home
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_MIDDLE:
+        calling shapes.draw_circle with 394, 89, 19.0, raylib.RED
+
+    # Draw buttons: basic
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_MIDDLE_RIGHT:
+        calling shapes.draw_circle with 436, 150, 9.0, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_MIDDLE_LEFT:
+        calling shapes.draw_circle with 352, 150, 9.0, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_LEFT:
+        calling shapes.draw_circle with 501, 151, 15.0, raylib.BLUE
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN:
+        calling shapes.draw_circle with 536, 187, 15.0, raylib.LIME
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_RIGHT:
+        calling shapes.draw_circle with 572, 151, 15.0, raylib.MAROON
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_UP:
+        calling shapes.draw_circle with 536, 115, 15.0, raylib.GOLD
+
+    # Draw buttons: d-pad
+    calling shapes.draw_rectangle with 317, 202, 19, 71, raylib.BLACK
+    calling shapes.draw_rectangle with 293, 228, 69, 19, raylib.BLACK
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_UP:
+        calling shapes.draw_rectangle with 317, 202, 19, 26, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_DOWN:
+        calling shapes.draw_rectangle with 317, (202 + 45), 19, 26, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_LEFT:
+        calling shapes.draw_rectangle with 292, 228, 25, 19, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_RIGHT:
+        calling shapes.draw_rectangle with (292 + 44), 228, 26, 19, raylib.RED
+
+    # Draw buttons: left-right back
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_TRIGGER_1:
+        calling shapes.draw_circle with 259, 61, 20.0, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_TRIGGER_1:
+        calling shapes.draw_circle with 536, 61, 20.0, raylib.RED
+
+    # Draw axis: left joystick
+    let left_gamepad_color as raylib.Color is if (calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_THUMB) then raylib.RED else raylib.BLACK
+    calling shapes.draw_circle with 259, 152, 39.0, raylib.BLACK
+    calling shapes.draw_circle with 259, 152, 34.0, raylib.LIGHTGRAY
+    calling shapes.draw_circle with (259 + ((left_stick_x * 20.0) to int)), (152 + ((left_stick_y * 20.0) to int)), 25.0, left_gamepad_color
+
+    # Draw axis: right joystick
+    let right_gamepad_color as raylib.Color is if (calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_THUMB) then raylib.RED else raylib.BLACK
+    calling shapes.draw_circle with 461, 237, 38.0, raylib.BLACK
+    calling shapes.draw_circle with 461, 237, 33.0, raylib.LIGHTGRAY
+    calling shapes.draw_circle with (461 + ((right_stick_x * 20.0) to int)), (237 + ((right_stick_y * 20.0) to int)), 25.0, right_gamepad_color
+
+    # Draw axis: left-right triggers
+    calling shapes.draw_rectangle with 170, 30, 15, 70, raylib.GRAY
+    calling shapes.draw_rectangle with 604, 30, 15, 70, raylib.GRAY
+    calling shapes.draw_rectangle with 170, 30, 15, ((((1.0 + left_trigger) / 2.0) * 70.0) to int), raylib.RED
+    calling shapes.draw_rectangle with 604, 30, 15, ((((1.0 + right_trigger) / 2.0) * 70.0) to int), raylib.RED
+
+## Draws the PlayStation 3 controller overlay and button/axis states.
+weave draw_ps3_pad with gamepad as int, tex_ps3_pad as raylib.Texture2D, left_stick_x as f32, left_stick_y as f32, right_stick_x as f32, right_stick_y as f32, left_trigger as f32, right_trigger as f32 into void:
+    calling tex_ps3_pad.draw with 0, 0, raylib.DARKGRAY
+
+    # Draw buttons: ps
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_MIDDLE:
+        calling shapes.draw_circle with 396, 222, 13.0, raylib.RED
+
+    # Draw buttons: basic
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_MIDDLE_LEFT:
+        calling shapes.draw_rectangle with 328, 170, 32, 13, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_MIDDLE_RIGHT:
+        let v1 as raylib.Vector2 is with x is 436.0, y is 168.0
+        let v2 as raylib.Vector2 is with x is 436.0, y is 185.0
+        let v3 as raylib.Vector2 is with x is 464.0, y is 177.0
+        calling v1.draw_triangle with v2, v3, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_UP:
+        calling shapes.draw_circle with 557, 144, 13.0, raylib.LIME
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_RIGHT:
+        calling shapes.draw_circle with 586, 173, 13.0, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN:
+        calling shapes.draw_circle with 557, 203, 13.0, raylib.VIOLET
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_LEFT:
+        calling shapes.draw_circle with 527, 173, 13.0, raylib.PINK
+
+    # Draw buttons: d-pad
+    calling shapes.draw_rectangle with 225, 132, 24, 84, raylib.BLACK
+    calling shapes.draw_rectangle with 195, 161, 84, 25, raylib.BLACK
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_UP:
+        calling shapes.draw_rectangle with 225, 132, 24, 29, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_DOWN:
+        calling shapes.draw_rectangle with 225, (132 + 54), 24, 30, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_LEFT:
+        calling shapes.draw_rectangle with 195, 161, 30, 25, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_RIGHT:
+        calling shapes.draw_rectangle with (195 + 54), 161, 30, 25, raylib.RED
+
+    # Draw buttons: left-right back buttons
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_TRIGGER_1:
+        calling shapes.draw_circle with 239, 82, 20.0, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_TRIGGER_1:
+        calling shapes.draw_circle with 557, 82, 20.0, raylib.RED
+
+    # Draw axis: left joystick
+    let left_gamepad_color as raylib.Color is if (calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_THUMB) then raylib.RED else raylib.BLACK
+    calling shapes.draw_circle with 319, 255, 35.0, raylib.BLACK
+    calling shapes.draw_circle with 319, 255, 31.0, raylib.LIGHTGRAY
+    calling shapes.draw_circle with (319 + ((left_stick_x * 20.0) to int)), (255 + ((left_stick_y * 20.0) to int)), 25.0, left_gamepad_color
+
+    # Draw axis: right joystick
+    let right_gamepad_color as raylib.Color is if (calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_THUMB) then raylib.RED else raylib.BLACK
+    calling shapes.draw_circle with 475, 255, 35.0, raylib.BLACK
+    calling shapes.draw_circle with 475, 255, 31.0, raylib.LIGHTGRAY
+    calling shapes.draw_circle with (475 + ((right_stick_x * 20.0) to int)), (255 + ((right_stick_y * 20.0) to int)), 25.0, right_gamepad_color
+
+    # Draw axis: left-right triggers
+    calling shapes.draw_rectangle with 169, 48, 15, 70, raylib.GRAY
+    calling shapes.draw_rectangle with 611, 48, 15, 70, raylib.GRAY
+    calling shapes.draw_rectangle with 169, 48, 15, ((((1.0 + left_trigger) / 2.0) * 70.0) to int), raylib.RED
+    calling shapes.draw_rectangle with 611, 48, 15, ((((1.0 + right_trigger) / 2.0) * 70.0) to int), raylib.RED
+
+## Draws the generic controller silhouette and button/axis states.
+weave draw_generic_pad with gamepad as int, left_stick_x as f32, left_stick_y as f32, right_stick_x as f32, right_stick_y as f32, left_trigger as f32, right_trigger as f32 into void:
+    # Draw background: generic
+    let pad_body as raylib.Rectangle is with x is 175.0, y is 110.0, width is 460.0, height is 220.0
+    calling pad_body.draw_rounded with 0.3, 16, raylib.DARKGRAY
+
+    # Draw buttons: basic
+    calling shapes.draw_circle with 365, 170, 12.0, raylib.RAYWHITE
+    calling shapes.draw_circle with 405, 170, 12.0, raylib.RAYWHITE
+    calling shapes.draw_circle with 445, 170, 12.0, raylib.RAYWHITE
+    calling shapes.draw_circle with 516, 191, 17.0, raylib.RAYWHITE
+    calling shapes.draw_circle with 551, 227, 17.0, raylib.RAYWHITE
+    calling shapes.draw_circle with 587, 191, 17.0, raylib.RAYWHITE
+    calling shapes.draw_circle with 551, 155, 17.0, raylib.RAYWHITE
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_MIDDLE_LEFT:
+        calling shapes.draw_circle with 365, 170, 10.0, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_MIDDLE:
+        calling shapes.draw_circle with 405, 170, 10.0, raylib.GREEN
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_MIDDLE_RIGHT:
+        calling shapes.draw_circle with 445, 170, 10.0, raylib.BLUE
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_LEFT:
+        calling shapes.draw_circle with 516, 191, 15.0, raylib.GOLD
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN:
+        calling shapes.draw_circle with 551, 227, 15.0, raylib.BLUE
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_RIGHT:
+        calling shapes.draw_circle with 587, 191, 15.0, raylib.GREEN
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_FACE_UP:
+        calling shapes.draw_circle with 551, 155, 15.0, raylib.RED
+
+    # Draw buttons: d-pad
+    calling shapes.draw_rectangle with 245, 145, 28, 88, raylib.RAYWHITE
+    calling shapes.draw_rectangle with 215, 174, 88, 29, raylib.RAYWHITE
+    calling shapes.draw_rectangle with 247, 147, 24, 84, raylib.BLACK
+    calling shapes.draw_rectangle with 217, 176, 84, 25, raylib.BLACK
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_UP:
+        calling shapes.draw_rectangle with 247, 147, 24, 29, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_DOWN:
+        calling shapes.draw_rectangle with 247, (147 + 54), 24, 30, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_LEFT:
+        calling shapes.draw_rectangle with 217, 176, 30, 25, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_FACE_RIGHT:
+        calling shapes.draw_rectangle with (217 + 54), 176, 30, 25, raylib.RED
+
+    # Draw buttons: left-right back
+    let left_shoulder as raylib.Rectangle is with x is 215.0, y is 98.0, width is 100.0, height is 10.0
+    let right_shoulder as raylib.Rectangle is with x is 495.0, y is 98.0, width is 100.0, height is 10.0
+    calling left_shoulder.draw_rounded with 0.5, 16, raylib.DARKGRAY
+    calling right_shoulder.draw_rounded with 0.5, 16, raylib.DARKGRAY
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_TRIGGER_1:
+        calling left_shoulder.draw_rounded with 0.5, 16, raylib.RED
+    if calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_TRIGGER_1:
+        calling right_shoulder.draw_rounded with 0.5, 16, raylib.RED
+
+    # Draw axis: left joystick
+    let left_gamepad_color as raylib.Color is if (calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_LEFT_THUMB) then raylib.RED else raylib.BLACK
+    calling shapes.draw_circle with 345, 260, 40.0, raylib.BLACK
+    calling shapes.draw_circle with 345, 260, 35.0, raylib.LIGHTGRAY
+    calling shapes.draw_circle with (345 + ((left_stick_x * 20.0) to int)), (260 + ((left_stick_y * 20.0) to int)), 25.0, left_gamepad_color
+
+    # Draw axis: right joystick
+    let right_gamepad_color as raylib.Color is if (calling input.is_gamepad_button_down with gamepad, raylib.GAMEPAD_BUTTON_RIGHT_THUMB) then raylib.RED else raylib.BLACK
+    calling shapes.draw_circle with 465, 260, 40.0, raylib.BLACK
+    calling shapes.draw_circle with 465, 260, 35.0, raylib.LIGHTGRAY
+    calling shapes.draw_circle with (465 + ((right_stick_x * 20.0) to int)), (260 + ((right_stick_y * 20.0) to int)), 25.0, right_gamepad_color
+
+    # Draw axis: left-right triggers
+    calling shapes.draw_rectangle with 151, 110, 15, 70, raylib.GRAY
+    calling shapes.draw_rectangle with 644, 110, 15, 70, raylib.GRAY
+    calling shapes.draw_rectangle with 151, 110, 15, ((((1.0 + left_trigger) / 2.0) * 70.0) to int), raylib.RED
+    calling shapes.draw_rectangle with 644, 110, 15, ((((1.0 + right_trigger) / 2.0) * 70.0) to int), raylib.RED
+
+# --- Entry point --------------------------------------------------------
+## Displays connected gamepad state, button highlights, stick/trigger positions,
+## and a rumble test button across Xbox, PlayStation, or generic layouts.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32)
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - input gamepad"
+    defer calling raylib.CloseWindow
+
+    var tex_ps3_pad as raylib.Texture2D is calling load_texture_or_empty with "resources/ps3.png"
+    defer calling textures.unload_texture with tex_ps3_pad
+    var tex_xbox_pad as raylib.Texture2D is calling load_texture_or_empty with "resources/xbox.png"
+    defer calling textures.unload_texture with tex_xbox_pad
+
+    var vibrate_button as raylib.Rectangle is with x is 0.0, y is 0.0, width is 0.0, height is 0.0
+    var gamepad as int is 0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if (calling input.is_key_pressed with raylib.KEY_LEFT) and (gamepad > 0):
+            set gamepad -= 1
+        if calling input.is_key_pressed with raylib.KEY_RIGHT:
+            set gamepad += 1
+
+        let mouse_position as raylib.Vector2 is calling raylib.GetMousePosition
+        let axis_count as int is calling raylib.GetGamepadAxisCount with gamepad
+
+        set vibrate_button is with:
+            set .x is 10.0
+            set .y is 70.0 + ((20 * axis_count) to f32) + 20.0
+            set .width is 75.0
+            set .height is 24.0
+
+        if (calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT) and (calling vibrate_button.contains_point with mouse_position):
+            calling raylib.SetGamepadVibration with gamepad, 1.0, 1.0, 1.0
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        if calling raylib.IsGamepadAvailable with gamepad:
+            let gp_name as string is calling input.gamepad_name with gamepad
+            let header_text as string is "GP{gamepad}: {gp_name}"
+            calling txt.draw_text with header_text, 10, 10, 10, raylib.BLACK
+            banish header_text
+
+            # Get axis values
+            var left_stick_x as f32 is calling input.gamepad_axis_movement with gamepad, raylib.GAMEPAD_AXIS_LEFT_X
+            var left_stick_y as f32 is calling input.gamepad_axis_movement with gamepad, raylib.GAMEPAD_AXIS_LEFT_Y
+            var right_stick_x as f32 is calling input.gamepad_axis_movement with gamepad, raylib.GAMEPAD_AXIS_RIGHT_X
+            var right_stick_y as f32 is calling input.gamepad_axis_movement with gamepad, raylib.GAMEPAD_AXIS_RIGHT_Y
+            var left_trigger as f32 is calling input.gamepad_axis_movement with gamepad, raylib.GAMEPAD_AXIS_LEFT_TRIGGER
+            var right_trigger as f32 is calling input.gamepad_axis_movement with gamepad, raylib.GAMEPAD_AXIS_RIGHT_TRIGGER
+
+            # Calculate deadzones
+            if (left_stick_x > -LEFT_STICK_DEADZONE_X) and (left_stick_x < LEFT_STICK_DEADZONE_X):
+                set left_stick_x is 0.0
+            if (left_stick_y > -LEFT_STICK_DEADZONE_Y) and (left_stick_y < LEFT_STICK_DEADZONE_Y):
+                set left_stick_y is 0.0
+            if (right_stick_x > -RIGHT_STICK_DEADZONE_X) and (right_stick_x < RIGHT_STICK_DEADZONE_X):
+                set right_stick_x is 0.0
+            if (right_stick_y > -RIGHT_STICK_DEADZONE_Y) and (right_stick_y < RIGHT_STICK_DEADZONE_Y):
+                set right_stick_y is 0.0
+            if left_trigger < LEFT_TRIGGER_DEADZONE:
+                set left_trigger is -1.0
+            if right_trigger < RIGHT_TRIGGER_DEADZONE:
+                set right_trigger is -1.0
+
+            let kind as PadKind is calling classify_gamepad with gp_name
+            banish gp_name
+            judge kind:
+                when Xbox -> calling draw_xbox_pad with gamepad, tex_xbox_pad, left_stick_x, left_stick_y, right_stick_x, right_stick_y, left_trigger, right_trigger
+                when PlayStation -> calling draw_ps3_pad with gamepad, tex_ps3_pad, left_stick_x, left_stick_y, right_stick_x, right_stick_y, left_trigger, right_trigger
+                when Generic -> calling draw_generic_pad with gamepad, left_stick_x, left_stick_y, right_stick_x, right_stick_y, left_trigger, right_trigger
+
+            let axis_header as string is "DETECTED AXIS [{axis_count}]:"
+            calling txt.draw_text with axis_header, 10, 50, 10, raylib.MAROON
+            banish axis_header
+
+            for i from 0 to axis_count:
+                let movement as f32 is calling raylib.GetGamepadAxisMovement with gamepad, i
+                let axis_line as string is "AXIS {i}: {movement}"
+                calling txt.draw_text with axis_line, 20, (70 + (20 * i)), 10, raylib.DARKGRAY
+                banish axis_line
+
+            # Draw vibrate button
+            calling vibrate_button.draw with raylib.SKYBLUE
+            calling txt.draw_text with "VIBRATE", ((vibrate_button.x + 14.0) to int), ((vibrate_button.y + 1.0) to int), 10, raylib.DARKGRAY
+
+            let pressed_btn as maybe int is calling input.gamepad_button_pressed
+            if pressed_btn is present:
+                let btn_text as string is "DETECTED BUTTON: {calling pressed_btn.unwrap}"
+                calling txt.draw_text with btn_text, 10, 430, 10, raylib.RED
+                banish btn_text
+            else:
+                calling txt.draw_text with "DETECTED BUTTON: NONE", 10, 430, 10, raylib.GRAY
+        else:
+            let missing_text as string is "GP{gamepad}: NOT DETECTED"
+            calling txt.draw_text with missing_text, 10, 10, 10, raylib.GRAY
+            banish missing_text
+            calling tex_xbox_pad.draw with 0, 0, raylib.LIGHTGRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

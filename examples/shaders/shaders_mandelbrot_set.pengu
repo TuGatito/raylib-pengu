@@ -1,0 +1,234 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - mandelbrot set
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Jordi Santonja (@JordSant) based on work by Josh Colclough (@joshcol9232)
+##
+## This example demonstrates real-time rendering and interactive exploration of
+## the Mandelbrot fractal set using a custom fragment shader with adaptive iteration depth.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_mandelbrot_set.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- C Math Declarations ------------------------------------------------
+declare sqrtf with x as f32 into f32
+declare fabsf with x as f32 into f32
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Multiplier for zooming speed.
+const ZOOM_SPEED as f32 is 1.01
+
+## Multiplier for panning speed.
+const OFFSET_SPEED_MUL as f32 is 2.0
+
+## Default starting zoom level.
+const STARTING_ZOOM as f32 is 0.6
+
+# --- Types --------------------------------------------------------------
+## Preset location with target offset and zoom level.
+rune MandelPoint:
+    offset_x as f32
+    offset_y as f32
+    zoom as f32
+
+# --- Helper Functions ---------------------------------------------------
+
+## Returns a predefined point of interest in the Mandelbrot set.
+##
+## ## Parameters
+## - `index`: Preset index (0 to 5).
+##
+## ## Returns
+## The `MandelPoint` containing offset and zoom coordinates.
+weave point_of_interest with index as int into MandelPoint:
+    if index == 0:
+        return (with offset_x is -1.76826775, offset_y is -0.00422996283, zoom is 28435.9238)
+    if index == 1:
+        return (with offset_x is 0.322004497, offset_y is -0.0357099883, zoom is 56499.7266)
+    if index == 2:
+        return (with offset_x is -0.748880744, offset_y is -0.0562955774, zoom is 9237.59082)
+    if index == 3:
+        return (with offset_x is -1.78385007, offset_y is -0.0156200649, zoom is 14599.5283)
+    if index == 4:
+        return (with offset_x is -0.0985441282, offset_y is -0.924688697, zoom is 26259.8535)
+    return (with offset_x is 0.317785531, offset_y is -0.0322612226, zoom is 29297.9258)
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - mandelbrot set"
+    defer calling raylib.CloseWindow
+
+    # Load mandelbrot fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/mandelbrot_set.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Create render texture
+    var target as raylib.RenderTexture2D is with id is 0
+    if loaded_target as raylib.RenderTexture2D is calling textures.load_render_texture with SCREEN_WIDTH, SCREEN_HEIGHT:
+        set target is loaded_target
+    else:
+        return 1
+    defer calling textures.unload_render_texture with target
+
+    var offset as raylib.Vector2 is with x is -0.5, y is 0.0
+    var zoom as f32 is STARTING_ZOOM
+    var max_iterations as int is 333
+    var max_iterations_mul as f32 is 166.5
+
+    # Uniform locations
+    var zoom_loc as int is 0
+    if loc as int is calling shader.location with "zoom":
+        set zoom_loc is loc
+
+    var offset_loc as int is 0
+    if loc as int is calling shader.location with "offset":
+        set offset_loc is loc
+
+    var max_iter_loc as int is 0
+    if loc as int is calling shader.location with "maxIterations":
+        set max_iter_loc is loc
+
+    calling shader.set_float with zoom_loc, zoom
+    calling shader.set_vec2 with offset_loc, offset
+    calling shader.set_int with max_iter_loc, max_iterations
+
+    var show_controls as bool is true
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        var update_shader as bool is false
+
+        # Number keys [1 - 6] to select preset point of interest
+        if calling input.is_key_pressed with raylib.KEY_ONE:
+            let pt as MandelPoint is calling point_of_interest with 0
+            set offset.x is pt.offset_x
+            set offset.y is pt.offset_y
+            set zoom is pt.zoom
+            set update_shader is true
+        else if calling input.is_key_pressed with raylib.KEY_TWO:
+            let pt as MandelPoint is calling point_of_interest with 1
+            set offset.x is pt.offset_x
+            set offset.y is pt.offset_y
+            set zoom is pt.zoom
+            set update_shader is true
+        else if calling input.is_key_pressed with raylib.KEY_THREE:
+            let pt as MandelPoint is calling point_of_interest with 2
+            set offset.x is pt.offset_x
+            set offset.y is pt.offset_y
+            set zoom is pt.zoom
+            set update_shader is true
+        else if calling input.is_key_pressed with raylib.KEY_FOUR:
+            let pt as MandelPoint is calling point_of_interest with 3
+            set offset.x is pt.offset_x
+            set offset.y is pt.offset_y
+            set zoom is pt.zoom
+            set update_shader is true
+        else if calling input.is_key_pressed with raylib.KEY_FIVE:
+            let pt as MandelPoint is calling point_of_interest with 4
+            set offset.x is pt.offset_x
+            set offset.y is pt.offset_y
+            set zoom is pt.zoom
+            set update_shader is true
+        else if calling input.is_key_pressed with raylib.KEY_SIX:
+            let pt as MandelPoint is calling point_of_interest with 5
+            set offset.x is pt.offset_x
+            set offset.y is pt.offset_y
+            set zoom is pt.zoom
+            set update_shader is true
+
+        # Reset camera
+        if calling input.is_key_pressed with raylib.KEY_R:
+            set offset.x is -0.5
+            set offset.y is 0.0
+            set zoom is STARTING_ZOOM
+            set update_shader is true
+
+        if calling input.is_key_pressed with raylib.KEY_F1:
+            set show_controls is not show_controls
+
+        # Change max iterations multiplier
+        if calling input.is_key_pressed with raylib.KEY_UP:
+            set max_iterations_mul is max_iterations_mul * 1.4
+            set update_shader is true
+        else if calling input.is_key_pressed with raylib.KEY_DOWN:
+            set max_iterations_mul is max_iterations_mul / 1.4
+            set update_shader is true
+
+        # Mouse zoom and pan
+        let l_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT
+        let r_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_RIGHT
+        if l_down or r_down:
+            let z_factor as f32 is if l_down then ZOOM_SPEED else (1.0 / ZOOM_SPEED)
+            set zoom is zoom * z_factor
+
+            let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+            let vel_x as f32 is (((mouse_pos.x / (SCREEN_WIDTH to f32)) - 0.5) * OFFSET_SPEED_MUL) / zoom
+            let vel_y as f32 is (((mouse_pos.y / (SCREEN_HEIGHT to f32)) - 0.5) * OFFSET_SPEED_MUL) / zoom
+
+            let dt as f32 is calling raylib.GetFrameTime
+            set offset.x is offset.x + (dt * vel_x)
+            set offset.y is offset.y + (dt * vel_y)
+
+            set update_shader is true
+
+        if update_shader:
+            let term as f32 is calling fabsf with (1.0 - (calling sqrtf with (37.5 * zoom)))
+            set max_iterations is ((calling sqrtf with (2.0 * (calling sqrtf with term))) * max_iterations_mul) to int
+
+            calling shader.set_float with zoom_loc, zoom
+            calling shader.set_vec2 with offset_loc, offset
+            calling shader.set_int with max_iter_loc, max_iterations
+
+        # Draw to render texture
+        calling drawing.begin_texture_mode with target
+        calling drawing.clear_background with raylib.BLACK
+        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.BLACK
+        calling drawing.end_texture_mode
+
+        # Draw to screen
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.BLACK
+
+        calling drawing.begin_shader_mode with shader
+        calling target.texture.draw_ex with (with x is 0.0, y is 0.0), 0.0, 1.0, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        if show_controls:
+            calling txt.draw_text with "Press Mouse buttons right/left to zoom in/out and move", 10, 15, 10, raylib.RAYWHITE
+            calling txt.draw_text with "Press F1 to toggle these controls", 10, 30, 10, raylib.RAYWHITE
+            calling txt.draw_text with "Press [1 - 6] to change point of interest", 10, 45, 10, raylib.RAYWHITE
+            calling txt.draw_text with "Press UP | DOWN to change number of iterations", 10, 60, 10, raylib.RAYWHITE
+            calling txt.draw_text with "Press R to recenter the camera", 10, 75, 10, raylib.RAYWHITE
+
+        calling drawing.end_drawing
+
+    return 0

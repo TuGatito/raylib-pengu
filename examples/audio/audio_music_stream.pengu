@@ -1,0 +1,157 @@
+## raylib [audio] example - music stream
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.3, last time updated with raylib 4.2
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2015-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.input`,
+## `raylibx.shapes`, `raylibx.text`, `raylibx.audio`), relative asset paths from project root,
+## real-time stream playback, pan/volume sliders, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/audio/audio_music_stream.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.audio as audio
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 30
+
+## Path to the MP3 music stream file (relative to project root).
+const MUSIC_PATH as string is "examples/audio/resources/country.mp3"
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Initializes the audio device, loads an MP3 streaming track, updates the stream buffer
+## each frame, and provides interactive keyboard controls for playback, pan, and volume.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if asset loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [audio] example - music stream"
+    defer calling raylib.CloseWindow
+
+    calling raylib.InitAudioDevice # Initialize audio device
+    defer calling raylib.CloseAudioDevice
+
+    let loaded_music as maybe raylib.Music is calling audio.load_music_stream with MUSIC_PATH
+    if music as raylib.Music is loaded_music:
+        defer calling audio.unload_music_stream with music
+
+        calling music.play
+
+        var time_played as f32 is 0.0 # Time played normalized [0.0..1.0]
+        var pause as bool is false    # Music playing paused
+
+        var pan as f32 is 0.0         # Default audio pan center [-1.0..1.0]
+        calling music.set_pan with pan
+
+        var volume as f32 is 0.8      # Default audio volume [0.0..1.0]
+        calling music.set_volume with volume
+
+        calling raylib.SetTargetFPS with TARGET_FPS # Set our game to run at 30 frames-per-second
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+            # Update
+            calling music.update # Update music buffer with new stream data
+
+            # Restart music playing (stop and play)
+            if calling input.is_key_pressed with raylib.KEY_SPACE:
+                calling music.stop
+                calling music.play
+
+            # Pause/Resume music playing
+            if calling input.is_key_pressed with raylib.KEY_P:
+                set pause is not pause
+
+                if pause:
+                    calling music.pause
+                else:
+                    calling music.resume
+
+            # Set audio pan
+            if calling input.is_key_down with raylib.KEY_LEFT:
+                set pan is pan - 0.05
+                if pan < -1.0:
+                    set pan is -1.0
+                calling music.set_pan with pan
+            else if calling input.is_key_down with raylib.KEY_RIGHT:
+                set pan is pan + 0.05
+                if pan > 1.0:
+                    set pan is 1.0
+                calling music.set_pan with pan
+
+            # Set audio volume
+            if calling input.is_key_down with raylib.KEY_DOWN:
+                set volume is volume - 0.05
+                if volume < 0.0:
+                    set volume is 0.0
+                calling music.set_volume with volume
+            else if calling input.is_key_down with raylib.KEY_UP:
+                set volume is volume + 0.05
+                if volume > 1.0:
+                    set volume is 1.0
+                calling music.set_volume with volume
+
+            # Get normalized time played for current music stream
+            let total_len as f32 is calling music.time_length
+            if total_len > 0.0:
+                set time_played is (calling music.time_played) / total_len
+            if time_played > 1.0:
+                set time_played is 1.0 # Make sure time played is no longer than music
+
+            # Draw
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            calling txt.draw_text with "MUSIC SHOULD BE PLAYING!", 255, 150, 20, raylib.LIGHTGRAY
+
+            calling txt.draw_text with "LEFT-RIGHT for PAN CONTROL", 320, 74, 10, raylib.DARKBLUE
+            calling shapes.draw_rectangle with 300, 100, 200, 12, raylib.LIGHTGRAY
+            calling shapes.draw_rectangle_lines with 300, 100, 200, 12, raylib.GRAY
+            let pan_knob_x as int is ((300.0 + ((pan + 1.0) / 2.0) * 200.0) - 5.0) to int
+            calling shapes.draw_rectangle with pan_knob_x, 92, 10, 28, raylib.DARKGRAY
+
+            calling shapes.draw_rectangle with 200, 200, 400, 12, raylib.LIGHTGRAY
+            let progress_w as int is (time_played * 400.0) to int
+            calling shapes.draw_rectangle with 200, 200, progress_w, 12, raylib.MAROON
+            calling shapes.draw_rectangle_lines with 200, 200, 400, 12, raylib.GRAY
+
+            calling txt.draw_text with "PRESS SPACE TO RESTART MUSIC", 215, 250, 20, raylib.LIGHTGRAY
+            calling txt.draw_text with "PRESS P TO PAUSE/RESUME MUSIC", 208, 280, 20, raylib.LIGHTGRAY
+
+            calling txt.draw_text with "UP-DOWN for VOLUME CONTROL", 320, 334, 10, raylib.DARKGREEN
+            calling shapes.draw_rectangle with 300, 360, 200, 12, raylib.LIGHTGRAY
+            calling shapes.draw_rectangle_lines with 300, 360, 200, 12, raylib.GRAY
+            let vol_knob_x as int is ((300.0 + (volume * 200.0)) - 5.0) to int
+            calling shapes.draw_rectangle with vol_knob_x, 352, 10, 28, raylib.DARKGRAY
+
+            calling drawing.end_drawing
+
+        return 0
+
+    return 1

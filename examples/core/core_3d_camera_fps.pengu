@@ -12,20 +12,20 @@
 ##
 ## Copyright (c) 2025 Agnis Aldiņš (@nezvers)
 ##
-## ## Port a PenguScript
-## Traducción 1:1 de `examples/core/core_3d_camera_fps.c` sobre la capa de
-## wrappers `raylibx` + `rcamerax` + `raymathx`.
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_3d_camera_fps.c` on top of the
+## `raylibx` + `rcamerax` + `raymathx` wrapper layer.
 ##
-## Las variables globales de C (`player`, `lookRotation`, `headTimer`,
-## `walkLerp`, `headLerp`, `lean`) se agrupan en el `rune FpsState`, que se pasa
-## como `ref to FpsState` a cada weave: es el patrón de estado de módulo que la
-## guía recomienda cuando el estado lo comparten varias funciones. `UpdateBody`
-## y `UpdateCameraFPS` reciben ese contexto en lugar de leer globales.
+## The C global variables (`player`, `lookRotation`, `headTimer`, `walkLerp`,
+## `headLerp`, `lean`) are grouped into the `rune FpsState`, which is passed as
+## `ref to FpsState` to each weave: this is the module-state pattern recommended
+## by the guide when state is shared across several functions. `update_body` and
+## `update_camera_fps` receive that context instead of reading globals.
 ##
-## La normalización diagonal de C está compilada fuera (`NORMALIZE_INPUT 0`), así
-## que el port conserva exactamente ese comportamiento.
+## Diagonal input normalization in C is compiled out (`NORMALIZE_INPUT 0`), so
+## the port preserves that exact behavior.
 ##
-## ## Ejemplo
+## ## Example
 ## ```bash
 ## pengu run examples/core/core_3d_camera_fps.pengu
 ## ```
@@ -43,61 +43,61 @@ import rcamerax
 import std.fractio
 import std.numerus
 
-# --- Constantes ---------------------------------------------------------
-## Ancho de la ventana, en píxeles.
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
 const SCREEN_WIDTH as int is 800
 
-## Alto de la ventana, en píxeles.
+## Window height, in pixels.
 const SCREEN_HEIGHT as int is 450
 
-## Fotogramas por segundo a los que corre el bucle principal.
+## Target frames per second for the main game loop.
 const TARGET_FPS as int is 60
 
-## Gravedad aplicada al cuerpo.
+## Gravity applied to the player body.
 const GRAVITY as f32 is 32.0
 
-## Velocidad horizontal máxima de pie.
+## Maximum standing horizontal speed.
 const MAX_SPEED as f32 is 20.0
 
-## Velocidad horizontal máxima agachado.
+## Maximum crouching horizontal speed.
 const CROUCH_SPEED as f32 is 5.0
 
-## Impulso vertical del salto.
+## Vertical jump impulse.
 const JUMP_FORCE as f32 is 12.0
 
-## Aceleración máxima aplicada por fotograma.
+## Maximum acceleration applied per frame.
 const MAX_ACCEL as f32 is 150.0
 
-## Rozamiento en el suelo.
+## Grounded friction factor.
 const FRICTION as f32 is 0.86
 
-## Rozamiento en el aire; aumenta la velocidad al hacer strafe.
+## Air drag factor; increases speed when strafing.
 const AIR_DRAG as f32 is 0.98
 
-## Respuesta del giro hacia la dirección mirada.
+## Responsiveness for turning movement direction to looked direction.
 const CONTROL as f32 is 15.0
 
-## Altura de la cabeza agachado.
+## Crouch head height.
 const CROUCH_HEIGHT as f32 is 0.0
 
-## Altura de la cabeza de pie.
+## Standing head height.
 const STAND_HEIGHT as f32 is 1.0
 
-## Altura de los ojos sobre la posición del cuerpo.
+## Eye height offset from the bottom of the body.
 const BOTTOM_HEIGHT as f32 is 0.5
 
-## Sensibilidad del ratón, en radianes por píxel.
+## Mouse sensitivity, in radians per pixel.
 const SENSITIVITY as raylib.Vector2 is with x is 0.001, y is 0.001
 
-# --- Tipos --------------------------------------------------------------
-## Cuerpo del jugador: posición, velocidad, dirección deseada y contacto con el suelo.
+# --- Types --------------------------------------------------------------
+## Player body: position, velocity, desired direction, and grounded state.
 rune Body:
     position as raylib.Vector3
     velocity as raylib.Vector3
     direction as raylib.Vector3
     is_grounded as bool
 
-## Estado completo del controlador en primera persona.
+## Full state of the first-person controller.
 rune FpsState:
     player as Body
     look_rotation as raylib.Vector2
@@ -107,23 +107,23 @@ rune FpsState:
     lean as raylib.Vector2
 
 # --- Helpers ------------------------------------------------------------
-## Devuelve `-1`, `0` o `1` según qué tecla de un eje está pulsada.
+## Returns `-1`, `0`, or `1` depending on which key of an axis is held down.
 ##
-## ## Parámetros
-## - `positive`: tecla que suma uno.
-## - `negative`: tecla que resta uno.
+## ## Parameters
+## - `positive`: key that adds one.
+## - `negative`: key that subtracts one.
 ##
-## ## Retorno
-## El eje como `f32`; las dos teclas a la vez dan `0`.
+## ## Returns
+## The axis value as `f32`; holding both keys simultaneously yields `0`.
 weave read_axis with positive as raylib.KeyboardKey, negative as raylib.KeyboardKey into f32:
     let plus as int is if calling input.is_key_down with positive then 1 else 0
     let minus as int is if calling input.is_key_down with negative then 1 else 0
     return ((plus - minus) to f32)
 
-## Construye un cuerpo en reposo sobre el origen.
+## Builds a body at rest at the origin.
 ##
-## ## Retorno
-## Un `Body` nuevo; no asigna memoria.
+## ## Returns
+## A new `Body`; allocates no memory.
 weave new_body into Body:
     return with:
         set .position is with x is 0.0, y is 0.0, z is 0.0
@@ -131,10 +131,10 @@ weave new_body into Body:
         set .direction is with x is 0.0, y is 0.0, z is 0.0
         set .is_grounded is false
 
-## Construye el estado inicial del controlador.
+## Builds the initial state of the controller.
 ##
-## ## Retorno
-## Un `FpsState` nuevo; no asigna memoria.
+## ## Returns
+## A new `FpsState`; allocates no memory.
 weave new_state into FpsState:
     return with:
         set .player is calling new_body
@@ -144,18 +144,18 @@ weave new_state into FpsState:
         set .head_lerp is STAND_HEIGHT
         set .lean is with x is 0.0, y is 0.0
 
-## Integra la física del cuerpo para este fotograma.
+## Integrates body physics for the current frame.
 ##
-## ## Parámetros
-## - `state`: estado completo que se muta en el sitio.
-## - `rot`: ángulo de giro actual (yaw), en radianes.
-## - `side`: eje lateral, de `-1` a `1`.
-## - `forward`: eje frontal, de `-1` a `1`.
-## - `jump_pressed`: `true` en el fotograma en que se pulsa saltar.
-## - `crouch_hold`: `true` mientras se mantiene agachado.
+## ## Parameters
+## - `state`: full state mutated in place.
+## - `rot`: current yaw rotation angle, in radians.
+## - `side`: sideways input axis, from `-1` to `1`.
+## - `forward`: forward input axis, from `-1` to `1`.
+## - `jump_pressed`: `true` on the frame jump is pressed.
+## - `crouch_hold`: `true` while crouch is held.
 ##
-## ## Memoria
-## No asigna memoria; solo escribe los campos de `state`.
+## ## Memory
+## Allocates no memory; only writes to the fields of `state`.
 weave update_body with state as ref to FpsState, rot as f32, side as f32, forward as f32, jump_pressed as bool, crouch_hold as bool into void:
     let axis as raylib.Vector2 is with x is side, y is -forward
     let delta as f32 is calling raylib.GetFrameTime
@@ -191,7 +191,7 @@ weave update_body with state as ref to FpsState, rot as f32, side as f32, forwar
     if horizontal_length < (MAX_SPEED * 0.01):
         set horizontal_velocity is with x is 0.0, y is 0.0, z is 0.0
 
-    # Esto es lo que produce el strafe
+    # This is what creates strafing
     let direction as raylib.Vector3 is state->player.direction
     let speed as f32 is calling horizontal_velocity.dot with direction
 
@@ -207,42 +207,42 @@ weave update_body with state as ref to FpsState, rot as f32, side as f32, forwar
     set state->player.position.y += state->player.velocity.y * delta
     set state->player.position.z += state->player.velocity.z * delta
 
-    # Colisión con el suelo
+    # Floor collision
     if state->player.position.y <= 0.0:
         set state->player.position.y is 0.0
         set state->player.velocity.y is 0.0
         set state->player.is_grounded is true
 
-## Actualiza la cámara para el comportamiento en primera persona.
+## Updates the camera for first-person look, head roll, and walk bobbing.
 ##
-## ## Parámetros
-## - `state`: estado que aporta la mirada, el balanceo y la animación de cabeza.
-## - `camera`: cámara que se muta en el sitio.
+## ## Parameters
+## - `state`: state providing look angles, lean, and head animation.
+## - `camera`: camera mutated in place.
 ##
-## ## Memoria
-## No asigna memoria; solo escribe los campos de `camera`.
+## ## Memory
+## Allocates no memory; only writes to the fields of `camera`.
 weave update_camera_fps with state as ref to FpsState, camera as ref to raylib.Camera3D into void:
     let up as raylib.Vector3 is with x is 0.0, y is 1.0, z is 0.0
     let target_offset as raylib.Vector3 is with x is 0.0, y is 0.0, z is -1.0
     let look as raylib.Vector2 is state->look_rotation
 
-    # Izquierda y derecha
+    # Left and right
     let yaw as raylib.Vector3 is calling target_offset.rotate_by_axis with up, look.x
 
-    # Límite superior de la vista
+    # Clamp view up
     let max_angle_up_raw as f32 is calling up.angle_to with yaw
     let max_angle_up as f32 is max_angle_up_raw - 0.001
     if (-look.y) > max_angle_up:
         set state->look_rotation.y is -max_angle_up
 
-    # Límite inferior de la vista
+    # Clamp view down
     let down_up as raylib.Vector3 is calling up.get_negate
     let max_angle_down_raw as f32 is calling down_up.angle_to with yaw
     let max_angle_down as f32 is (max_angle_down_raw * -1.0) + 0.001
     if (-look.y) < max_angle_down:
         set state->look_rotation.y is -max_angle_down
 
-    # Arriba y abajo
+    # Up and down
     let cross as raylib.Vector3 is calling yaw.get_cross_with with up
     let right as raylib.Vector3 is calling cross.get_normalize
 
@@ -251,7 +251,7 @@ weave update_camera_fps with state as ref to FpsState, camera as ref to raylib.C
     set pitch_angle is (calling raymathx.clamp with pitch_angle, (-half_pi + 0.0001), (half_pi - 0.0001))
     let pitch as raylib.Vector3 is calling yaw.rotate_by_axis with right, pitch_angle
 
-    # Animación de cabeza: gira el vector «arriba» sobre el eje frontal
+    # Head animation: rotate up direction around forward axis
     let head_angle as f32 is state->head_timer * (raylib.PI to f32)
     let head_sin as f32 is calling head_angle.get_sin
     let head_cos as f32 is calling head_angle.get_cos
@@ -260,7 +260,7 @@ weave update_camera_fps with state as ref to FpsState, camera as ref to raylib.C
     let rotated_up as raylib.Vector3 is calling up.rotate_by_axis with pitch, up_rotation
     set camera->up is rotated_up
 
-    # Balanceo de la cámara
+    # Camera bobbing
     let bob_side as f32 is 0.1
     let bob_up as f32 is 0.15
     let side_bob as raylib.Vector3 is calling right.get_scale with (head_sin * bob_side)
@@ -274,20 +274,20 @@ weave update_camera_fps with state as ref to FpsState, camera as ref to raylib.C
     set camera->position is new_position
     set camera->target is (calling new_position.get_add with pitch)
 
-## Dibuja el nivel: suelo de baldosas, cuatro torres y un sol rojo.
+## Draws the level: tiled floor, four towers, and a red sun.
 ##
-## ## Notas
-## Requiere un `begin_mode_3d` activo.
+## ## Notes
+## Requires an active `begin_mode_3d` block.
 ##
-## ## Memoria
-## No asigna memoria.
+## ## Memory
+## Allocates no memory.
 weave draw_level into void:
     let floor_extent as int is 25
     let tile_size as f32 is 5.0
     let tile_color as raylib.Color is with r is 150, g is 200, b is 200, a is 255
     let tile_extent as raylib.Vector2 is with x is tile_size, y is tile_size
 
-    # Baldosas del suelo
+    # Floor tiles
     for y from -floor_extent to floor_extent:
         for x from -floor_extent to floor_extent:
             let tile_x as f32 is (x to f32) * tile_size
@@ -319,17 +319,17 @@ weave draw_level into void:
     calling tower_position.draw_cube with tower_size, tower_color
     calling tower_position.draw_cube_wires with tower_size, raylib.DARKBLUE
 
-    # Sol rojo
+    # Red sun
     calling shapes3d.draw_sphere with (with x is 300.0, y is 300.0, z is 0.0), 100.0, (with r is 255, g is 0, b is 0, a is 255)
 
-# --- Punto de entrada ---------------------------------------------------
-## Controla un cuerpo en primera persona con gravedad, salto, agacharse y
-## balanceo de cabeza dentro de un nivel de baldosas.
+# --- Entry point --------------------------------------------------------
+## Controls a first-person body with gravity, jumping, crouching, and head
+## bobbing inside a tiled level.
 ##
-## ## Retorno
-## Código de salida del proceso: `0` cuando la ventana se cierra con normalidad.
+## ## Returns
+## Process exit code: `0` when the window closes normally.
 weave main into int:
-    # Inicialización
+    # Initialization
     # ---------------------------------------------------------------------
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - 3d camera fps"
     defer calling raylib.CloseWindow
@@ -346,13 +346,13 @@ weave main into int:
 
     calling update_camera_fps with (sigil of state), (sigil of camera)
 
-    calling raylib.DisableCursor          # Limita el cursor al movimiento relativo
+    calling raylib.DisableCursor          # Limit cursor to relative movement inside the window
     calling raylib.SetTargetFPS with TARGET_FPS
     # ---------------------------------------------------------------------
 
-    # Bucle principal
+    # Main game loop
     while not calling raylib.WindowShouldClose:
-        # Actualización
+        # Update
         # -----------------------------------------------------------------
         let mouse_delta as raylib.Vector2 is calling raylib.GetMouseDelta
         set state.look_rotation.x -= mouse_delta.x * SENSITIVITY.x
@@ -388,7 +388,7 @@ weave main into int:
         calling update_camera_fps with (sigil of state), (sigil of camera)
         # -----------------------------------------------------------------
 
-        # Dibujo
+        # Draw
         # -----------------------------------------------------------------
         calling drawing.begin_drawing
         calling drawing.clear_background with raylib.RAYWHITE
@@ -397,7 +397,7 @@ weave main into int:
         calling draw_level
         calling drawing.end_mode_3d
 
-        # Panel de información
+        # Draw info box
         let panel_color as raylib.Color is calling colors.fade with raylib.SKYBLUE, 0.5
         calling shapes.draw_rectangle with 5, 5, 330, 75, panel_color
         calling shapes.draw_rectangle_lines with 5, 5, 330, 75, raylib.BLUE

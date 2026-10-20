@@ -1,0 +1,230 @@
+## examples/core/core_input_virtual_controls.pengu
+## raylib [core] example - input virtual controls
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.0, last time updated with raylib 5.0
+##
+## Example contributed by GreenSnakeLinux (@GreenSnakeLinux),
+## reviewed by Ramon Santamaria (@raysan5), oblerion (@oblerion) and danilwhale (@danilwhale)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2024-2025 GreenSnakeLinux (@GreenSnakeLinux) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 port of `examples/core/core_input_virtual_controls.c` built on top of
+## `raylibx` and `raymathx`. C's `PadButton` enum becomes a PenguScript `omen`
+## paired with `judge` value expressions for button-index lookup and player
+## velocity calculation. The parallel arrays (`buttonPositions`, `arrowTris`,
+## `buttonLabelColors`) are grouped into a single `PadButtonSpec` rune stored in
+## a `list of PadButtonSpec` with `defer banish`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_input_virtual_controls.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raymathx
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Radius of each D-Pad button circle, in pixels.
+const BUTTON_RADIUS as f32 is 30.0
+
+## Radius of the player circle, in pixels.
+const PLAYER_RADIUS as f32 is 50.0
+
+## Movement speed of the player, in pixels per second.
+const PLAYER_SPEED as f32 is 75.0
+
+# --- Types --------------------------------------------------------------
+## Virtual D-Pad button identifier.
+omen PadButton:
+    ButtonNone is -1
+    ButtonUp is 0
+    ButtonLeft is 1
+    ButtonRight is 2
+    ButtonDown is 3
+
+## Geometry and color specification for one virtual D-Pad button.
+rune PadButtonSpec:
+    id as PadButton
+    position as raylib.Vector2
+    arrow_v0 as raylib.Vector2
+    arrow_v1 as raylib.Vector2
+    arrow_v2 as raylib.Vector2
+    label_color as raylib.Color
+
+# --- Helpers ------------------------------------------------------------
+## Returns the absolute value of a 32-bit float.
+##
+## ## Parameters
+## - `value`: input scalar.
+##
+## ## Returns
+## `|value|` as `f32`.
+weave abs_f32 with value as f32 into f32:
+    return if value < 0.0 then -value else value
+
+## Builds the four directional D-Pad button specifications around `pad_position`.
+##
+## ## Parameters
+## - `pad_position`: center of the virtual D-Pad in screen coordinates.
+## - `button_radius`: radius of each circular button.
+##
+## ## Returns
+## An owned `list of PadButtonSpec` with the Up, Left, Right, and Down buttons.
+##
+## ## Memory
+## Allocates a new `list of PadButtonSpec`; the caller owns it and must `banish` it.
+weave build_dpad_buttons with pad_position as raylib.Vector2, button_radius as f32 into list of PadButtonSpec:
+    var buttons as list of PadButtonSpec is list of PadButtonSpec
+    let offset as f32 is button_radius * 1.5
+
+    let up_pos as raylib.Vector2 is with x is pad_position.x, y is (pad_position.y - offset)
+    let up_btn as PadButtonSpec is with:
+        set .id is PadButton.ButtonUp
+        set .position is up_pos
+        set .arrow_v0 is with x is up_pos.x, y is (up_pos.y - 12.0)
+        set .arrow_v1 is with x is (up_pos.x - 9.0), y is (up_pos.y + 9.0)
+        set .arrow_v2 is with x is (up_pos.x + 9.0), y is (up_pos.y + 9.0)
+        set .label_color is raylib.YELLOW
+    calling buttons.push with up_btn
+
+    let left_pos as raylib.Vector2 is with x is (pad_position.x - offset), y is pad_position.y
+    let left_btn as PadButtonSpec is with:
+        set .id is PadButton.ButtonLeft
+        set .position is left_pos
+        set .arrow_v0 is with x is (left_pos.x + 9.0), y is (left_pos.y - 9.0)
+        set .arrow_v1 is with x is (left_pos.x - 12.0), y is left_pos.y
+        set .arrow_v2 is with x is (left_pos.x + 9.0), y is (left_pos.y + 9.0)
+        set .label_color is raylib.BLUE
+    calling buttons.push with left_btn
+
+    let right_pos as raylib.Vector2 is with x is (pad_position.x + offset), y is pad_position.y
+    let right_btn as PadButtonSpec is with:
+        set .id is PadButton.ButtonRight
+        set .position is right_pos
+        set .arrow_v0 is with x is (right_pos.x + 12.0), y is right_pos.y
+        set .arrow_v1 is with x is (right_pos.x - 9.0), y is (right_pos.y - 9.0)
+        set .arrow_v2 is with x is (right_pos.x - 9.0), y is (right_pos.y + 9.0)
+        set .label_color is raylib.RED
+    calling buttons.push with right_btn
+
+    let down_pos as raylib.Vector2 is with x is pad_position.x, y is (pad_position.y + offset)
+    let down_btn as PadButtonSpec is with:
+        set .id is PadButton.ButtonDown
+        set .position is down_pos
+        set .arrow_v0 is with x is (down_pos.x - 9.0), y is (down_pos.y - 9.0)
+        set .arrow_v1 is with x is down_pos.x, y is (down_pos.y + 12.0)
+        set .arrow_v2 is with x is (down_pos.x + 9.0), y is (down_pos.y - 9.0)
+        set .label_color is raylib.GREEN
+    calling buttons.push with down_btn
+
+    return buttons
+
+## Computes the frame displacement vector for the given pressed D-Pad button.
+##
+## ## Parameters
+## - `pressed_button`: currently active `PadButton`.
+## - `step`: distance in pixels for this frame (`PLAYER_SPEED * dt`).
+##
+## ## Returns
+## A `raylib.Vector2` displacement.
+weave movement_for_button with pressed_button as PadButton, step as f32 into raylib.Vector2:
+    return judge pressed_button:
+        when PadButton.ButtonUp -> (with x is 0.0, y is -step)
+        when PadButton.ButtonLeft -> (with x is -step, y is 0.0)
+        when PadButton.ButtonRight -> (with x is step, y is 0.0)
+        when PadButton.ButtonDown -> (with x is 0.0, y is step)
+        else -> (with x is 0.0, y is 0.0)
+
+# --- Entry point --------------------------------------------------------
+## Renders an on-screen virtual D-Pad that responds to both mouse and touch input.
+##
+## ## Returns
+## Process exit code: `0` on normal window closure.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - input virtual controls"
+    defer calling raylib.CloseWindow
+
+    let pad_position as raylib.Vector2 is with x is 100.0, y is 350.0
+    var buttons as list of PadButtonSpec is calling build_dpad_buttons with pad_position, BUTTON_RADIUS
+    defer banish buttons
+
+    var pressed_button as PadButton is PadButton.ButtonNone
+    var player_position as raylib.Vector2 is with:
+        set .x is (SCREEN_WIDTH to f32) / 2.0
+        set .y is (SCREEN_HEIGHT to f32) / 2.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        let touch_count as int is calling raylib.GetTouchPointCount
+        let input_position as raylib.Vector2 is if touch_count > 0:
+            calling raylib.GetTouchPosition with 0
+        else:
+            calling raylib.GetMousePosition
+
+        # Reset pressed button to none
+        set pressed_button is PadButton.ButtonNone
+
+        # Make sure user is pressing left mouse button if they're from desktop
+        if (touch_count > 0) or ((touch_count == 0) and (calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT)):
+            # Find nearest D-Pad button to the input position
+            for btn in buttons:
+                let dist_x as f32 is calling abs_f32 with (btn.position.x - input_position.x)
+                let dist_y as f32 is calling abs_f32 with (btn.position.y - input_position.y)
+
+                if (dist_x + dist_y) < BUTTON_RADIUS:
+                    set pressed_button is btn.id
+                    break
+
+        # Move player according to pressed button
+        let step as f32 is PLAYER_SPEED * (calling raylib.GetFrameTime)
+        let delta as raylib.Vector2 is calling movement_for_button with pressed_button, step
+        calling player_position.add with delta
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Draw world
+        calling player_position.draw_circle with PLAYER_RADIUS, raylib.MAROON
+
+        # Draw GUI
+        for btn in buttons:
+            let bg_color as raylib.Color is if btn.id == pressed_button then raylib.DARKGRAY else raylib.BLACK
+            calling btn.position.draw_circle with BUTTON_RADIUS, bg_color
+            calling btn.arrow_v0.draw_triangle with btn.arrow_v1, btn.arrow_v2, btn.label_color
+
+        calling txt.draw_text with "move the player with D-Pad buttons", 10, 10, 20, raylib.DARKGRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

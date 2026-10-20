@@ -1,0 +1,110 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - multi sample2d
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to pass and sample multiple textures (`sampler2D`)
+## simultaneously in a single fragment shader to blend two surfaces together.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_multi_sample2d.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.shaders as shaders
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - multi sample2d"
+    defer calling raylib.CloseWindow
+
+    var im_red as raylib.Image is calling raylib.GenImageColor with SCREEN_WIDTH, SCREEN_HEIGHT, raylib.RED
+    var tex_red as raylib.Texture2D is with id is 0
+    if loaded_red as raylib.Texture2D is calling textures.load_texture_from_image with im_red:
+        set tex_red is loaded_red
+    else:
+        calling raylib.UnloadImage with im_red
+        return 1
+    calling raylib.UnloadImage with im_red
+    defer calling textures.unload_texture with tex_red
+
+    var im_blue as raylib.Image is calling raylib.GenImageColor with SCREEN_WIDTH, SCREEN_HEIGHT, raylib.BLUE
+    var tex_blue as raylib.Texture2D is with id is 0
+    if loaded_blue as raylib.Texture2D is calling textures.load_texture_from_image with im_blue:
+        set tex_blue is loaded_blue
+    else:
+        calling raylib.UnloadImage with im_blue
+        return 1
+    calling raylib.UnloadImage with im_blue
+    defer calling textures.unload_texture with tex_blue
+
+    # Load color mixing fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/color_mix.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    var tex_blue_loc as int is 0
+    if loc as int is calling shader.location with "texture1":
+        set tex_blue_loc is loc
+
+    var divider_loc as int is 0
+    if loc as int is calling shader.location with "divider":
+        set divider_loc is loc
+
+    var divider_value as f32 is 0.5
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling input.is_key_down with raylib.KEY_RIGHT:
+            set divider_value is divider_value + 0.01
+        else if calling input.is_key_down with raylib.KEY_LEFT:
+            set divider_value is divider_value - 0.01
+
+        if divider_value < 0.0:
+            set divider_value is 0.0
+        else if divider_value > 1.0:
+            set divider_value is 1.0
+
+        calling shader.set_float with divider_loc, divider_value
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_shader_mode with shader
+        calling shader.set_texture with tex_blue_loc, tex_blue
+        calling tex_red.draw with 0, 0, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling txt.draw_text with "Use KEY_LEFT/KEY_RIGHT to move texture mixing in shader!", 80, (SCREEN_HEIGHT - 40), 20, raylib.RAYWHITE
+
+        calling drawing.end_drawing
+
+    return 0

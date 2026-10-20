@@ -1,0 +1,102 @@
+## ## raylib [shapes] example - easings ball
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 2.5
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and reasings module.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_easings_ball.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.reasings as reasings
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - easings ball"
+    defer calling raylib.CloseWindow
+
+    # Ball variable value to be animated with easings
+    var ball_pos_x as int is -100
+    var ball_radius as int is 20
+    var ball_alpha as f32 is 0.0
+
+    var state as int is 0
+    var frames_counter as int is 0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if state == 0:
+            # Move ball position X with easing
+            set frames_counter is frames_counter + 1
+            let eased_x as f32 is calling reasings.ease_elastic_out with frames_counter to f32, -100.0, ((SCREEN_WIDTH to f32) / 2.0) + 100.0, 120.0
+            set ball_pos_x is eased_x to int
+
+            if frames_counter >= 120:
+                set frames_counter is 0
+                set state is 1
+        else if state == 1:
+            # Increase ball radius with easing
+            set frames_counter is frames_counter + 1
+            let eased_r as f32 is calling reasings.ease_elastic_in with frames_counter to f32, 20.0, 500.0, 200.0
+            set ball_radius is eased_r to int
+
+            if frames_counter >= 200:
+                set frames_counter is 0
+                set state is 2
+        else if state == 2:
+            # Change ball alpha with easing (background color blending)
+            set frames_counter is frames_counter + 1
+            set ball_alpha is calling reasings.ease_cubic_out with frames_counter to f32, 0.0, 1.0, 200.0
+
+            if frames_counter >= 200:
+                set frames_counter is 0
+                set state is 3
+        else if state == 3:
+            # Reset state to play again
+            if calling input.is_key_pressed with raylib.KEY_ENTER:
+                set ball_pos_x is -100
+                set ball_radius is 20
+                set ball_alpha is 0.0
+                set state is 0
+
+        if calling input.is_key_pressed with raylib.KEY_R:
+            set frames_counter is 0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        if state >= 2:
+            calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, colors.GREEN
+
+        let ball_color as raylib.Color is calling colors.fade with colors.RED, 1.0 - ball_alpha
+        calling shapes.draw_circle with ball_pos_x, 200, ball_radius to f32, ball_color
+
+        if state == 3:
+            calling txt.draw_text with "PRESS [ENTER] TO PLAY AGAIN!", 240, 200, 20, colors.BLACK
+
+        calling drawing.end_drawing

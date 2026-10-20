@@ -1,0 +1,249 @@
+## ## raylib [shapes] example - ball physics
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+## Example contributed by David Buzatto (@davidbuzatto) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 David Buzatto (@davidbuzatto)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and dynamic lists.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_ball_physics.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.random as random
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raymathx as raymathx
+import std.fractio
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+const MAX_BALLS as int is 5000
+
+# --- Types ---
+
+## ## Ball data type
+rune Ball:
+    position as raylib.Vector2
+    speed as raylib.Vector2
+    prev_position as raylib.Vector2
+    radius as f32
+    friction as f32
+    elasticity as f32
+    color as raylib.Color
+    grabbed as bool
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - ball physics"
+    defer calling raylib.CloseWindow
+
+    var balls as list of Ball is []
+    defer banish balls
+
+    # Init first ball in the list
+    var init_pos as raylib.Vector2 is with:
+        set .x is (SCREEN_WIDTH to f32) / 2.0
+        set .y is (SCREEN_HEIGHT to f32) / 2.0
+    var init_speed as raylib.Vector2 is with:
+        set .x is 200.0
+        set .y is 200.0
+    var zero_vec as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+
+    var first_ball as Ball is with:
+        set .position is init_pos
+        set .speed is init_speed
+        set .prev_position is zero_vec
+        set .radius is 40.0
+        set .friction is 0.99
+        set .elasticity is 0.9
+        set .color is colors.BLUE
+        set .grabbed is false
+
+    calling balls.append with first_ball
+
+    var grabbed_ball_index as int is -1
+    var press_offset as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+
+    var gravity as f32 is 100.0
+    var window_position as raylib.Vector2 is calling raylib.GetWindowPosition
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let delta as f32 is calling raylib.GetFrameTime
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+
+        # Checks if a ball was grabbed
+        if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT:
+            var i as int is (balls.length to int) - 1
+            while i >= 0:
+                var ball as Ball is balls at i
+                let offset_x as f32 is mouse_pos.x - ball.position.x
+                let offset_y as f32 is mouse_pos.y - ball.position.y
+                let dist_sq as f32 is (offset_x * offset_x) + (offset_y * offset_y)
+                let dist as f32 is calling dist_sq.get_sqrt
+
+                if dist <= ball.radius:
+                    set ball.grabbed is true
+                    set balls at i is ball
+                    set grabbed_ball_index is i
+                    set press_offset is with:
+                        set .x is offset_x
+                        set .y is offset_y
+                    break
+                set i is i - 1
+
+        # Releases any ball that was grabbed
+        if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+            if grabbed_ball_index >= 0:
+                var b as Ball is balls at grabbed_ball_index
+                set b.grabbed is false
+                set balls at grabbed_ball_index is b
+                set grabbed_ball_index is -1
+
+        # Creates a new ball
+        let right_pressed as bool is calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_RIGHT
+        let ctrl_down as bool is calling input.is_key_down with raylib.KEY_LEFT_CONTROL
+        let right_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_RIGHT
+
+        if right_pressed or (ctrl_down and right_down):
+            if (balls.length to int) < MAX_BALLS:
+                var new_speed as raylib.Vector2 is with:
+                    set .x is (calling random.between with -300, 300) to f32
+                    set .y is (calling random.between with -300, 300) to f32
+
+                var new_color as raylib.Color is with:
+                    set .r is (calling random.between with 0, 255) to byte
+                    set .g is (calling random.between with 0, 255) to byte
+                    set .b is (calling random.between with 0, 255) to byte
+                    set .a is 255 to byte
+
+                var new_ball as Ball is with:
+                    set .position is mouse_pos
+                    set .speed is new_speed
+                    set .prev_position is zero_vec
+                    set .radius is 20.0 + ((calling random.between with 0, 30) to f32)
+                    set .friction is 0.99
+                    set .elasticity is 0.9
+                    set .color is new_color
+                    set .grabbed is false
+
+                calling balls.append with new_ball
+
+        # Get window position change for shaking
+        let current_win_pos as raylib.Vector2 is calling raylib.GetWindowPosition
+        let win_delta_x as f32 is window_position.x - current_win_pos.x
+        let win_delta_y as f32 is window_position.y - current_win_pos.y
+        let win_delta_sq as f32 is (win_delta_x * win_delta_x) + (win_delta_y * win_delta_y)
+
+        if win_delta_sq > 25.0:
+            for idx from 0 to (balls.length to int) - 1:
+                var b as Ball is balls at idx
+                if not b.grabbed:
+                    set b.speed.x is b.speed.x + (win_delta_x * 10.0)
+                    set b.speed.y is b.speed.y + (win_delta_y * 10.0)
+                    set balls at idx is b
+
+        # Shake balls
+        if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_MIDDLE:
+            for idx from 0 to (balls.length to int) - 1:
+                var b as Ball is balls at idx
+                if not b.grabbed:
+                    set b.speed.x is (calling random.between with -2000, 2000) to f32
+                    set b.speed.y is (calling random.between with -2000, 2000) to f32
+                    set balls at idx is b
+
+        # Changes gravity
+        set gravity is gravity + ((calling raylib.GetMouseWheelMove) * 5.0)
+
+        # Updates each ball state
+        for idx from 0 to (balls.length to int) - 1:
+            var b as Ball is balls at idx
+
+            # The ball is not grabbed
+            if not b.grabbed:
+                # Ball repositioning using the velocity
+                set b.position.x is b.position.x + (b.speed.x * delta)
+                set b.position.y is b.position.y + (b.speed.y * delta)
+
+                # Does the ball hit the screen right boundary?
+                if (b.position.x + b.radius) >= (SCREEN_WIDTH to f32):
+                    set b.position.x is (SCREEN_WIDTH to f32) - b.radius
+                    set b.speed.x is -b.speed.x * b.elasticity
+                else if (b.position.x - b.radius) <= 0.0:
+                    set b.position.x is b.radius
+                    set b.speed.x is -b.speed.x * b.elasticity
+
+                # The same for y axis
+                if (b.position.y + b.radius) >= (SCREEN_HEIGHT to f32):
+                    set b.position.y is (SCREEN_HEIGHT to f32) - b.radius
+                    set b.speed.y is -b.speed.y * b.elasticity
+                else if (b.position.y - b.radius) <= 0.0:
+                    set b.position.y is b.radius
+                    set b.speed.y is -b.speed.y * b.elasticity
+
+                # Friction makes the ball lose 1% of its velocity each frame
+                set b.speed.x is b.speed.x * b.friction
+                # Gravity affects only the y axis
+                set b.speed.y is (b.speed.y * b.friction) + gravity
+            else:
+                # Ball repositioning using the mouse position
+                set b.position.x is mouse_pos.x - press_offset.x
+                set b.position.y is mouse_pos.y - press_offset.y
+
+                # While the ball is grabbed, recalculates its velocity
+                if delta > 0.0:
+                    set b.speed.x is (b.position.x - b.prev_position.x) / delta
+                    set b.speed.y is (b.position.y - b.prev_position.y) / delta
+                set b.prev_position is b.position
+
+            set balls at idx is b
+
+        set window_position is current_win_pos
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        for idx from 0 to (balls.length to int) - 1:
+            var b as Ball is balls at idx
+            calling b.position.draw_circle with b.radius, b.color
+            calling b.position.draw_circle_lines with b.radius, colors.BLACK
+
+        calling txt.draw_text with "grab a ball by pressing with the mouse and throw it by releasing", 10, 10, 10, colors.DARKGRAY
+        calling txt.draw_text with "right click to create new balls (keep left control pressed to create a lot)", 10, 30, 10, colors.DARKGRAY
+        calling txt.draw_text with "use mouse wheel to change gravity", 10, 50, 10, colors.DARKGRAY
+        calling txt.draw_text with "middle click to shake", 10, 70, 10, colors.DARKGRAY
+
+        var count_str as string is "BALL COUNT: {balls.length to int}"
+        calling txt.draw_text with count_str, 10, SCREEN_HEIGHT - 70, 20, colors.BLACK
+        banish count_str
+
+        var grav_str as string is "GRAVITY: {gravity to int}"
+        calling txt.draw_text with grav_str, 10, SCREEN_HEIGHT - 40, 20, colors.BLACK
+        banish grav_str
+
+        calling drawing.end_drawing

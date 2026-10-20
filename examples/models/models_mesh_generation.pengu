@@ -1,0 +1,192 @@
+## raylib [models] example - mesh generation
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 1.8, last time updated with raylib 4.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2017-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates generation of various procedural 3D meshes and custom manual mesh creation.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_mesh_generation.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.colors as colors
+import raylibx.images as images
+import raylibx.textures as textures
+import raylibx.models as models
+
+# --- Constants ---
+
+## Total number of procedural 3D models available.
+const NUM_MODELS as int is 9
+
+# --- Helpers ---
+
+## Generates a simple custom triangle mesh directly in code.
+##
+## ## Returns
+## A `raylib.Mesh` containing 3 vertices with positions, normals, and texture coordinates.
+##
+## ## Memory
+## Allocates vertex, texcoord, and normal buffers via `raylib.MemAlloc`, then uploads to GPU.
+weave gen_mesh_custom into raylib.Mesh:
+    var num_vertices as int is 3
+    var vertices_ptr as ref to f32 is transmute (calling raylib.MemAlloc with (num_vertices * 3 * 4)) to (ref to f32)
+    var texcoords_ptr as ref to f32 is transmute (calling raylib.MemAlloc with (num_vertices * 2 * 4)) to (ref to f32)
+    var normals_ptr as ref to f32 is transmute (calling raylib.MemAlloc with (num_vertices * 3 * 4)) to (ref to f32)
+
+    # Vertex 0: at (0, 0, 0)
+    set vertices_ptr at 0 is 0.0
+    set vertices_ptr at 1 is 0.0
+    set vertices_ptr at 2 is 0.0
+    set normals_ptr at 0 is 0.0
+    set normals_ptr at 1 is 1.0
+    set normals_ptr at 2 is 0.0
+    set texcoords_ptr at 0 is 0.0
+    set texcoords_ptr at 1 is 0.0
+
+    # Vertex 1: at (1, 0, 2)
+    set vertices_ptr at 3 is 1.0
+    set vertices_ptr at 4 is 0.0
+    set vertices_ptr at 5 is 2.0
+    set normals_ptr at 3 is 0.0
+    set normals_ptr at 4 is 1.0
+    set normals_ptr at 5 is 0.0
+    set texcoords_ptr at 2 is 0.5
+    set texcoords_ptr at 3 is 1.0
+
+    # Vertex 2: at (2, 0, 0)
+    set vertices_ptr at 6 is 2.0
+    set vertices_ptr at 7 is 0.0
+    set vertices_ptr at 8 is 0.0
+    set normals_ptr at 6 is 0.0
+    set normals_ptr at 7 is 1.0
+    set normals_ptr at 8 is 0.0
+    set texcoords_ptr at 4 is 1.0
+    set texcoords_ptr at 5 is 0.0
+
+    var mesh as raylib.Mesh is with:
+        set .triangleCount is 1
+        set .vertexCount is num_vertices
+        set .vertices is vertices_ptr
+        set .texcoords is texcoords_ptr
+        set .normals is normals_ptr
+
+    calling raylib.UploadMesh with (sigil of mesh), false
+    return mesh
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - mesh generation"
+    defer calling raylib.CloseWindow
+
+    # Generate a checked image for texturing
+    var checked as raylib.Image is calling images.gen_image_checked with 2, 2, 1, 1, raylib.RED, raylib.GREEN
+    var texture as raylib.Texture2D is calling raylib.LoadTextureFromImage with checked
+    calling images.unload_image with checked
+    defer calling raylib.UnloadTexture with texture
+
+    var model_list as list of raylib.Model is list of raylib.Model
+    defer banish model_list
+
+    calling model_list.push with (calling models.load_model_from_mesh with (calling raylib.GenMeshPlane with 2.0, 2.0, 4, 3))
+    calling model_list.push with (calling models.load_model_from_mesh with (calling raylib.GenMeshCube with 2.0, 1.0, 2.0))
+    calling model_list.push with (calling models.load_model_from_mesh with (calling raylib.GenMeshSphere with 2.0, 32, 32))
+    calling model_list.push with (calling models.load_model_from_mesh with (calling raylib.GenMeshHemiSphere with 2.0, 16, 16))
+    calling model_list.push with (calling models.load_model_from_mesh with (calling raylib.GenMeshCylinder with 1.0, 2.0, 16))
+    calling model_list.push with (calling models.load_model_from_mesh with (calling raylib.GenMeshTorus with 0.25, 4.0, 16, 32))
+    calling model_list.push with (calling models.load_model_from_mesh with (calling raylib.GenMeshKnot with 1.0, 2.0, 16, 128))
+    calling model_list.push with (calling models.load_model_from_mesh with (calling raylib.GenMeshPoly with 5, 2.0))
+    calling model_list.push with (calling models.load_model_from_mesh with (calling gen_mesh_custom))
+
+    # Defer unloading of all models
+    defer:
+        for i from 0 to NUM_MODELS:
+            var m as raylib.Model is model_list at i
+            calling models.unload_model with m
+
+    # Set checked texture as default diffuse component for all model materials
+    for i from 0 to NUM_MODELS:
+        var m as raylib.Model is model_list at i
+        var mat as ref to raylib.Material is sigil of (m.materials at 0)
+        calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    # Define the camera to look into our 3D world
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 5.0, y is 5.0, z is 5.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    var current_model as int is 0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        if calling raylib.IsMouseButtonPressed with raylib.MOUSE_BUTTON_LEFT:
+            set current_model is (current_model + 1) % NUM_MODELS
+
+        if calling raylib.IsKeyPressed with raylib.KEY_RIGHT:
+            set current_model is current_model + 1
+            if current_model >= NUM_MODELS:
+                set current_model is 0
+        else:
+            if calling raylib.IsKeyPressed with raylib.KEY_LEFT:
+                set current_model is current_model - 1
+                if current_model < 0:
+                    set current_model is NUM_MODELS - 1
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        var active_m as raylib.Model is model_list at current_model
+        calling active_m.draw with position, 1.0, raylib.WHITE
+        calling shapes3d.draw_grid with 10, 1.0
+        calling drawing.end_mode_3d
+
+        calling shapes.draw_rectangle with 30, 400, 310, 30, (calling colors.fade with raylib.SKYBLUE, 0.5)
+        calling shapes.draw_rectangle_lines with 30, 400, 310, 30, (calling colors.fade with raylib.DARKBLUE, 0.5)
+        calling txt.draw_text with "MOUSE LEFT BUTTON to CYCLE PROCEDURAL MODELS", 40, 410, 10, raylib.BLUE
+
+        judge current_model:
+            when 0 -> calling txt.draw_text with "PLANE", 680, 10, 20, raylib.DARKBLUE
+            when 1 -> calling txt.draw_text with "CUBE", 680, 10, 20, raylib.DARKBLUE
+            when 2 -> calling txt.draw_text with "SPHERE", 680, 10, 20, raylib.DARKBLUE
+            when 3 -> calling txt.draw_text with "HEMISPHERE", 640, 10, 20, raylib.DARKBLUE
+            when 4 -> calling txt.draw_text with "CYLINDER", 680, 10, 20, raylib.DARKBLUE
+            when 5 -> calling txt.draw_text with "TORUS", 680, 10, 20, raylib.DARKBLUE
+            when 6 -> calling txt.draw_text with "KNOT", 680, 10, 20, raylib.DARKBLUE
+            when 7 -> calling txt.draw_text with "POLY", 680, 10, 20, raylib.DARKBLUE
+            when 8 -> calling txt.draw_text with "Custom (triangle)", 580, 10, 20, raylib.DARKBLUE
+
+        calling drawing.end_drawing
+
+    return 0

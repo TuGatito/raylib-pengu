@@ -1,0 +1,216 @@
+## examples/core/core_text_file_loading.pengu
+## raylib [core] example - text file loading
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.6
+##
+## Example contributed by Aanjishnu Bhattacharyya (@NimComPoo-04) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Aanjishnu Bhattacharyya (@NimComPoo-04)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_text_file_loading.c` built on top of
+## the `raylibx` wrapper layer. `files.file_text` loads the file as `maybe string`,
+## `txt.split_lines` splits it into an owned `list of string`, and `wrap_line`
+## word-wraps each line using `txt.split_text` and `txt.measure_text` instead of
+## mutating C `char*` buffers in place. Scrollbar interpolation uses `raymathx.lerp`
+## and `raymathx.clamp`, and line height measurement uses `Font.measure`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_text_file_loading.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.files as files
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raymathx
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Path to the text file rendered in the viewer.
+const FILE_NAME as string is "resources/text_file.txt"
+
+## Font size in pixels used for body text and header.
+const FONT_SIZE as int is 20
+
+## Top y-coordinate where body text rendering begins.
+const TEXT_TOP as int is 45
+
+## Maximum line width in pixels before wrapping to a new line.
+const WRAP_WIDTH as int is 780
+
+## Extra spacing between characters when measuring text with `Font.measure`.
+const LETTER_SPACING as f32 is 2.0
+
+## Vertical gap in pixels added after each logical line block.
+const LINE_GAP as int is 10
+
+## ASCII code for the space character (`' '`).
+const SPACE_DELIM as char is 32
+
+# --- Helpers ------------------------------------------------------------
+## Word-wraps a single line of text so that no wrapped segment exceeds `wrap_width`.
+##
+## ## Parameters
+## - `line`: input line without newline characters.
+## - `font_size`: font size in pixels used by `txt.measure_text`.
+## - `wrap_width`: maximum width in pixels per wrapped line.
+##
+## ## Returns
+## A newly allocated `string` with `'\n'` inserted at wrap boundaries.
+##
+## ## Memory
+## Returns an owned `string` that the caller must release when done.
+weave wrap_line with line as string, font_size as int, wrap_width as int into string:
+    if line == "":
+        return ""
+
+    var words as list of string is calling txt.split_text with line, SPACE_DELIM
+    defer banish words
+
+    if (words.length) == 0:
+        return ""
+
+    var wrapped as string is "{words at 0}"
+    var current_segment as string is "{words at 0}"
+
+    for i from 1 to (words.length):
+        let word as string is words at i
+        let candidate as string is "{current_segment} {word}"
+
+        if (calling txt.measure_text with candidate, font_size) > wrap_width:
+            let next_wrapped as string is "{wrapped}\n{word}"
+            banish wrapped
+            set wrapped is next_wrapped
+
+            banish current_segment
+            set current_segment is "{word}"
+        else:
+            let next_wrapped as string is "{wrapped} {word}"
+            banish wrapped
+            set wrapped is next_wrapped
+
+            banish current_segment
+            set current_segment is "{candidate}"
+
+        banish candidate
+
+    banish current_segment
+    return wrapped
+
+# --- Entry point --------------------------------------------------------
+## Loads `resources/text_file.txt`, word-wraps its lines to the window width,
+## and renders a scrollable document view with a header and scrollbar.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - text file loading"
+    defer calling raylib.CloseWindow
+
+    # Setting up the camera
+    var cam as raylib.Camera2D with:
+        set .offset is with x is 0.0, y is 0.0
+        set .target is with x is 0.0, y is 0.0
+        set .rotation is 0.0
+        set .zoom is 1.0
+
+    # Loading text file from resources/text_file.txt
+    let maybe_text as maybe string is calling files.file_text with FILE_NAME
+    let file_contents as string is maybe_text or else ""
+    defer banish file_contents
+
+    # Loading all the text lines
+    var raw_lines as list of string is calling txt.split_lines with file_contents
+    defer banish raw_lines
+
+    # Wrap the lines as needed
+    var lines as list of string is list of string
+    defer banish lines
+    for raw_line in raw_lines:
+        calling lines.push with (calling wrap_line with raw_line, FONT_SIZE, WRAP_WIDTH)
+
+    # Calculate the total height so that we can show a scrollbar
+    let font as raylib.Font is calling txt.default_font
+    var text_height as int is 0
+    for line in lines:
+        let line_dim as raylib.Vector2 is calling font.measure with line, (FONT_SIZE to f32), LETTER_SPACING
+        set text_height += (line_dim.y to int) + LINE_GAP
+
+    let scrollable_span as int is if (text_height - SCREEN_HEIGHT) > 1 then (text_height - SCREEN_HEIGHT) else 1
+
+    # A simple scrollbar on the side to show how far we have read into the file
+    var scroll_bar as raylib.Rectangle with:
+        set .x is (SCREEN_WIDTH - 5) to f32
+        set .y is 0.0
+        set .width is 5.0
+        set .height is ((SCREEN_HEIGHT to f32) * 100.0) / (scrollable_span to f32)
+
+    let header_label as string is "File: {FILE_NAME}"
+    defer banish header_label
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        let scroll as f32 is calling raylib.GetMouseWheelMove
+        set cam.target.y -= scroll * (FONT_SIZE to f32) * 1.5
+
+        # Ensure that the camera stays within [0, text_height - SCREEN_HEIGHT + TEXT_TOP]
+        let max_cam_y as f32 is (scrollable_span + TEXT_TOP) to f32
+        set cam.target.y is calling raymathx.clamp with cam.target.y, 0.0, max_cam_y
+
+        # Compute the position of the scrollbar depending on the percentage of text covered
+        let progress as f32 is (cam.target.y - (TEXT_TOP to f32)) / (scrollable_span to f32)
+        set scroll_bar.y is calling raymathx.lerp with (TEXT_TOP to f32), ((SCREEN_HEIGHT to f32) - scroll_bar.height), progress
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_2d with cam
+        var cursor_y as int is TEXT_TOP
+        for line in lines:
+            # Measure line height (using a single space for empty lines)
+            let sample as string is if line != "" then line else " "
+            let line_dim as raylib.Vector2 is calling font.measure with sample, (FONT_SIZE to f32), LETTER_SPACING
+
+            calling txt.draw_text with line, 10, cursor_y, FONT_SIZE, raylib.RED
+
+            # Insert extra space for real newlines; wrapped lines are rendered closer together
+            set cursor_y += (line_dim.y to int) + LINE_GAP
+        calling drawing.end_mode_2d
+
+        # Header displaying which file is being read currently
+        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, (TEXT_TOP - 10), raylib.BEIGE
+        calling txt.draw_text with header_label, 10, 10, FONT_SIZE, raylib.MAROON
+
+        calling scroll_bar.draw with raylib.MAROON
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0
