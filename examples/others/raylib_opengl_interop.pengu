@@ -1,0 +1,224 @@
+## examples/others/raylib_opengl_interop.pengu
+## raylib [others] example - OpenGL interoperability
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 3.8, last time updated with raylib 4.0
+##
+## Example contributed by Stephan Soller (@arkanis) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2021-2025 Stephan Soller (@arkanis) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Port of `examples/others/raylib_opengl_interop.c` demonstrating how to mix
+## raylib and raw OpenGL code to draw a `GL_POINTS`-based GPU particle system.
+##
+## `rlgl` batches draw calls internally, so raylib's active batch must be flushed
+## with `rlgl.rlDrawRenderBatchActive()` before executing direct OpenGL calls.
+## The modelview and projection matrices are retrieved from `rlgl` to ensure
+## proper coordinate transformations within raylib's pipeline.
+##
+## OpenGL vertex buffer and drawing operations are wrapped cleanly using `antiquus`
+## routines with `glad.h`.
+##
+## ## Example
+## ```bash
+## pengu run examples/others/raylib_opengl_interop.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raymathx
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raymath
+import rlgl
+
+# Include glad header for desktop OpenGL 3.3 symbols
+include "../examples/others/external/include/glad.h"
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Total number of particles in the vertex buffer.
+const MAX_PARTICLES as int is 1000
+
+## GLSL version used by the particle shaders.
+const GLSL_VERSION as int is 330
+
+# --- Types --------------------------------------------------------------
+## Single particle stored in the GPU vertex buffer.
+rune Particle:
+    ## Initial screen X position.
+    x as f32
+    ## Initial screen Y position.
+    y as f32
+    ## Periodic oscillation frequency multiplier.
+    period as f32
+
+# --- OpenGL FFI Helpers -------------------------------------------------
+## Allocates and populates an OpenGL Vertex Array Object (VAO) and Vertex
+## Buffer Object (VBO) with particle data.
+##
+## ## Parameters
+## - `screen_width`: Screen width for distributing random initial positions.
+## - `screen_height`: Screen height for distributing random initial positions.
+## - `vertex_loc`: Shader attribute location for `vertexPosition`.
+## - `out_vao`: Output pointer receiving the generated VAO ID.
+## - `out_vbo`: Output pointer receiving the generated VBO ID.
+antiquus init_particle_system with screen_width as int, screen_height as int, vertex_loc as int, out_vao as ref to u32, out_vbo as ref to u32 into void:
+    r"""
+    typedef struct {
+        float x;
+        float y;
+        float period;
+    } ParticleData;
+
+    ParticleData particles[1000] = { 0 };
+    for (int i = 0; i < 1000; i++) {
+        particles[i].x = (float)GetRandomValue(20, screen_width - 20);
+        particles[i].y = (float)GetRandomValue(50, screen_height - 20);
+        particles[i].period = (float)GetRandomValue(10, 30) / 10.0f;
+    }
+
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+        glGenBuffers(1, &vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, 1000 * sizeof(ParticleData), particles, GL_STATIC_DRAW);
+        glVertexAttribPointer((GLuint)vertex_loc, 3, GL_FLOAT, GL_FALSE, 0, 0);
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    #ifndef GRAPHICS_API_OPENGL_ES2
+    glEnable(GL_PROGRAM_POINT_SIZE);
+    #endif
+
+    *out_vao = (uint32_t)vao;
+    *out_vbo = (uint32_t)vbo;
+    """
+
+## Renders the particle system using raw OpenGL draw calls.
+##
+## Binds the custom shader program, sets uniforms for elapsed time, color,
+## and the Model-View-Projection matrix, and renders `GL_POINTS` from the VAO.
+##
+## ## Parameters
+## - `shader_id`: OpenGL shader program ID.
+## - `current_time_loc`: Uniform location of `currentTime`.
+## - `time_val`: Current elapsed time in seconds.
+## - `color_loc`: Uniform location of `color`.
+## - `color`: Normalized RGBA particle tint vector.
+## - `mvp_loc`: Uniform location of `mvp` matrix.
+## - `mvp`: Combined model-view-projection matrix.
+## - `vao`: Vertex array object ID containing particle points.
+## - `count`: Number of particles to draw.
+antiquus draw_particle_system with shader_id as u32, current_time_loc as int, time_val as f32, color_loc as int, color as raylib.Vector4, mvp_loc as int, mvp as raylib.Matrix, vao as u32, count as int into void:
+    r"""
+    glUseProgram((GLuint)shader_id);
+        glUniform1f((GLint)current_time_loc, (GLfloat)time_val);
+        glUniform4fv((GLint)color_loc, 1, (const GLfloat *)&color);
+        glUniformMatrix4fv((GLint)mvp_loc, 1, false, MatrixToFloat(mvp));
+        glBindVertexArray((GLuint)vao);
+            glDrawArrays(GL_POINTS, 0, (GLsizei)count);
+        glBindVertexArray(0);
+    glUseProgram(0);
+    """
+
+## Deletes the allocated OpenGL VAO and VBO buffers.
+##
+## ## Parameters
+## - `vao`: VAO ID to destroy.
+## - `vbo`: VBO ID to destroy.
+antiquus delete_particle_system with vao as u32, vbo as u32 into void:
+    r"""
+    GLuint b = (GLuint)vbo;
+    GLuint a = (GLuint)vao;
+    glDeleteBuffers(1, &b);
+    glDeleteVertexArrays(1, &a);
+    """
+
+# --- Entry Point --------------------------------------------------------
+## Program main entry point.
+##
+## Initializes the window, compiles particle shaders, generates GPU vertex
+## buffers, and runs the render loop mixing raylib 2D shapes with custom OpenGL
+## point rendering.
+##
+## ## Returns
+## Exit status code (`0` for success, `1` if shaders fail to load).
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [others] example - OpenGL interoperability"
+    defer calling raylib.CloseWindow
+
+    let vs_path as string is "examples/others/resources/shaders/glsl330/point_particle.vs"
+    let fs_path as string is "examples/others/resources/shaders/glsl330/point_particle.fs"
+
+    let shader_opt as maybe raylib.Shader is calling shaders.load_shader with vs_path, fs_path
+    if shader as raylib.Shader is shader_opt:
+        defer calling shaders.unload_shader with shader
+
+        let current_time_loc as int is calling raylib.GetShaderLocation with shader, "currentTime"
+        let color_loc as int is calling raylib.GetShaderLocation with shader, "color"
+        let vertex_pos_loc as int is shader.locs at (raylib.SHADER_LOC_VERTEX_POSITION to int)
+        let mvp_loc as int is shader.locs at (raylib.SHADER_LOC_MATRIX_MVP to int)
+
+        var vao as u32 is 0
+        var vbo as u32 is 0
+        calling init_particle_system with SCREEN_WIDTH, SCREEN_HEIGHT, vertex_pos_loc, sigil of vao, sigil of vbo
+        defer calling delete_particle_system with vao, vbo
+
+        calling raylib.SetTargetFPS with TARGET_FPS
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Draw
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.WHITE
+
+            calling shapes.draw_rectangle with 10, 10, 210, 30, raylib.MAROON
+            let label as string is "{MAX_PARTICLES} particles in one vertex buffer"
+            defer banish label
+            calling txt.draw_text with label, 20, 20, 10, raylib.RAYWHITE
+
+            # Flush raylib's internal draw batch before raw OpenGL calls
+            calling rlgl.rlDrawRenderBatchActive
+
+            # Switch to plain OpenGL
+            var raw_color as raylib.Color is with:
+                set .r is 255 to byte
+                set .g is 0 to byte
+                set .b is 0 to byte
+                set .a is 128 to byte
+            let particle_color as raylib.Vector4 is calling raw_color.to_normalized
+
+            var mat_modelview as raylib.Matrix is calling rlgl.rlGetMatrixModelview
+            let mat_projection as raylib.Matrix is calling rlgl.rlGetMatrixProjection
+            let mvp as raylib.Matrix is calling mat_modelview.get_multiply with mat_projection
+
+            calling draw_particle_system with shader.id, current_time_loc, (calling raylib.GetTime to f32), color_loc, particle_color, mvp_loc, mvp, vao, MAX_PARTICLES
+
+            calling txt.draw_fps with SCREEN_WIDTH - 100, 10
+
+            calling drawing.end_drawing
+
+        return 0
+
+    return 1

@@ -1,0 +1,126 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - texture tiling
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Luis Almeida (@luis605) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to tile a texture across a 3D model using texture
+## repeat wrapping mode and a custom UV-scaling fragment shader.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_texture_tiling.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Helpers ------------------------------------------------------------
+
+## Helper to get shader uniform location as an int (or -1 if missing).
+weave loc_of with shader as raylib.Shader, name as string into int:
+    if loc as int is calling shader.location with name:
+        return loc
+    return -1
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - texture tiling"
+    defer calling raylib.CloseWindow
+
+    # Define camera to look into our 3D world
+    var camera as raylib.Camera3D is with:
+        set .position.x is 4.0
+        set .position.y is 4.0
+        set .position.z is 4.0
+        set .target.x is 0.0
+        set .target.y is 0.5
+        set .target.z is 0.0
+        set .up.x is 0.0
+        set .up.y is 1.0
+        set .up.z is 0.0
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load cube model
+    var cube_mesh as raylib.Mesh is calling raylib.GenMeshCube with 1.0, 1.0, 1.0
+    var model as raylib.Model is calling models.load_model_from_mesh with cube_mesh
+    defer calling models.unload_model with model
+
+    # Load texture and assign to cube model
+    var texture as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/cubicmap_atlas.png":
+        set texture is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with texture
+
+    var mat as ref to raylib.Material is sigil of (model.materials at 0)
+    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    # Set texture tiling using shader
+    var tiling as raylib.Vector2 is with:
+        set .x is 3.0
+        set .y is 3.0
+
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/tiling.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    calling texture.set_wrap with raylib.TEXTURE_WRAP_REPEAT
+    let tiling_loc as int is calling loc_of with shader, "tiling"
+    calling shader.set_vec2 with tiling_loc, tiling
+    set mat->shader is shader
+
+    calling raylib.DisableCursor
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FREE to int)
+
+        if calling input.is_key_pressed with raylib.KEY_Z:
+            set camera.target.x is 0.0
+            set camera.target.y is 0.5
+            set camera.target.z is 0.0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        calling drawing.begin_shader_mode with shader
+        var model_pos as raylib.Vector3 is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .z is 0.0
+        calling model.draw with model_pos, 2.0, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling shapes3d.draw_grid with 10, 1.0
+
+        calling drawing.end_mode_3d
+
+        calling txt.draw_text with "Use mouse to rotate the camera", 10, 10, 20, raylib.DARKGRAY
+
+        calling drawing.end_drawing
+
+    return 0

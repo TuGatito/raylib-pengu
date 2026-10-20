@@ -1,0 +1,111 @@
+## ## raylib [shapes] example - easings rectangles
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 2.0, last time updated with raylib 2.5
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and reasings module.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_easings_rectangles.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.reasings as reasings
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+const RECS_WIDTH as f32 is 50.0
+const RECS_HEIGHT as f32 is 50.0
+const MAX_RECS_X as int is 16
+const MAX_RECS_Y as int is 9
+const MAX_RECS as int is 144
+const PLAY_TIME_IN_FRAMES as f32 is 240.0
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - easings rectangles"
+    defer calling raylib.CloseWindow
+
+    var recs as list of raylib.Rectangle is []
+    defer banish recs
+
+    for y from 0 to MAX_RECS_Y - 1:
+        for x from 0 to MAX_RECS_X - 1:
+            var r as raylib.Rectangle is with:
+                set .x is (RECS_WIDTH / 2.0) + (RECS_WIDTH * (x to f32))
+                set .y is (RECS_HEIGHT / 2.0) + (RECS_HEIGHT * (y to f32))
+                set .width is RECS_WIDTH
+                set .height is RECS_HEIGHT
+            calling recs.append with r
+
+    var rotation as f32 is 0.0
+    var frames_counter as int is 0
+    var state as int is 0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if state == 0:
+            set frames_counter is frames_counter + 1
+
+            for i from 0 to MAX_RECS - 1:
+                var r as raylib.Rectangle is recs at i
+                set r.height is calling reasings.ease_circ_out with frames_counter to f32, RECS_HEIGHT, -RECS_HEIGHT, PLAY_TIME_IN_FRAMES
+                set r.width is calling reasings.ease_circ_out with frames_counter to f32, RECS_WIDTH, -RECS_WIDTH, PLAY_TIME_IN_FRAMES
+
+                if r.height < 0.0:
+                    set r.height is 0.0
+                if r.width < 0.0:
+                    set r.width is 0.0
+
+                if (r.height == 0.0) and (r.width == 0.0):
+                    set state is 1
+
+                set recs at i is r
+
+            set rotation is calling reasings.ease_linear_in with frames_counter to f32, 0.0, 360.0, PLAY_TIME_IN_FRAMES
+        else if (state == 1) and (calling input.is_key_pressed with raylib.KEY_SPACE):
+            # When animation has finished, press space to restart
+            set frames_counter is 0
+
+            for i from 0 to MAX_RECS - 1:
+                var r as raylib.Rectangle is recs at i
+                set r.height is RECS_HEIGHT
+                set r.width is RECS_WIDTH
+                set recs at i is r
+
+            set state is 0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        if state == 0:
+            for i from 0 to MAX_RECS - 1:
+                let r as raylib.Rectangle is recs at i
+                var origin as raylib.Vector2 is with:
+                    set .x is r.width / 2.0
+                    set .y is r.height / 2.0
+                calling r.draw_pro with origin, rotation, colors.RED
+        else if state == 1:
+            calling txt.draw_text with "PRESS [SPACE] TO PLAY AGAIN!", 240, 200, 20, colors.GRAY
+
+        calling drawing.end_drawing

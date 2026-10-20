@@ -1,0 +1,235 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - mesh instancing
+##
+## Original example complexity rating: [★★★★] 4/4
+## Contributed by seanpringle (@seanpringle) and reviewed by Max (@moliad) and Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to render thousands of mesh instances in a single
+## draw call using hardware instancing and an instancing-aware vertex shader.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_mesh_instancing.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.models as models
+import raylibx.random as random
+import raylibx.shaders as shaders
+import raylibx.text as txt
+import raymath
+import raymathx
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Maximum number of instanced meshes.
+const MAX_INSTANCES as int is 10000
+
+# --- Types --------------------------------------------------------------
+## Light types matching rlights.h.
+omen LightType:
+    Directional is 0
+    Point is 1
+
+## Light structure storing dynamic point/directional light uniforms.
+rune Light:
+    enabled as bool
+    type as int
+    position as raylib.Vector3
+    target as raylib.Vector3
+    color as raylib.Color
+    attenuation as f32
+    enabled_loc as int
+    type_loc as int
+    position_loc as int
+    target_loc as int
+    color_loc as int
+    attenuation_loc as int
+
+# --- Light Helpers ------------------------------------------------------
+## Sends updated light properties to the lighting shader.
+##
+## ## Parameters
+## - `shader`: The active lighting shader.
+## - `light`: The light struct whose values will be updated in shader uniforms.
+weave update_light_values with shader as raylib.Shader, light as Light into void:
+    calling shader.set_int with light.enabled_loc, (if light.enabled then 1 else 0)
+    calling shader.set_int with light.type_loc, light.type
+    calling shader.set_vec3 with light.position_loc, light.position
+    calling shader.set_vec3 with light.target_loc, light.target
+
+    let col_vec as raylib.Vector4 is with:
+        set .x is ((light.color.r to f32) / 255.0)
+        set .y is ((light.color.g to f32) / 255.0)
+        set .z is ((light.color.b to f32) / 255.0)
+        set .w is ((light.color.a to f32) / 255.0)
+    calling shader.set_vec4 with light.color_loc, col_vec
+
+## Creates a dynamic light and queries its uniform locations within the shader.
+##
+## ## Parameters
+## - `light_index`: Index of this light in the shader lights array.
+## - `light_type`: Type of light (`LightType.Point` or `LightType.Directional`).
+## - `position`: 3D position of the light source.
+## - `target`: Target look-at direction for directional lights.
+## - `color`: Emitted light color.
+## - `shader`: The target shader.
+##
+## ## Returns
+## Initialized `Light` struct with queried shader locations.
+weave create_light with light_index as int, light_type as int, position as raylib.Vector3, target as raylib.Vector3, color as raylib.Color, shader as raylib.Shader into Light:
+    var light as Light is with:
+        set .enabled is true
+        set .type is light_type
+        set .position is position
+        set .target is target
+        set .color is color
+        set .attenuation is 0.0
+        set .enabled_loc is -1
+        set .type_loc is -1
+        set .position_loc is -1
+        set .target_loc is -1
+        set .color_loc is -1
+        set .attenuation_loc is -1
+
+    let s_en as string is "lights[{light_index}].enabled"
+    let s_ty as string is "lights[{light_index}].type"
+    let s_pos as string is "lights[{light_index}].position"
+    let s_tar as string is "lights[{light_index}].target"
+    let s_col as string is "lights[{light_index}].color"
+    defer banish s_en
+    defer banish s_ty
+    defer banish s_pos
+    defer banish s_tar
+    defer banish s_col
+
+    if loc as int is calling shader.location with s_en:
+        set light.enabled_loc is loc
+    if loc as int is calling shader.location with s_ty:
+        set light.type_loc is loc
+    if loc as int is calling shader.location with s_pos:
+        set light.position_loc is loc
+    if loc as int is calling shader.location with s_tar:
+        set light.target_loc is loc
+    if loc as int is calling shader.location with s_col:
+        set light.color_loc is loc
+
+    return light
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - mesh instancing"
+    defer calling raylib.CloseWindow
+
+    # Define camera
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is -125.0, y is 125.0, z is -125.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Define mesh to be instanced
+    var cube as raylib.Mesh is calling raylib.GenMeshCube with 1.0, 1.0, 1.0
+    defer calling raylib.UnloadMesh with cube
+
+    # Generate random transforms for instances
+    var transforms as list of raylib.Matrix is []
+    defer banish transforms
+
+    for i from 0 to MAX_INSTANCES:
+        let tx as f32 is (calling random.between with -50, 50) to f32
+        let ty as f32 is (calling random.between with -50, 50) to f32
+        let tz as f32 is (calling random.between with -50, 50) to f32
+        let trans as raylib.Matrix is calling raymath.MatrixTranslate with tx, ty, tz
+
+        var axis as raylib.Vector3 is with:
+            set .x is (calling random.between with 0, 360) to f32
+            set .y is (calling random.between with 0, 360) to f32
+            set .z is (calling random.between with 0, 360) to f32
+        set axis is calling axis.get_normalize
+
+        let angle as f32 is ((calling random.between with 0, 180) to f32) * raylib.DEG2RAD
+        let rot as raylib.Matrix is calling raymath.MatrixRotate with axis, angle
+        let m as raylib.Matrix is calling rot.get_multiply with trans
+        calling transforms.append with m
+
+    # Load lighting shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_shader with "examples/shaders/resources/shaders/glsl330/lighting_instancing.vs", "examples/shaders/resources/shaders/glsl330/lighting.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    if loc as int is calling shader.location with "mvp":
+        set shader.locs at (raylib.SHADER_LOC_MATRIX_MVP to int) is loc
+
+    if loc as int is calling shader.location with "viewPos":
+        set shader.locs at (raylib.SHADER_LOC_VECTOR_VIEW to int) is loc
+
+    if loc as int is calling shader.location with "ambient":
+        calling shader.set_vec4 with loc, (with x is 0.2, y is 0.2, z is 0.2, w is 1.0)
+
+    # Create directional light
+    let zero as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    var light as Light is calling create_light with 0, (LightType.Directional to int), (with x is 50.0, y is 50.0, z is 0.0), zero, raylib.WHITE, shader
+    calling update_light_values with shader, light
+
+    # Material for instanced drawing
+    var mat_instances as raylib.Material is calling raylib.LoadMaterialDefault
+    set mat_instances.shader is shader
+    var map_inst_diff as ref to raylib.MaterialMap is sigil of (mat_instances.maps at (raylib.MATERIAL_MAP_DIFFUSE to int))
+    set map_inst_diff->color is raylib.RED
+    defer calling raylib.UnloadMaterial with mat_instances
+
+    # Default material for standard drawing
+    var mat_default as raylib.Material is calling raylib.LoadMaterialDefault
+    var map_def_diff as ref to raylib.MaterialMap is sigil of (mat_default.maps at (raylib.MATERIAL_MAP_DIFFUSE to int))
+    set map_def_diff->color is raylib.BLUE
+    defer calling raylib.UnloadMaterial with mat_default
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        let view_loc as int is shader.locs at (raylib.SHADER_LOC_VECTOR_VIEW to int)
+        calling shader.set_vec3 with view_loc, camera.position
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        # Draw left cube with default material (BLUE)
+        calling raylib.DrawMesh with cube, mat_default, (calling raymath.MatrixTranslate with -10.0, 0.0, 0.0)
+
+        # Draw instanced cubes (RED + lighting)
+        calling cube.draw_instanced with mat_instances, (transforms at 0 to (transforms.length))
+
+        # Draw right cube with default material (BLUE)
+        calling raylib.DrawMesh with cube, mat_default, (calling raymath.MatrixTranslate with 10.0, 0.0, 0.0)
+
+        calling drawing.end_mode_3d
+
+        calling txt.draw_fps with 10, 10
+        calling drawing.end_drawing
+
+    return 0

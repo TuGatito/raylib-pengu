@@ -1,0 +1,424 @@
+## ## raylib [shapes] example - digital clock
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.6
+## Example contributed by Hamza RAHAL (@hmz-rhl) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Hamza RAHAL (@hmz-rhl) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and std.chronicle.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_digital_clock.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import std.chronicle as chronicle
+import std.fractio
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+const DEG2RAD as f32 is 0.017453292519943295
+
+# --- Types ---
+
+## ## Clock display mode
+omen ClockMode:
+    CLOCK_ANALOG
+    CLOCK_DIGITAL
+
+## ## Clock hand visual definition
+rune ClockHand:
+    value as int
+    angle as f32
+    length as int
+    thickness as int
+    color as raylib.Color
+
+## ## Clock holding all three hands
+rune Clock:
+    second as ClockHand
+    minute as ClockHand
+    hour as ClockHand
+
+# --- Helpers ---
+
+## ## Formats an integer to 2 digits with leading zero
+weave pad2 with n as int into string:
+    if n < 10:
+        return "0{n}"
+    return "{n}"
+
+## ## Updates clock time and angles
+weave update_clock with clk as Clock into Clock:
+    let dt as chronicle.DateTime is calling chronicle.datetime_local with (calling chronicle.time)
+
+    var updated as Clock is clk
+    set updated.second.value is dt.second
+    set updated.minute.value is dt.minute
+    set updated.hour.value is dt.hour
+
+    var h_angle as f32 is (((dt.hour % 12) to f32) * 180.0 / 6.0)
+    set h_angle is h_angle + (((dt.minute % 60) to f32) * 30.0 / 60.0)
+    set h_angle is h_angle - 90.0
+    set updated.hour.angle is h_angle
+
+    var m_angle as f32 is ((dt.minute % 60) to f32) * 6.0
+    set m_angle is m_angle + (((dt.second % 60) to f32) * 6.0 / 60.0)
+    set m_angle is m_angle - 90.0
+    set updated.minute.angle is m_angle
+
+    set updated.second.angle is (((dt.second % 60) to f32) * 6.0) - 90.0
+
+    return updated
+
+## ## Draws one 7-segment display segment, horizontal or vertical
+weave draw_display_segment with center as raylib.Vector2, length as int, thick as int, vertical as bool, color as raylib.Color into void:
+    let half_len as f32 is (length to f32) / 2.0
+    let half_thick as f32 is (thick to f32) / 2.0
+
+    if not vertical:
+        # Central rectangle
+        var mid_rec as raylib.Rectangle is with:
+            set .x is center.x - half_len
+            set .y is center.y - half_thick
+            set .width is length to f32
+            set .height is thick to f32
+        calling mid_rec.draw with color
+
+        # Left tip
+        var p1 as raylib.Vector2 is with:
+            set .x is center.x - half_len - half_thick
+            set .y is center.y
+        var p2 as raylib.Vector2 is with:
+            set .x is center.x - half_len
+            set .y is center.y + half_thick
+        var p3 as raylib.Vector2 is with:
+            set .x is center.x - half_len
+            set .y is center.y - half_thick
+        calling p1.draw_triangle with p2, p3, color
+
+        # Right tip
+        var p4 as raylib.Vector2 is with:
+            set .x is center.x + half_len
+            set .y is center.y + half_thick
+        var p5 as raylib.Vector2 is with:
+            set .x is center.x + half_len
+            set .y is center.y - half_thick
+        var p6 as raylib.Vector2 is with:
+            set .x is center.x + half_len + half_thick
+            set .y is center.y
+        calling p4.draw_triangle with p6, p5, color
+    else:
+        # Central rectangle
+        var mid_rec as raylib.Rectangle is with:
+            set .x is center.x - half_thick
+            set .y is center.y - half_len
+            set .width is thick to f32
+            set .height is length to f32
+        calling mid_rec.draw with color
+
+        # Top tip
+        var p1 as raylib.Vector2 is with:
+            set .x is center.x
+            set .y is center.y - half_len - half_thick
+        var p2 as raylib.Vector2 is with:
+            set .x is center.x - half_thick
+            set .y is center.y - half_len
+        var p3 as raylib.Vector2 is with:
+            set .x is center.x + half_thick
+            set .y is center.y - half_len
+        calling p1.draw_triangle with p2, p3, color
+
+        # Bottom tip
+        var p4 as raylib.Vector2 is with:
+            set .x is center.x - half_thick
+            set .y is center.y + half_len
+        var p5 as raylib.Vector2 is with:
+            set .x is center.x + half_thick
+            set .y is center.y + half_len
+        var p6 as raylib.Vector2 is with:
+            set .x is center.x
+            set .y is center.y + half_len + half_thick
+        calling p4.draw_triangle with p6, p5, color
+
+## ## Draws seven segments display based on segment mask
+weave draw_7s_display with position as raylib.Vector2, segments as int, color_on as raylib.Color, color_off as raylib.Color into void:
+    let segment_len as int is 60
+    let segment_thick as int is 20
+    let offset_y_adjust as f32 is (segment_thick to f32) * 0.3
+
+    let thick_f as f32 is segment_thick to f32
+    let len_f as f32 is segment_len to f32
+
+    # Segment A (bit 0)
+    var p_a as raylib.Vector2 is with:
+        set .x is position.x + thick_f + (len_f / 2.0)
+        set .y is position.y + thick_f
+    let col_a as raylib.Color is if (segments & 1) != 0 then color_on else color_off
+    calling draw_display_segment with p_a, segment_len, segment_thick, false, col_a
+
+    # Segment B (bit 1)
+    var p_b as raylib.Vector2 is with:
+        set .x is position.x + thick_f + len_f + (thick_f / 2.0)
+        set .y is position.y + (2.0 * thick_f) + (len_f / 2.0) - offset_y_adjust
+    let col_b as raylib.Color is if (segments & 2) != 0 then color_on else color_off
+    calling draw_display_segment with p_b, segment_len, segment_thick, true, col_b
+
+    # Segment C (bit 2)
+    var p_c as raylib.Vector2 is with:
+        set .x is position.x + thick_f + len_f + (thick_f / 2.0)
+        set .y is position.y + (4.0 * thick_f) + len_f + (len_f / 2.0) - (3.0 * offset_y_adjust)
+    let col_c as raylib.Color is if (segments & 4) != 0 then color_on else color_off
+    calling draw_display_segment with p_c, segment_len, segment_thick, true, col_c
+
+    # Segment D (bit 3)
+    var p_d as raylib.Vector2 is with:
+        set .x is position.x + thick_f + (len_f / 2.0)
+        set .y is position.y + (5.0 * thick_f) + (2.0 * len_f) - (4.0 * offset_y_adjust)
+    let col_d as raylib.Color is if (segments & 8) != 0 then color_on else color_off
+    calling draw_display_segment with p_d, segment_len, segment_thick, false, col_d
+
+    # Segment E (bit 4)
+    var p_e as raylib.Vector2 is with:
+        set .x is position.x + (thick_f / 2.0)
+        set .y is position.y + (4.0 * thick_f) + len_f + (len_f / 2.0) - (3.0 * offset_y_adjust)
+    let col_e as raylib.Color is if (segments & 16) != 0 then color_on else color_off
+    calling draw_display_segment with p_e, segment_len, segment_thick, true, col_e
+
+    # Segment F (bit 5)
+    var p_f as raylib.Vector2 is with:
+        set .x is position.x + (thick_f / 2.0)
+        set .y is position.y + (2.0 * thick_f) + (len_f / 2.0) - offset_y_adjust
+    let col_f as raylib.Color is if (segments & 32) != 0 then color_on else color_off
+    calling draw_display_segment with p_f, segment_len, segment_thick, true, col_f
+
+    # Segment G (bit 6)
+    var p_g as raylib.Vector2 is with:
+        set .x is position.x + thick_f + (len_f / 2.0)
+        set .y is position.y + (3.0 * thick_f) + len_f - (2.0 * offset_y_adjust)
+    let col_g as raylib.Color is if (segments & 64) != 0 then color_on else color_off
+    calling draw_display_segment with p_g, segment_len, segment_thick, false, col_g
+
+## ## Draws 7-segment digit
+weave draw_display_value with position as raylib.Vector2, value as int, color_on as raylib.Color, color_off as raylib.Color into void:
+    var mask as int is 0
+    if value == 0:
+        set mask is 63 # 0b00111111
+    else if value == 1:
+        set mask is 6  # 0b00000110
+    else if value == 2:
+        set mask is 91 # 0b01011011
+    else if value == 3:
+        set mask is 79 # 0b01001111
+    else if value == 4:
+        set mask is 102 # 0b01100110
+    else if value == 5:
+        set mask is 109 # 0b01101101
+    else if value == 6:
+        set mask is 125 # 0b01111101
+    else if value == 7:
+        set mask is 7   # 0b00000111
+    else if value == 8:
+        set mask is 127 # 0b01111111
+    else if value == 9:
+        set mask is 111 # 0b01101111
+
+    calling draw_7s_display with position, mask, color_on, color_off
+
+## ## Draws digital clock display
+weave draw_clock_digital with clk as Clock, position as raylib.Vector2 into void:
+    let off_color as raylib.Color is calling colors.fade with colors.LIGHTGRAY, 0.3
+
+    var p0 as raylib.Vector2 is position
+    calling draw_display_value with p0, clk.hour.value / 10, colors.RED, off_color
+
+    var p1 as raylib.Vector2 is with:
+        set .x is position.x + 120.0
+        set .y is position.y
+    calling draw_display_value with p1, clk.hour.value % 10, colors.RED, off_color
+
+    let dot_col as raylib.Color is if (clk.second.value % 2) != 0 then colors.RED else off_color
+    calling shapes.draw_circle with (position.x + 240.0) to int, (position.y + 70.0) to int, 12.0, dot_col
+    calling shapes.draw_circle with (position.x + 240.0) to int, (position.y + 150.0) to int, 12.0, dot_col
+
+    var p2 as raylib.Vector2 is with:
+        set .x is position.x + 260.0
+        set .y is position.y
+    calling draw_display_value with p2, clk.minute.value / 10, colors.RED, off_color
+
+    var p3 as raylib.Vector2 is with:
+        set .x is position.x + 380.0
+        set .y is position.y
+    calling draw_display_value with p3, clk.minute.value % 10, colors.RED, off_color
+
+    calling shapes.draw_circle with (position.x + 500.0) to int, (position.y + 70.0) to int, 12.0, dot_col
+    calling shapes.draw_circle with (position.x + 500.0) to int, (position.y + 150.0) to int, 12.0, dot_col
+
+    var p4 as raylib.Vector2 is with:
+        set .x is position.x + 520.0
+        set .y is position.y
+    calling draw_display_value with p4, clk.second.value / 10, colors.RED, off_color
+
+    var p5 as raylib.Vector2 is with:
+        set .x is position.x + 640.0
+        set .y is position.y
+    calling draw_display_value with p5, clk.second.value % 10, colors.RED, off_color
+
+## ## Draws analog clock
+weave draw_clock_analog with clk as Clock, position as raylib.Vector2 into void:
+    # Clock base
+    calling position.draw_circle with (clk.second.length to f32) + 40.0, colors.LIGHTGRAY
+    calling position.draw_circle with 12.0, colors.GRAY
+
+    # Minutes/seconds tick lines
+    for i from 0 to 59:
+        var angle_deg as f32 is ((6.0 * (i to f32)) - 90.0) * DEG2RAD
+        let tick_len as f32 is if (i % 5) != 0 then 10.0 else 6.0
+        let tick_thick as f32 is if (i % 5) != 0 then 1.0 else 3.0
+
+        var p1 as raylib.Vector2 is with:
+            set .x is position.x + (((clk.second.length to f32) + tick_len) * (calling angle_deg.get_cos))
+            set .y is position.y + (((clk.second.length to f32) + tick_len) * (calling angle_deg.get_sin))
+
+        var p2 as raylib.Vector2 is with:
+            set .x is position.x + (((clk.second.length to f32) + 20.0) * (calling angle_deg.get_cos))
+            set .y is position.y + (((clk.second.length to f32) + 20.0) * (calling angle_deg.get_sin))
+
+        calling p1.draw_line_ex with p2, tick_thick, colors.DARKGRAY
+
+    # Hand seconds
+    var rec_sec as raylib.Rectangle is with:
+        set .x is position.x
+        set .y is position.y
+        set .width is clk.second.length to f32
+        set .height is clk.second.thickness to f32
+    var origin_sec as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is (clk.second.thickness to f32) / 2.0
+    calling rec_sec.draw_pro with origin_sec, clk.second.angle, clk.second.color
+
+    # Hand minutes
+    var rec_min as raylib.Rectangle is with:
+        set .x is position.x
+        set .y is position.y
+        set .width is clk.minute.length to f32
+        set .height is clk.minute.thickness to f32
+    var origin_min as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is (clk.minute.thickness to f32) / 2.0
+    calling rec_min.draw_pro with origin_min, clk.minute.angle, clk.minute.color
+
+    # Hand hours
+    var rec_hour as raylib.Rectangle is with:
+        set .x is position.x
+        set .y is position.y
+        set .width is clk.hour.length to f32
+        set .height is clk.hour.thickness to f32
+    var origin_hour as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is (clk.hour.thickness to f32) / 2.0
+    calling rec_hour.draw_pro with origin_hour, clk.hour.angle, clk.hour.color
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - digital clock"
+    defer calling raylib.CloseWindow
+
+    var clock_mode as ClockMode is ClockMode.CLOCK_DIGITAL
+
+    var sec_hand as ClockHand is with:
+        set .value is 0
+        set .angle is 45.0
+        set .length is 140
+        set .thickness is 3
+        set .color is colors.MAROON
+
+    var min_hand as ClockHand is with:
+        set .value is 0
+        set .angle is 10.0
+        set .length is 130
+        set .thickness is 7
+        set .color is colors.DARKGRAY
+
+    var hour_hand as ClockHand is with:
+        set .value is 0
+        set .angle is 0.0
+        set .length is 100
+        set .thickness is 7
+        set .color is colors.BLACK
+
+    var clk as Clock is with:
+        set .second is sec_hand
+        set .minute is min_hand
+        set .hour is hour_hand
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            judge clock_mode:
+                when ClockMode.CLOCK_DIGITAL ->
+                    set clock_mode is ClockMode.CLOCK_ANALOG
+                when ClockMode.CLOCK_ANALOG ->
+                    set clock_mode is ClockMode.CLOCK_DIGITAL
+
+        set clk is calling update_clock with clk
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        judge clock_mode:
+            when ClockMode.CLOCK_ANALOG ->
+                var analog_pos as raylib.Vector2 is with:
+                    set .x is 400.0
+                    set .y is 240.0
+                calling draw_clock_analog with clk, analog_pos
+
+            when ClockMode.CLOCK_DIGITAL ->
+                var digital_pos as raylib.Vector2 is with:
+                    set .x is 30.0
+                    set .y is 60.0
+                calling draw_clock_digital with clk, digital_pos
+
+                # Draw clock using default raylib font
+                var s_h as string is calling pad2 with clk.hour.value
+                var s_m as string is calling pad2 with clk.minute.value
+                var s_s as string is calling pad2 with clk.second.value
+                var time_str as string is "{s_h}:{s_m}:{s_s}"
+                banish s_h
+                banish s_m
+                banish s_s
+
+                let text_w as int is calling txt.measure_text with time_str, 150
+                calling txt.draw_text with time_str, (SCREEN_WIDTH / 2) - (text_w / 2), 300, 150, colors.BLACK
+                banish time_str
+
+        var mode_name as string is judge clock_mode:
+            when ClockMode.CLOCK_DIGITAL -> "DIGITAL CLOCK"
+            when ClockMode.CLOCK_ANALOG -> "ANALOGUE CLOCK"
+
+        var label_str as string is "Press [SPACE] to switch clock mode: {mode_name}"
+        calling txt.draw_text with label_str, 10, 10, 20, colors.DARKGRAY
+        banish label_str
+
+        calling drawing.end_drawing

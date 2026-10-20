@@ -1,0 +1,195 @@
+## raylib [shapes] example - ring drawing
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 2.5
+## Example contributed by Vlad Adrian (@demizdor) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2018-2025 Vlad Adrian (@demizdor) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and rayguix controls.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_ring_drawing.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raygui as raygui
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import pengu.rayguix as rayguix
+import std.fractio as fractio
+
+# --- Helpers ---
+
+## Formats a float to two decimal places
+##
+## ## Parameters
+## - `val`: float value to format
+##
+## ## Returns
+## Formatted string representation
+weave format_float_2 with val as f32 into string:
+    var sign as string is if val < 0.0 then "-" else ""
+    var abs_val as f32 is if val < 0.0 then -val else val
+    var int_part as int is abs_val to int
+    var frac_part as int is ((abs_val - (int_part to f32)) * 100.0) to int
+    var frac_str as string is if frac_part < 10 then "0{frac_part}" else "{frac_part}"
+    defer banish frac_str
+    return "{sign}{int_part}.{frac_str}"
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - ring drawing"
+    defer calling raylib.CloseWindow
+
+    let center as raylib.Vector2 is with:
+        set .x is (((screen_width to f32) - 300.0) / 2.0)
+        set .y is ((screen_height to f32) / 2.0)
+
+    var inner_radius as f32 is 80.0
+    var outer_radius as f32 is 190.0
+
+    var start_angle as f32 is 0.0
+    var end_angle as f32 is 360.0
+    var segments as f32 is 0.0
+
+    var draw_ring as bool is true
+    var draw_ring_lines as bool is false
+    var draw_circle_lines as bool is false
+
+    let div_line_start as raylib.Vector2 is with:
+        set .x is 500.0
+        set .y is 0.0
+
+    let side_panel_rec as raylib.Rectangle is with:
+        set .x is 500.0
+        set .y is 0.0
+        set .width is (screen_width to f32) - 500.0
+        set .height is (screen_height to f32)
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        # Variables update inside GUI control functions
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let div_line_end as raylib.Vector2 is with:
+            set .x is 500.0
+            set .y is (calling raylib.GetScreenHeight to f32)
+        calling div_line_start.draw_line_ex with div_line_end, 1.0, (calling colors.fade with raylib.LIGHTGRAY, 0.6)
+
+        calling side_panel_rec.draw with (calling colors.fade with raylib.LIGHTGRAY, 0.3)
+
+        if draw_ring:
+            calling raylib.DrawRing with center, inner_radius, outer_radius, start_angle, end_angle, (segments to int), (calling colors.fade with raylib.MAROON, 0.3)
+        if draw_ring_lines:
+            calling raylib.DrawRingLines with center, inner_radius, outer_radius, start_angle, end_angle, (segments to int), (calling colors.fade with raylib.BLACK, 0.4)
+        if draw_circle_lines:
+            calling raylib.DrawCircleSectorLines with center, outer_radius, start_angle, end_angle, (segments to int), (calling colors.fade with raylib.BLACK, 0.4)
+
+        # Draw GUI controls
+        let sl_sa_rec as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 40.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_sa as string is calling format_float_2 with start_angle
+        calling rayguix.slider_bar with sl_sa_rec, "StartAngle", s_sa, (sigil of start_angle), -450.0, 450.0
+        banish s_sa
+
+        let sl_ea_rec as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 70.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_ea as string is calling format_float_2 with end_angle
+        calling rayguix.slider_bar with sl_ea_rec, "EndAngle", s_ea, (sigil of end_angle), -450.0, 450.0
+        banish s_ea
+
+        let sl_ir_rec as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 140.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_ir as string is calling format_float_2 with inner_radius
+        calling rayguix.slider_bar with sl_ir_rec, "InnerRadius", s_ir, (sigil of inner_radius), 0.0, 100.0
+        banish s_ir
+
+        let sl_or_rec as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 170.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_or as string is calling format_float_2 with outer_radius
+        calling rayguix.slider_bar with sl_or_rec, "OuterRadius", s_or, (sigil of outer_radius), 0.0, 200.0
+        banish s_or
+
+        let sl_seg_rec as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 240.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_seg as string is calling format_float_2 with segments
+        calling rayguix.slider_bar with sl_seg_rec, "Segments", s_seg, (sigil of segments), 0.0, 100.0
+        banish s_seg
+
+        let cb_dr_rec as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 320.0
+            set .width is 20.0
+            set .height is 20.0
+        calling rayguix.check_box with cb_dr_rec, "Draw Ring", (sigil of draw_ring)
+
+        let cb_drl_rec as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 350.0
+            set .width is 20.0
+            set .height is 20.0
+        calling rayguix.check_box with cb_drl_rec, "Draw RingLines", (sigil of draw_ring_lines)
+
+        let cb_dcl_rec as raylib.Rectangle is with:
+            set .x is 600.0
+            set .y is 380.0
+            set .width is 20.0
+            set .height is 20.0
+        calling rayguix.check_box with cb_dcl_rec, "Draw CircleLines", (sigil of draw_circle_lines)
+
+        let ratio as f32 is (end_angle - start_angle) / 90.0
+        let trunc_ratio as int is ratio to int
+        let min_segments as int is if ratio > (trunc_ratio to f32) then trunc_ratio + 1 else trunc_ratio
+        let is_manual as bool is segments >= (min_segments to f32)
+        var mode_msg as string is if is_manual then "MODE: MANUAL" else "MODE: AUTO"
+        let mode_color as raylib.Color is if is_manual then raylib.MAROON else raylib.DARKGRAY
+        calling txt.draw_text with mode_msg, 600, 270, 10, mode_color
+        banish mode_msg
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

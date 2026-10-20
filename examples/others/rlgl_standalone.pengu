@@ -1,0 +1,312 @@
+## examples/others/rlgl_standalone.pengu
+## raylib [others] example - rlgl standalone
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 1.6, last time updated with raylib 4.0
+##
+## Example contributed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Port of `examples/others/rlgl_standalone.c` demonstrating how to render 3D
+## and 2D graphics using only the `rlgl` abstraction layer API.
+##
+## While the original C example initialized a standalone window and context via GLFW
+## to showcase `rlgl` outside raylib, this PenguScript port utilizes `raylib` for
+## window and context management, while driving all rendering through pure `rlgl`
+## immediate-mode style commands (`rlBegin`, `rlEnd`, `rlVertex3f`, `rlVertex2f`,
+## `rlColor4ub`, `rlColor3f`, `rlPushMatrix`, `rlPopMatrix`, `rlTranslatef`,
+## `rlSetMatrixModelview`, `rlSetMatrixProjection`, and `rlDrawRenderBatchActive`).
+##
+## ## Example
+## ```bash
+## pengu run examples/others/rlgl_standalone.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raymath
+import rlgl
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Helper Drawing Functions (rlgl Immediate Mode) ---------------------
+## Renders a 2D colored rectangle using `rlgl` immediate-mode triangles.
+##
+## ## Parameters
+## - `position`: Top-left coordinate of the rectangle.
+## - `size`: Width and height of the rectangle.
+## - `color`: Tint color applied to vertices.
+weave draw_rectangle_v with position as raylib.Vector2, size as raylib.Vector2, color as raylib.Color into void:
+    calling rlgl.rlBegin with (rlgl.RL_TRIANGLES to int)
+    calling rlgl.rlColor4ub with color.r, color.g, color.b, color.a
+
+    calling rlgl.rlVertex2f with position.x, position.y
+    calling rlgl.rlVertex2f with position.x, position.y + size.y
+    calling rlgl.rlVertex2f with position.x + size.x, position.y + size.y
+
+    calling rlgl.rlVertex2f with position.x, position.y
+    calling rlgl.rlVertex2f with position.x + size.x, position.y + size.y
+    calling rlgl.rlVertex2f with position.x + size.x, position.y
+    calling rlgl.rlEnd
+
+## Renders a 3D grid centered at `(0, 0, 0)` on the X-Z plane.
+##
+## ## Parameters
+## - `slices`: Number of grid divisions.
+## - `spacing`: Distance between grid lines.
+weave draw_grid with slices as int, spacing as f32 into void:
+    let half_slices as int is slices / 2
+
+    calling rlgl.rlBegin with (rlgl.RL_LINES to int)
+    for i from -half_slices to (half_slices + 1):
+        if i == 0:
+            calling rlgl.rlColor3f with 0.5, 0.5, 0.5
+            calling rlgl.rlColor3f with 0.5, 0.5, 0.5
+            calling rlgl.rlColor3f with 0.5, 0.5, 0.5
+            calling rlgl.rlColor3f with 0.5, 0.5, 0.5
+        else:
+            calling rlgl.rlColor3f with 0.75, 0.75, 0.75
+            calling rlgl.rlColor3f with 0.75, 0.75, 0.75
+            calling rlgl.rlColor3f with 0.75, 0.75, 0.75
+            calling rlgl.rlColor3f with 0.75, 0.75, 0.75
+
+        let fi as f32 is (i to f32) * spacing
+        let fhs as f32 is (half_slices to f32) * spacing
+
+        calling rlgl.rlVertex3f with fi, 0.0, -fhs
+        calling rlgl.rlVertex3f with fi, 0.0, fhs
+
+        calling rlgl.rlVertex3f with -fhs, 0.0, fi
+        calling rlgl.rlVertex3f with fhs, 0.0, fi
+    calling rlgl.rlEnd
+
+## Renders a solid 3D cube centered at `position`.
+##
+## ## Parameters
+## - `position`: Center coordinates of the cube.
+## - `width`: Dimensions along the X axis.
+## - `height`: Dimensions along the Y axis.
+## - `length`: Dimensions along the Z axis.
+## - `color`: Face tint color.
+weave draw_cube with position as raylib.Vector3, width as f32, height as f32, length as f32, color as raylib.Color into void:
+    let x as f32 is 0.0
+    let y as f32 is 0.0
+    let z as f32 is 0.0
+
+    let hw as f32 is width / 2.0
+    let hh as f32 is height / 2.0
+    let hl as f32 is length / 2.0
+
+    calling rlgl.rlPushMatrix
+    calling rlgl.rlTranslatef with position.x, position.y, position.z
+
+    calling rlgl.rlBegin with (rlgl.RL_TRIANGLES to int)
+    calling rlgl.rlColor4ub with color.r, color.g, color.b, color.a
+
+    # Front Face
+    calling rlgl.rlVertex3f with x - hw, y - hh, z + hl # Bottom Left
+    calling rlgl.rlVertex3f with x + hw, y - hh, z + hl # Bottom Right
+    calling rlgl.rlVertex3f with x - hw, y + hh, z + hl # Top Left
+
+    calling rlgl.rlVertex3f with x + hw, y + hh, z + hl # Top Right
+    calling rlgl.rlVertex3f with x - hw, y + hh, z + hl # Top Left
+    calling rlgl.rlVertex3f with x + hw, y - hh, z + hl # Bottom Right
+
+    # Back Face
+    calling rlgl.rlVertex3f with x - hw, y - hh, z - hl # Bottom Left
+    calling rlgl.rlVertex3f with x - hw, y + hh, z - hl # Top Left
+    calling rlgl.rlVertex3f with x + hw, y - hh, z - hl # Bottom Right
+
+    calling rlgl.rlVertex3f with x + hw, y + hh, z - hl # Top Right
+    calling rlgl.rlVertex3f with x + hw, y - hh, z - hl # Bottom Right
+    calling rlgl.rlVertex3f with x - hw, y + hh, z - hl # Top Left
+
+    # Top Face
+    calling rlgl.rlVertex3f with x - hw, y + hh, z - hl # Top Left
+    calling rlgl.rlVertex3f with x - hw, y + hh, z + hl # Bottom Left
+    calling rlgl.rlVertex3f with x + hw, y + hh, z + hl # Bottom Right
+
+    calling rlgl.rlVertex3f with x + hw, y + hh, z - hl # Top Right
+    calling rlgl.rlVertex3f with x - hw, y + hh, z - hl # Top Left
+    calling rlgl.rlVertex3f with x + hw, y + hh, z + hl # Bottom Right
+
+    # Bottom Face
+    calling rlgl.rlVertex3f with x - hw, y - hh, z - hl # Top Left
+    calling rlgl.rlVertex3f with x + hw, y - hh, z + hl # Bottom Right
+    calling rlgl.rlVertex3f with x - hw, y - hh, z + hl # Bottom Left
+
+    calling rlgl.rlVertex3f with x + hw, y - hh, z - hl # Top Right
+    calling rlgl.rlVertex3f with x + hw, y - hh, z + hl # Bottom Right
+    calling rlgl.rlVertex3f with x - hw, y - hh, z - hl # Top Left
+
+    # Right face
+    calling rlgl.rlVertex3f with x + hw, y - hh, z - hl # Bottom Right
+    calling rlgl.rlVertex3f with x + hw, y + hh, z - hl # Top Right
+    calling rlgl.rlVertex3f with x + hw, y + hh, z + hl # Top Left
+
+    calling rlgl.rlVertex3f with x + hw, y - hh, z + hl # Bottom Left
+    calling rlgl.rlVertex3f with x + hw, y - hh, z - hl # Bottom Right
+    calling rlgl.rlVertex3f with x + hw, y + hh, z + hl # Top Left
+
+    # Left Face
+    calling rlgl.rlVertex3f with x - hw, y - hh, z - hl # Bottom Right
+    calling rlgl.rlVertex3f with x - hw, y + hh, z + hl # Top Left
+    calling rlgl.rlVertex3f with x - hw, y + hh, z - hl # Top Right
+
+    calling rlgl.rlVertex3f with x - hw, y - hh, z + hl # Bottom Left
+    calling rlgl.rlVertex3f with x - hw, y + hh, z + hl # Top Left
+    calling rlgl.rlVertex3f with x - hw, y - hh, z - hl # Bottom Right
+
+    calling rlgl.rlEnd
+    calling rlgl.rlPopMatrix
+
+## Renders the wireframe outline of a 3D cube centered at `position`.
+##
+## ## Parameters
+## - `position`: Center coordinates of the cube.
+## - `width`: Dimensions along the X axis.
+## - `height`: Dimensions along the Y axis.
+## - `length`: Dimensions along the Z axis.
+## - `color`: Wireframe line color.
+weave draw_cube_wires with position as raylib.Vector3, width as f32, height as f32, length as f32, color as raylib.Color into void:
+    let x as f32 is 0.0
+    let y as f32 is 0.0
+    let z as f32 is 0.0
+
+    let hw as f32 is width / 2.0
+    let hh as f32 is height / 2.0
+    let hl as f32 is length / 2.0
+
+    calling rlgl.rlPushMatrix
+    calling rlgl.rlTranslatef with position.x, position.y, position.z
+
+    calling rlgl.rlBegin with (rlgl.RL_LINES to int)
+    calling rlgl.rlColor4ub with color.r, color.g, color.b, color.a
+
+    # Front Face
+    calling rlgl.rlVertex3f with x - hw, y - hh, z + hl # Bottom Left
+    calling rlgl.rlVertex3f with x + hw, y - hh, z + hl # Bottom Right
+
+    calling rlgl.rlVertex3f with x + hw, y - hh, z + hl # Bottom Right
+    calling rlgl.rlVertex3f with x + hw, y + hh, z + hl # Top Right
+
+    calling rlgl.rlVertex3f with x + hw, y + hh, z + hl # Top Right
+    calling rlgl.rlVertex3f with x - hw, y + hh, z + hl # Top Left
+
+    calling rlgl.rlVertex3f with x - hw, y + hh, z + hl # Top Left
+    calling rlgl.rlVertex3f with x - hw, y - hh, z + hl # Bottom Left
+
+    # Back Face
+    calling rlgl.rlVertex3f with x - hw, y - hh, z - hl # Bottom Left
+    calling rlgl.rlVertex3f with x + hw, y - hh, z - hl # Bottom Right
+
+    calling rlgl.rlVertex3f with x + hw, y - hh, z - hl # Bottom Right
+    calling rlgl.rlVertex3f with x + hw, y + hh, z - hl # Top Right
+
+    calling rlgl.rlVertex3f with x + hw, y + hh, z - hl # Top Right
+    calling rlgl.rlVertex3f with x - hw, y + hh, z - hl # Top Left
+
+    calling rlgl.rlVertex3f with x - hw, y + hh, z - hl # Top Left
+    calling rlgl.rlVertex3f with x - hw, y - hh, z - hl # Bottom Left
+
+    # Top Face
+    calling rlgl.rlVertex3f with x - hw, y + hh, z + hl # Top Left Front
+    calling rlgl.rlVertex3f with x - hw, y + hh, z - hl # Top Left Back
+
+    calling rlgl.rlVertex3f with x + hw, y + hh, z + hl # Top Right Front
+    calling rlgl.rlVertex3f with x + hw, y + hh, z - hl # Top Right Back
+
+    # Bottom Face
+    calling rlgl.rlVertex3f with x - hw, y - hh, z + hl # Top Left Front
+    calling rlgl.rlVertex3f with x - hw, y - hh, z - hl # Top Left Back
+
+    calling rlgl.rlVertex3f with x + hw, y - hh, z + hl # Top Right Front
+    calling rlgl.rlVertex3f with x + hw, y - hh, z - hl # Top Right Back
+
+    calling rlgl.rlEnd
+    calling rlgl.rlPopMatrix
+
+# --- Entry Point --------------------------------------------------------
+## Program main entry point.
+##
+## Initializes the window, sets up a 3D perspective camera and transforms,
+## renders a solid cube, wireframe cube, and grid using `rlgl`, then renders
+## a 2D GUI overlay using orthographic projection and immediate-mode quads.
+##
+## ## Returns
+## Exit status code (`0` for success).
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [others] example - rlgl standalone"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 5.0, y is 5.0, z is 5.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    let cube_position as raylib.Vector3 is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .z is 0.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # camera.position.x += 0.01
+
+        # Draw
+        calling drawing.begin_drawing
+        calling rlgl.rlClearScreenBuffers
+
+        # Draw '3D' elements in the scene
+        let aspect as f64 is (SCREEN_WIDTH to f64) / (SCREEN_HEIGHT to f64)
+        let mat_proj as raylib.Matrix is calling raymath.MatrixPerspective with ((camera.fovy to f64) * raylib.DEG2RAD), aspect, 0.01, 1000.0
+        let mat_view as raylib.Matrix is calling raymath.MatrixLookAt with camera.position, camera.target, camera.up
+
+        calling rlgl.rlSetMatrixModelview with mat_view
+        calling rlgl.rlSetMatrixProjection with mat_proj
+
+        calling draw_cube with cube_position, 2.0, 2.0, 2.0, raylib.RED
+        calling draw_cube_wires with cube_position, 2.0, 2.0, 2.0, raylib.RAYWHITE
+        calling draw_grid with 10, 1.0
+
+        # Draw internal render batch buffers (3D data)
+        calling rlgl.rlDrawRenderBatchActive
+
+        # Draw '2D' elements in the scene (GUI)
+        let mat_proj_2d as raylib.Matrix is calling raymath.MatrixOrtho with 0.0, (SCREEN_WIDTH to f64), (SCREEN_HEIGHT to f64), 0.0, 0.0, 1.0
+        let mat_view_2d as raylib.Matrix is calling raymath.MatrixIdentity
+
+        calling rlgl.rlSetMatrixModelview with mat_view_2d
+        calling rlgl.rlSetMatrixProjection with mat_proj_2d
+
+        let rect_pos as raylib.Vector2 is with x is 10.0, y is 10.0
+        let rect_size as raylib.Vector2 is with x is 780.0, y is 20.0
+        calling draw_rectangle_v with rect_pos, rect_size, raylib.DARKGRAY
+
+        # Draw internal render batch buffers (2D data)
+        calling rlgl.rlDrawRenderBatchActive
+
+        calling drawing.end_drawing
+
+    return 0

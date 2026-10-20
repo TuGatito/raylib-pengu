@@ -1,0 +1,92 @@
+## ## raylib [shapes] example - lines bezier
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.7, last time updated with raylib 1.7
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2017-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_lines_bezier.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - lines bezier"
+    defer calling raylib.CloseWindow
+
+    var start_point as raylib.Vector2 is with:
+        set .x is 30.0
+        set .y is 30.0
+
+    var end_point as raylib.Vector2 is with:
+        set .x is (SCREEN_WIDTH to f32) - 30.0
+        set .y is (SCREEN_HEIGHT to f32) - 30.0
+
+    var move_start_point as bool is false
+    var move_end_point as bool is false
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let mouse as raylib.Vector2 is calling raylib.GetMousePosition
+        let mouse_down as bool is calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT
+        let mouse_released as bool is calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT
+
+        if (calling shapes.collision_point_circle with mouse, start_point, 10.0) and mouse_down:
+            set move_start_point is true
+        else if (calling shapes.collision_point_circle with mouse, end_point, 10.0) and mouse_down:
+            set move_end_point is true
+
+        if move_start_point:
+            set start_point is mouse
+            if mouse_released:
+                set move_start_point is false
+
+        if move_end_point:
+            set end_point is mouse
+            if mouse_released:
+                set move_end_point is false
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        calling txt.draw_text with "MOVE START-END POINTS WITH MOUSE", 15, 20, 20, colors.GRAY
+
+        # Draw line Cubic Bezier, in-out interpolation (easing), no control points
+        calling start_point.draw_line_bezier with end_point, 4.0, colors.BLUE
+
+        # Draw start-end spline circles with some details
+        let start_radius as f32 is if (calling shapes.collision_point_circle with mouse, start_point, 10.0) then 14.0 else 8.0
+        let start_color as raylib.Color is if move_start_point then colors.RED else colors.BLUE
+        calling start_point.draw_circle with start_radius, start_color
+
+        let end_radius as f32 is if (calling shapes.collision_point_circle with mouse, end_point, 10.0) then 14.0 else 8.0
+        let end_color as raylib.Color is if move_end_point then colors.RED else colors.BLUE
+        calling end_point.draw_circle with end_radius, end_color
+
+        calling drawing.end_drawing

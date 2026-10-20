@@ -1,0 +1,146 @@
+## raylib [audio] example - sound positioning
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 6.0
+##
+## Example contributed by Le Juez Victor (@Bigfoot71) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Le Juez Victor (@Bigfoot71)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.shapes3d`,
+## `raylibx.audio`, `raymathx`), relative asset paths from project root,
+## 3D spatialized sound positioning (distance attenuation + stereo panning), and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/audio/audio_sound_positioning.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.audio as audio
+import raylibx.drawing as drawing
+import raylibx.shapes3d as shapes3d
+import raymath
+import raymathx
+import std.fractio
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Path to the WAV audio file (relative to project root).
+const SOUND_PATH as string is "examples/audio/resources/coin.wav"
+
+# --- Helpers ---
+
+## Updates a sound's volume and stereo panning based on 3D listener geometry.
+##
+## Computes distance attenuation, behind-listener volume reduction, and stereo panning
+## based on the listener camera's forward and right vectors.
+##
+## ## Parameters
+## - `listener`: 3D camera defining the listener's position and orientation.
+## - `sound`: sound handle whose volume and pan will be adjusted.
+## - `position`: 3D position of the sound source in world space.
+## - `max_dist`: distance attenuation scaling factor.
+weave set_sound_position with listener as raylib.Camera3D, sound as raylib.Sound, position as raylib.Vector3, max_dist as f32 into void:
+    # Calculate direction vector and distance between listener and sound source
+    var direction as raylib.Vector3 is calling position.get_subtract with listener.position
+    let distance as f32 is calling direction.length
+
+    # Apply logarithmic distance attenuation and clamp between 0-1
+    var attenuation as f32 is 1.0 / (1.0 + (distance / max_dist))
+    set attenuation is calling raymath.Clamp with attenuation, 0.0, 1.0
+
+    # Calculate normalized vectors for spatial positioning
+    var normalized_dir as raylib.Vector3 is calling direction.get_normalize
+    var target_diff as raylib.Vector3 is calling listener.target.get_subtract with listener.position
+    var forward as raylib.Vector3 is calling target_diff.get_normalize
+    var fwd_cross as raylib.Vector3 is calling forward.get_cross_with with listener.up
+    var right as raylib.Vector3 is calling fwd_cross.get_normalize
+
+    # Reduce volume for sounds behind the listener
+    let dot_product as f32 is calling forward.dot with normalized_dir
+    if dot_product < 0.0:
+        set attenuation is attenuation * (1.0 + (dot_product * 0.5))
+
+    # Set stereo panning based on sound position relative to listener
+    let pan as f32 is calling normalized_dir.dot with right
+
+    # Apply final sound properties
+    calling sound.set_volume with attenuation
+    calling sound.set_pan with pan
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Initializes the 3D scene and audio device, streams an orbiting sound source around
+## the origin, and updates 3D audio pan/volume relative to a free-fly camera.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if asset loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [audio] example - sound positioning"
+    defer calling raylib.CloseWindow
+
+    calling raylib.InitAudioDevice
+    defer calling raylib.CloseAudioDevice
+
+    let loaded_sound as maybe raylib.Sound is calling audio.load_sound with SOUND_PATH
+    if sound as raylib.Sound is loaded_sound:
+        defer calling audio.unload_sound with sound
+
+        var camera as raylib.Camera3D is with:
+            set .position is (with x is 0.0, y is 5.0, z is 5.0)
+            set .target is (with x is 0.0, y is 0.0, z is 0.0)
+            set .up is (with x is 0.0, y is 1.0, z is 0.0)
+            set .fovy is 60.0
+            set .projection is raylib.CAMERA_PERSPECTIVE
+
+        calling raylib.DisableCursor
+        calling raylib.SetTargetFPS with TARGET_FPS
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FREE to int)
+
+            let th as f32 is (calling raylib.GetTime to f32)
+            let sphere_pos as raylib.Vector3 is with:
+                set .x is 5.0 * (calling th.get_cos)
+                set .y is 0.0
+                set .z is 5.0 * (calling th.get_sin)
+
+            calling set_sound_position with camera, sound, sphere_pos, 1.0
+
+            if not (calling sound.is_playing):
+                calling sound.play
+
+            # Draw
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            calling drawing.begin_mode_3d with camera
+            calling shapes3d.draw_grid with 10, 2.0
+            calling shapes3d.draw_sphere with sphere_pos, 0.5, raylib.RED
+            calling drawing.end_mode_3d
+
+            calling drawing.end_drawing
+
+        return 0
+
+    return 1

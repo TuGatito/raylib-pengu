@@ -1,0 +1,177 @@
+## examples/shaders/shaders_color_correction.pengu
+## raylib [shaders] example - color correction
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example contributed by Jordi Santonja (@JordSant) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Jordi Santonja (@JordSant)
+##
+## ## PenguScript Port
+## Port of `examples/shaders/shaders_color_correction.c` demonstrating real-time
+## image adjustment (contrast, saturation, brightness) via a fragment shader
+## and interactive GUI sliders using `rayguix`.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_color_correction.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import rayguix
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Total number of test textures available.
+const MAX_TEXTURES as int is 4
+
+# --- Entry Point --------------------------------------------------------
+## Program main entry point.
+##
+## Loads sample textures and the color-correction fragment shader, sets up
+## uniform locations for contrast/saturation/brightness, and runs the interactive
+## GUI loop.
+##
+## ## Returns
+## Exit status code (`0` for success, `1` if asset loading fails).
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - color correction"
+    defer calling raylib.CloseWindow
+
+    # Load textures
+    let t0_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/parrots.png"
+    let t1_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/cat.png"
+    let t2_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/mandrill.png"
+    let t3_opt as maybe raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/fudesumi.png"
+
+    if t0 as raylib.Texture2D is t0_opt:
+        defer calling textures.unload_texture with t0
+        if t1 as raylib.Texture2D is t1_opt:
+            defer calling textures.unload_texture with t1
+            if t2 as raylib.Texture2D is t2_opt:
+                defer calling textures.unload_texture with t2
+                if t3 as raylib.Texture2D is t3_opt:
+                    defer calling textures.unload_texture with t3
+
+                    var tex_list as list of raylib.Texture2D is [t0, t1, t2, t3]
+                    defer banish tex_list
+
+                    # Load shader
+                    let shdr_path as string is "examples/shaders/resources/shaders/glsl330/color_correction.fs"
+                    let shdr_opt as maybe raylib.Shader is calling shaders.load_fragment_shader with shdr_path
+                    if shader as raylib.Shader is shdr_opt:
+                        defer calling shaders.unload_shader with shader
+
+                        var contrast_loc as int is -1
+                        var saturation_loc as int is -1
+                        var brightness_loc as int is -1
+
+                        if loc as int is calling shader.location with "contrast": set contrast_loc is loc
+                        if loc as int is calling shader.location with "saturation": set saturation_loc is loc
+                        if loc as int is calling shader.location with "brightness": set brightness_loc is loc
+
+                        var image_index as int is 0
+                        var reset_clicked as int is 0
+
+                        var contrast as f32 is 0.0
+                        var saturation as f32 is 0.0
+                        var brightness as f32 is 0.0
+
+                        calling raylib.SetTargetFPS with TARGET_FPS
+
+                        # Main game loop
+                        while not calling raylib.WindowShouldClose:
+                            # Update
+                            if calling input.is_key_pressed with raylib.KEY_ONE:
+                                set image_index is 0
+                            else if calling input.is_key_pressed with raylib.KEY_TWO:
+                                set image_index is 1
+                            else if calling input.is_key_pressed with raylib.KEY_THREE:
+                                set image_index is 2
+                            else if calling input.is_key_pressed with raylib.KEY_FOUR:
+                                set image_index is 3
+
+                            # Reset values to 0
+                            if (calling input.is_key_pressed with raylib.KEY_R) or (reset_clicked > 0):
+                                set contrast is 0.0
+                                set saturation is 0.0
+                                set brightness is 0.0
+
+                            # Send updated values to the shader
+                            calling shader.set_float with contrast_loc, contrast
+                            calling shader.set_float with saturation_loc, saturation
+                            calling shader.set_float with brightness_loc, brightness
+
+                            # Draw
+                            calling drawing.begin_drawing
+                            calling drawing.clear_background with raylib.RAYWHITE
+
+                            calling drawing.begin_shader_mode with shader
+                            var active_tex as raylib.Texture2D is tex_list at image_index
+                            let tex_x as int is (580 / 2) - (active_tex.width / 2)
+                            let tex_y as int is (SCREEN_HEIGHT / 2) - (active_tex.height / 2)
+                            calling active_tex.draw with tex_x, tex_y, raylib.WHITE
+                            calling drawing.end_shader_mode
+
+                            let line_col as raylib.Color is with r is 218 to byte, g is 218 to byte, b is 218 to byte, a is 255 to byte
+                            calling shapes.draw_line with 580, 0, 580, SCREEN_HEIGHT, line_col
+
+                            let panel_col as raylib.Color is with r is 232 to byte, g is 232 to byte, b is 232 to byte, a is 255 to byte
+                            calling shapes.draw_rectangle with 580, 0, SCREEN_WIDTH - 580, SCREEN_HEIGHT, panel_col
+
+                            # UI text
+                            calling txt.draw_text with "Color Correction", 585, 40, 20, raylib.GRAY
+                            calling txt.draw_text with "Picture", 602, 75, 10, raylib.GRAY
+                            calling txt.draw_text with "Press [1] - [4] to Change Picture", 600, 230, 8, raylib.GRAY
+                            calling txt.draw_text with "Press [R] to Reset Values", 600, 250, 8, raylib.GRAY
+
+                            # Raygui controls
+                            var tg_rec as raylib.Rectangle is with x is 645.0, y is 70.0, width is 20.0, height is 20.0
+                            calling rayguix.toggle_group with tg_rec, "1;2;3;4", (sigil of image_index)
+
+                            let c_val_str as string is "{(contrast to int)}"
+                            defer banish c_val_str
+                            var s1_rec as raylib.Rectangle is with x is 645.0, y is 100.0, width is 120.0, height is 20.0
+                            calling rayguix.slider_bar with s1_rec, "Contrast", c_val_str, (sigil of contrast), -100.0, 100.0
+
+                            let s_val_str as string is "{(saturation to int)}"
+                            defer banish s_val_str
+                            var s2_rec as raylib.Rectangle is with x is 645.0, y is 130.0, width is 120.0, height is 20.0
+                            calling rayguix.slider_bar with s2_rec, "Saturation", s_val_str, (sigil of saturation), -100.0, 100.0
+
+                            let b_val_str as string is "{(brightness to int)}"
+                            defer banish b_val_str
+                            var s3_rec as raylib.Rectangle is with x is 645.0, y is 160.0, width is 120.0, height is 20.0
+                            calling rayguix.slider_bar with s3_rec, "Brightness", b_val_str, (sigil of brightness), -100.0, 100.0
+
+                            var btn_rec as raylib.Rectangle is with x is 645.0, y is 190.0, width is 40.0, height is 20.0
+                            set reset_clicked is calling rayguix.button with btn_rec, "Reset"
+
+                            calling txt.draw_fps with 710, 10
+
+                            calling drawing.end_drawing
+
+                        return 0
+
+    return 1

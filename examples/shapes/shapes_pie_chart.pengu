@@ -1,0 +1,340 @@
+## raylib [shapes] example - pie chart
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.6
+## Example contributed by Gideon Serfontein (@GideonSerf) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Gideon Serfontein (@GideonSerf)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and rayguix controls.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_pie_chart.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raygui as raygui
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import pengu.raymathx as raymathx
+import pengu.rayguix as rayguix
+import std.fractio as fractio
+
+# --- Constants ---
+
+## Maximum number of pie chart slices
+const MAX_PIE_SLICES as int is 10
+
+# --- Helpers ---
+
+## Formats a float to one decimal place
+##
+## ## Parameters
+## - `val`: float value to format
+##
+## ## Returns
+## Formatted string
+weave format_float_1 with val as f32 into string:
+    var sign as string is if val < 0.0 then "-" else ""
+    var abs_val as f32 is if val < 0.0 then -val else val
+    var int_part as int is abs_val to int
+    var frac_part as int is ((abs_val - (int_part to f32)) * 10.0) to int
+    return "{sign}{int_part}.{frac_part}"
+
+## Formats a two-digit integer with leading zero
+##
+## ## Parameters
+## - `n`: integer to pad
+##
+## ## Returns
+## Two-digit string representation
+weave pad2 with n as int into string:
+    return if n < 10 then "0{n}" else "{n}"
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - pie chart"
+    defer calling raylib.CloseWindow
+
+    var slice_count as int is 7
+    var donut_inner_radius as f32 is 25.0
+
+    var values as list of f32 is list of f32
+    defer banish values
+    calling values.push with 300.0
+    calling values.push with 100.0
+    calling values.push with 450.0
+    calling values.push with 350.0
+    calling values.push with 600.0
+    calling values.push with 380.0
+    calling values.push with 750.0
+    calling values.push with 0.0
+    calling values.push with 0.0
+    calling values.push with 0.0
+
+    var editing_label as list of bool is list of bool
+    defer banish editing_label
+    for i from 0 to MAX_PIE_SLICES - 1:
+        calling editing_label.push with false
+
+    var labels as list of string is list of string
+    defer banish labels
+    for i from 0 to MAX_PIE_SLICES - 1:
+        var num_str as string is calling pad2 with (i + 1)
+        var s as string is "Slice {num_str}"
+        calling labels.push with s
+        banish num_str
+
+    var show_values as bool is true
+    var show_percentages as bool is false
+    var show_donut as bool is false
+    var hovered_slice as int is -1
+
+    var scroll_content_offset as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+
+    var view as raylib.Rectangle is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .width is 0.0
+        set .height is 0.0
+
+    # UI layout parameters
+    let panel_width as int is 270
+    let panel_margin as int is 5
+
+    let panel_pos as raylib.Vector2 is with:
+        set .x is ((screen_width - panel_margin - panel_width) to f32)
+        set .y is (panel_margin to f32)
+
+    let panel_rect as raylib.Rectangle is with:
+        set .x is panel_pos.x
+        set .y is panel_pos.y
+        set .width is (panel_width to f32)
+        set .height is ((screen_height - (2 * panel_margin)) to f32)
+
+    let canvas as raylib.Rectangle is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .width is panel_pos.x
+        set .height is (screen_height to f32)
+
+    let center as raylib.Vector2 is with:
+        set .x is canvas.width / 2.0
+        set .y is canvas.height / 2.0
+
+    let radius as f32 is 205.0
+
+    var total_value as f32 is 0.0
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        set total_value is 0.0
+        for i from 0 to slice_count - 1:
+            set total_value is total_value + (values at i)
+
+        set hovered_slice is -1
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+
+        if calling canvas.contains_point with mouse_pos:
+            let dx as f32 is mouse_pos.x - center.x
+            let dy as f32 is mouse_pos.y - center.y
+            let dist_sq as f32 is (dx * dx) + (dy * dy)
+            let distance as f32 is calling dist_sq.get_sqrt
+
+            let valid_donut as bool is (not show_donut) or (distance >= donut_inner_radius)
+            if (distance <= radius) and valid_donut:
+                var angle as f32 is (calling dy.get_atan2 with dx) * raymathx.RAD2DEG
+                if angle < 0.0:
+                    set angle is angle + 360.0
+
+                var current_angle as f32 is 0.0
+                for i from 0 to slice_count - 1:
+                    let sweep as f32 is if total_value > 0.0 then ((values at i) / total_value) * 360.0 else 0.0
+                    if (angle >= current_angle) and (angle < (current_angle + sweep)):
+                        set hovered_slice is i
+                    set current_angle is current_angle + sweep
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Draw the pie chart on the canvas
+        var start_angle as f32 is 0.0
+        for i from 0 to slice_count - 1:
+            let sweep_angle as f32 is if total_value > 0.0 then ((values at i) / total_value) * 360.0 else 0.0
+            let mid_angle as f32 is start_angle + (sweep_angle / 2.0)
+
+            let hue as f32 is ((i to f32) / (slice_count to f32)) * 360.0
+            let slice_color as raylib.Color is calling raylib.ColorFromHSV with hue, 0.75, 0.9
+
+            var current_radius as f32 is radius
+            if i == hovered_slice:
+                set current_radius is current_radius + 20.0
+
+            if show_donut:
+                calling raylib.DrawRing with center, donut_inner_radius, current_radius, start_angle, (start_angle + sweep_angle), 120, slice_color
+            else:
+                calling raylib.DrawCircleSector with center, current_radius, start_angle, (start_angle + sweep_angle), 120, slice_color
+
+            # Draw the label for the current slice
+            if (values at i) > 0.0:
+                var label_text as string is ""
+                let pct as int is if total_value > 0.0 then (((values at i) / total_value) * 100.0) to int else 0
+
+                if show_values and show_percentages:
+                    var v_str as string is calling format_float_1 with (values at i)
+                    set label_text is "{v_str} ({pct}%)"
+                    banish v_str
+                else if show_values:
+                    set label_text is calling format_float_1 with (values at i)
+                else if show_percentages:
+                    set label_text is "{pct}%"
+
+                if (calling txt.text_length with label_text) > 0:
+                    let text_width as f32 is (calling txt.measure_text with label_text, 20) to f32
+                    let text_height as f32 is 20.0
+                    let label_radius as f32 is if show_donut then (donut_inner_radius + radius) / 2.0 else radius * 0.7
+                    let rad_mid as f32 is mid_angle * raymathx.DEG2RAD
+                    let label_x as f32 is center.x + ((calling rad_mid.get_cos) * label_radius) - (text_width / 2.0)
+                    let label_y as f32 is center.y + ((calling rad_mid.get_sin) * label_radius) - (text_height / 2.0)
+                    calling txt.draw_text with label_text, (label_x to int), (label_y to int), 20, raylib.WHITE
+
+                banish label_text
+
+            set start_angle is start_angle + sweep_angle
+
+        # UI control panel
+        let panel_bg as raylib.Color is calling colors.fade with raylib.LIGHTGRAY, 0.5
+        calling panel_rect.draw with panel_bg
+        calling panel_rect.draw_outline with 1.0, raylib.GRAY
+
+        let spinner_rec as raylib.Rectangle is with:
+            set .x is panel_pos.x + 95.0
+            set .y is panel_pos.y + 12.0
+            set .width is 125.0
+            set .height is 25.0
+        calling rayguix.spinner with spinner_rec, "Slices ", (sigil of slice_count), 1, MAX_PIE_SLICES, false
+
+        let cb1_rec as raylib.Rectangle is with:
+            set .x is panel_pos.x + 20.0
+            set .y is panel_pos.y + 12.0 + 40.0
+            set .width is 20.0
+            set .height is 20.0
+        calling rayguix.check_box with cb1_rec, "Show Values", (sigil of show_values)
+
+        let cb2_rec as raylib.Rectangle is with:
+            set .x is panel_pos.x + 20.0
+            set .y is panel_pos.y + 12.0 + 70.0
+            set .width is 20.0
+            set .height is 20.0
+        calling rayguix.check_box with cb2_rec, "Show Percentages", (sigil of show_percentages)
+
+        let cb3_rec as raylib.Rectangle is with:
+            set .x is panel_pos.x + 20.0
+            set .y is panel_pos.y + 12.0 + 100.0
+            set .width is 20.0
+            set .height is 20.0
+        calling rayguix.check_box with cb3_rec, "Make Donut", (sigil of show_donut)
+
+        if not show_donut:
+            calling raygui.GuiDisable
+
+        let donut_slider_rec as raylib.Rectangle is with:
+            set .x is panel_pos.x + 80.0
+            set .y is panel_pos.y + 12.0 + 130.0
+            set .width is panel_rect.width - 100.0
+            set .height is 30.0
+        calling rayguix.slider_bar with donut_slider_rec, "Inner Radius", "", (sigil of donut_inner_radius), 5.0, radius - 10.0
+        calling raygui.GuiEnable
+
+        let line_rec as raylib.Rectangle is with:
+            set .x is panel_pos.x + 10.0
+            set .y is panel_pos.y + 12.0 + 170.0
+            set .width is panel_rect.width - 20.0
+            set .height is 1.0
+        calling rayguix.line with line_rec, ""
+
+        # Scrollable area for slice editors
+        let scroll_panel_bounds as raylib.Rectangle is with:
+            set .x is panel_pos.x + (panel_margin to f32)
+            set .y is panel_pos.y + 12.0 + 190.0
+            set .width is panel_rect.width - ((panel_margin * 2) to f32)
+            set .height is (panel_rect.y + panel_rect.height) - (panel_pos.y + 12.0 + 190.0) - (panel_margin to f32)
+
+        let content_height as f32 is (slice_count * 35) to f32
+        let content_rec as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is panel_rect.width - 25.0
+            set .height is content_height
+
+        calling rayguix.scroll_panel with scroll_panel_bounds, "", content_rec, (sigil of scroll_content_offset), (sigil of view)
+
+        let content_x as f32 is view.x + scroll_content_offset.x
+        let content_y as f32 is view.y + scroll_content_offset.y
+
+        calling drawing.begin_scissor_mode with (view.x to int), (view.y to int), (view.width to int), (view.height to int)
+
+        for i from 0 to slice_count - 1:
+            let row_y as f32 is content_y + 5.0 + ((i * 35) to f32)
+
+            # Color indicator
+            let hue as f32 is ((i to f32) / (slice_count to f32)) * 360.0
+            let color as raylib.Color is calling raylib.ColorFromHSV with hue, 0.75, 0.9
+            calling shapes.draw_rectangle with ((content_x + 15.0) to int), ((row_y + 5.0) to int), 20, 20, color
+
+            # Label textbox
+            let tb_rec as raylib.Rectangle is with:
+                set .x is content_x + 45.0
+                set .y is row_y
+                set .width is 75.0
+                set .height is 30.0
+
+            var cur_label as string is labels at i
+            var is_editing as bool is editing_label at i
+            if (calling rayguix.text_box with tb_rec, (sigil of cur_label), 32, is_editing) != 0:
+                set is_editing is not is_editing
+                set editing_label at i is is_editing
+            set labels at i is cur_label
+
+            # Slider
+            let sl_rec as raylib.Rectangle is with:
+                set .x is content_x + 130.0
+                set .y is row_y
+                set .width is 110.0
+                set .height is 30.0
+
+            var cur_val as f32 is values at i
+            calling rayguix.slider_bar with sl_rec, "", "", (sigil of cur_val), 0.0, 1000.0
+            set values at i is cur_val
+
+        calling drawing.end_scissor_mode
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

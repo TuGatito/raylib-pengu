@@ -1,0 +1,238 @@
+## raylib [shapes] example - recursive tree
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+## Example contributed by Jopestpe (@jopestpe)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Jopestpe (@jopestpe)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and rayguix controls.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_recursive_tree.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raygui as raygui
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raymathx as raymathx
+import pengu.rayguix as rayguix
+import std.fractio as fractio
+
+# --- Types ---
+
+## Represents a single branch segment in the recursive tree
+rune Branch:
+    start as raylib.Vector2
+    end as raylib.Vector2
+    angle as f32
+    length as f32
+
+# --- Helpers ---
+
+## Formats a float to two decimal places
+##
+## ## Parameters
+## - `val`: float value to format
+##
+## ## Returns
+## Formatted string
+weave format_float_2 with val as f32 into string:
+    var sign as string is if val < 0.0 then "-" else ""
+    var abs_val as f32 is if val < 0.0 then -val else val
+    var int_part as int is abs_val to int
+    var frac_part as int is ((abs_val - (int_part to f32)) * 100.0) to int
+    var frac_str as string is if frac_part < 10 then "0{frac_part}" else "{frac_part}"
+    defer banish frac_str
+    return "{sign}{int_part}.{frac_str}"
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - recursive tree"
+    defer calling raylib.CloseWindow
+
+    let start_pos as raylib.Vector2 is with:
+        set .x is ((screen_width to f32) / 2.0) - 125.0
+        set .y is (screen_height to f32)
+
+    var angle as f32 is 40.0
+    var thick as f32 is 1.0
+    var tree_depth as f32 is 10.0
+    var branch_decay as f32 is 0.66
+    var branch_len as f32 is 120.0
+    var bezier as bool is false
+
+    var branches as list of Branch is list of Branch
+    defer banish branches
+
+    let side_line_start as raylib.Vector2 is with:
+        set .x is 580.0
+        set .y is 0.0
+
+    let side_panel_rec as raylib.Rectangle is with:
+        set .x is 580.0
+        set .y is 0.0
+        set .width is (screen_width to f32) - 580.0
+        set .height is (screen_height to f32)
+
+    let line_col as raylib.Color is with:
+        set .r is (218 to byte)
+        set .g is (218 to byte)
+        set .b is (218 to byte)
+        set .a is (255 to byte)
+
+    let panel_col as raylib.Color is with:
+        set .r is (232 to byte)
+        set .g is (232 to byte)
+        set .b is (232 to byte)
+        set .a is (255 to byte)
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        let theta as f32 is angle * raymathx.DEG2RAD
+        let depth_int as int is tree_depth to int
+        let max_branches as int is 1 << depth_int
+
+        calling branches.clear
+
+        let zero_f as f32 is 0.0
+        let initial_end as raylib.Vector2 is with:
+            set .x is start_pos.x + (branch_len * (calling zero_f.get_sin))
+            set .y is start_pos.y - (branch_len * (calling zero_f.get_cos))
+
+        calling branches.push with with:
+            set .start is start_pos
+            set .end is initial_end
+            set .angle is 0.0
+            set .length is branch_len
+
+        var i as int is 0
+        while i < branches.length:
+            let branch as Branch is branches at i
+            if branch.length >= 2.0:
+                let next_length as f32 is branch.length * branch_decay
+                if (branches.length < max_branches) and (next_length >= 2.0):
+                    let branch_start as raylib.Vector2 is branch.end
+
+                    let angle1 as f32 is branch.angle + theta
+                    let branch_end1 as raylib.Vector2 is with:
+                        set .x is branch_start.x + (next_length * (calling angle1.get_sin))
+                        set .y is branch_start.y - (next_length * (calling angle1.get_cos))
+                    calling branches.push with with:
+                        set .start is branch_start
+                        set .end is branch_end1
+                        set .angle is angle1
+                        set .length is next_length
+
+                    let angle2 as f32 is branch.angle - theta
+                    let branch_end2 as raylib.Vector2 is with:
+                        set .x is branch_start.x + (next_length * (calling angle2.get_sin))
+                        set .y is branch_start.y - (next_length * (calling angle2.get_cos))
+                    calling branches.push with with:
+                        set .start is branch_start
+                        set .end is branch_end2
+                        set .angle is angle2
+                        set .length is next_length
+
+            set i is i + 1
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        for b_idx from 0 to branches.length - 1:
+            let branch as Branch is branches at b_idx
+            if branch.length >= 2.0:
+                if bezier:
+                    calling branch.start.draw_line_bezier with branch.end, thick, raylib.RED
+                else:
+                    calling branch.start.draw_line_ex with branch.end, thick, raylib.RED
+
+        let side_line_end as raylib.Vector2 is with:
+            set .x is 580.0
+            set .y is (calling raylib.GetScreenHeight to f32)
+        calling side_line_start.draw_line_ex with side_line_end, 1.0, line_col
+
+        calling side_panel_rec.draw with panel_col
+
+        # Draw GUI controls
+        let sl_angle_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 40.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_angle as string is "{angle to int}"
+        calling rayguix.slider_bar with sl_angle_rec, "Angle", s_angle, (sigil of angle), 0.0, 180.0
+        banish s_angle
+
+        let sl_len_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 70.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_len as string is "{branch_len to int}"
+        calling rayguix.slider_bar with sl_len_rec, "Length", s_len, (sigil of branch_len), 12.0, 240.0
+        banish s_len
+
+        let sl_decay_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 100.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_decay as string is calling format_float_2 with branch_decay
+        calling rayguix.slider_bar with sl_decay_rec, "Decay", s_decay, (sigil of branch_decay), 0.1, 0.78
+        banish s_decay
+
+        let sl_depth_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 130.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_depth as string is "{tree_depth to int}"
+        calling rayguix.slider_bar with sl_depth_rec, "Depth", s_depth, (sigil of tree_depth), 1.0, 10.0
+        banish s_depth
+
+        let sl_thick_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 160.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_thick as string is "{thick to int}"
+        calling rayguix.slider_bar with sl_thick_rec, "Thick", s_thick, (sigil of thick), 1.0, 8.0
+        banish s_thick
+
+        let cb_bezier_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 190.0
+            set .width is 20.0
+            set .height is 20.0
+        calling rayguix.check_box with cb_bezier_rec, "Bezier", (sigil of bezier)
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

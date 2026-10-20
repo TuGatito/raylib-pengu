@@ -1,0 +1,112 @@
+## ## raylib [shapes] example - following eyes
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 2.5
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2013-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_following_eyes.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import std.fractio
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - following eyes"
+    defer calling raylib.CloseWindow
+
+    let center_x as f32 is (SCREEN_WIDTH to f32) / 2.0
+    let center_y as f32 is (SCREEN_HEIGHT to f32) / 2.0
+
+    var sclera_left_pos as raylib.Vector2 is with:
+        set .x is center_x - 100.0
+        set .y is center_y
+
+    var sclera_right_pos as raylib.Vector2 is with:
+        set .x is center_x + 100.0
+        set .y is center_y
+
+    let sclera_radius as f32 is 80.0
+
+    var iris_left_pos as raylib.Vector2 is with:
+        set .x is center_x - 100.0
+        set .y is center_y
+
+    var iris_right_pos as raylib.Vector2 is with:
+        set .x is center_x + 100.0
+        set .y is center_y
+
+    let iris_radius as f32 is 24.0
+
+    let eye_limit as f32 is sclera_radius - iris_radius
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+        set iris_left_pos is mouse_pos
+        set iris_right_pos is mouse_pos
+
+        # Check not inside the left eye sclera
+        if not calling shapes.collision_point_circle with iris_left_pos, sclera_left_pos, eye_limit:
+            let dx as f32 is iris_left_pos.x - sclera_left_pos.x
+            var dy as f32 is iris_left_pos.y - sclera_left_pos.y
+
+            var angle as f32 is calling dy.get_atan2 with dx
+
+            let dxx as f32 is eye_limit * (calling angle.get_cos)
+            let dyy as f32 is eye_limit * (calling angle.get_sin)
+
+            set iris_left_pos.x is sclera_left_pos.x + dxx
+            set iris_left_pos.y is sclera_left_pos.y + dyy
+
+        # Check not inside the right eye sclera
+        if not calling shapes.collision_point_circle with iris_right_pos, sclera_right_pos, eye_limit:
+            let dx as f32 is iris_right_pos.x - sclera_right_pos.x
+            var dy as f32 is iris_right_pos.y - sclera_right_pos.y
+
+            var angle as f32 is calling dy.get_atan2 with dx
+
+            let dxx as f32 is eye_limit * (calling angle.get_cos)
+            let dyy as f32 is eye_limit * (calling angle.get_sin)
+
+            set iris_right_pos.x is sclera_right_pos.x + dxx
+            set iris_right_pos.y is sclera_right_pos.y + dyy
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        calling sclera_left_pos.draw_circle with sclera_radius, colors.LIGHTGRAY
+        calling iris_left_pos.draw_circle with iris_radius, colors.BROWN
+        calling iris_left_pos.draw_circle with 10.0, colors.BLACK
+
+        calling sclera_right_pos.draw_circle with sclera_radius, colors.LIGHTGRAY
+        calling iris_right_pos.draw_circle with iris_radius, colors.DARKGREEN
+        calling iris_right_pos.draw_circle with 10.0, colors.BLACK
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing

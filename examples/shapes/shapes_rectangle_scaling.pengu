@@ -1,0 +1,132 @@
+## raylib [shapes] example - rectangle scaling
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 2.5
+## Example contributed by Vlad Adrian (@demizdor) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2018-2025 Vlad Adrian (@demizdor) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_rectangle_scaling.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+
+# --- Constants ---
+
+## Size in pixels of the interactive scaling handle mark
+const MOUSE_SCALE_MARK_SIZE as f32 is 12.0
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - rectangle scaling"
+    defer calling raylib.CloseWindow
+
+    var rec as raylib.Rectangle is with:
+        set .x is 100.0
+        set .y is 100.0
+        set .width is 200.0
+        set .height is 80.0
+
+    var mouse_position as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+
+    var mouse_scale_ready as bool is false
+    var mouse_scale_mode as bool is false
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        set mouse_position is calling raylib.GetMousePosition
+
+        let handle_rec as raylib.Rectangle is with:
+            set .x is rec.x + rec.width - MOUSE_SCALE_MARK_SIZE
+            set .y is rec.y + rec.height - MOUSE_SCALE_MARK_SIZE
+            set .width is MOUSE_SCALE_MARK_SIZE
+            set .height is MOUSE_SCALE_MARK_SIZE
+
+        if calling handle_rec.contains_point with mouse_position:
+            set mouse_scale_ready is true
+            if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT:
+                set mouse_scale_mode is true
+        else:
+            set mouse_scale_ready is false
+
+        if mouse_scale_mode:
+            set mouse_scale_ready is true
+
+            set rec.width is mouse_position.x - rec.x
+            set rec.height is mouse_position.y - rec.y
+
+            # Check minimum rec size
+            if rec.width < MOUSE_SCALE_MARK_SIZE:
+                set rec.width is MOUSE_SCALE_MARK_SIZE
+            if rec.height < MOUSE_SCALE_MARK_SIZE:
+                set rec.height is MOUSE_SCALE_MARK_SIZE
+
+            # Check maximum rec size
+            let max_w as f32 is ((calling raylib.GetScreenWidth) to f32) - rec.x
+            let max_h as f32 is ((calling raylib.GetScreenHeight) to f32) - rec.y
+            if rec.width > max_w:
+                set rec.width is max_w
+            if rec.height > max_h:
+                set rec.height is max_h
+
+            if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+                set mouse_scale_mode is false
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "Scale rectangle dragging from bottom-right corner!", 10, 10, 20, raylib.GRAY
+
+        let fill_color as raylib.Color is calling colors.fade with raylib.GREEN, 0.5
+        calling rec.draw with fill_color
+
+        if mouse_scale_ready:
+            calling rec.draw_outline with 1.0, raylib.RED
+
+            let v1 as raylib.Vector2 is with:
+                set .x is rec.x + rec.width - MOUSE_SCALE_MARK_SIZE
+                set .y is rec.y + rec.height
+            let v2 as raylib.Vector2 is with:
+                set .x is rec.x + rec.width
+                set .y is rec.y + rec.height
+            let v3 as raylib.Vector2 is with:
+                set .x is rec.x + rec.width
+                set .y is rec.y + rec.height - MOUSE_SCALE_MARK_SIZE
+
+            calling raylib.DrawTriangle with v1, v2, v3, raylib.RED
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

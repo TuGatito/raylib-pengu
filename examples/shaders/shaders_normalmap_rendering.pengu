@@ -1,0 +1,198 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - normalmap rendering
+##
+## Original example complexity rating: [★★★★] 4/4
+## Contributed by Jeremy Montgomery (@Sir_Irk) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to implement tangent-space normal mapping
+## on a 3D model with diffuse and normal textures, point lighting, and specular highlights.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_normalmap_rendering.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymath
+import raymathx
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32)
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - normalmap rendering"
+    defer calling raylib.CloseWindow
+
+    # Define camera
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 0.0, y is 2.0, z is -4.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load normal mapping shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_shader with "examples/shaders/resources/shaders/glsl330/normalmap.vs", "examples/shaders/resources/shaders/glsl330/normalmap.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Query required shader locations
+    if loc as int is calling shader.location with "normalMap":
+        set shader.locs at (raylib.SHADER_LOC_MAP_NORMAL to int) is loc
+
+    if loc as int is calling shader.location with "viewPos":
+        set shader.locs at (raylib.SHADER_LOC_VECTOR_VIEW to int) is loc
+
+    var light_pos_loc as int is 0
+    if loc as int is calling shader.location with "lightPos":
+        set light_pos_loc is loc
+
+    var light_pos as raylib.Vector3 is with x is 0.0, y is 1.0, z is 0.0
+
+    # Load plane model
+    var plane as raylib.Model is with meshCount is 0
+    if loaded_plane as raylib.Model is calling models.load_model with "examples/shaders/resources/models/plane.glb":
+        set plane is loaded_plane
+    else:
+        return 1
+    defer calling models.unload_model with plane
+
+    # Load textures
+    var tex_diff as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/tiles_diffuse.png":
+        set tex_diff is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with tex_diff
+
+    var tex_norm as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/tiles_normal.png":
+        set tex_norm is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with tex_norm
+
+    # Set shader and textures on plane material
+    var mat as ref to raylib.Material is sigil of (plane.materials at 0)
+    set mat->shader is shader
+    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, tex_diff
+    calling mat.set_texture with raylib.MATERIAL_MAP_NORMAL, tex_norm
+
+    calling raylib.GenTextureMipmaps with (sigil of tex_diff)
+    calling raylib.GenTextureMipmaps with (sigil of tex_norm)
+    calling raylib.SetTextureFilter with tex_diff, (raylib.TEXTURE_FILTER_TRILINEAR to int)
+    calling raylib.SetTextureFilter with tex_norm, (raylib.TEXTURE_FILTER_TRILINEAR to int)
+
+    var specular_exponent as f32 is 8.0
+    var spec_exp_loc as int is 0
+    if loc as int is calling shader.location with "specularExponent":
+        set spec_exp_loc is loc
+
+    var use_normal_map as int is 1
+    var use_norm_loc as int is 0
+    if loc as int is calling shader.location with "useNormalMap":
+        set use_norm_loc is loc
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update light position with WASD
+        var direction as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+        if calling input.is_key_down with raylib.KEY_W:
+            set direction.z is direction.z + 1.0
+        if calling input.is_key_down with raylib.KEY_S:
+            set direction.z is direction.z - 1.0
+        if calling input.is_key_down with raylib.KEY_D:
+            set direction.x is direction.x - 1.0
+        if calling input.is_key_down with raylib.KEY_A:
+            set direction.x is direction.x + 1.0
+
+        set direction is calling direction.get_normalize
+        let dt as f32 is calling raylib.GetFrameTime
+        var move as raylib.Vector3 is calling direction.get_scale with (dt * 3.0)
+        set light_pos is calling light_pos.get_add with move
+
+        # Adjust specular exponent
+        if calling input.is_key_down with raylib.KEY_UP:
+            set specular_exponent is specular_exponent + (40.0 * dt)
+            if specular_exponent > 128.0:
+                set specular_exponent is 128.0
+
+        if calling input.is_key_down with raylib.KEY_DOWN:
+            set specular_exponent is specular_exponent - (40.0 * dt)
+            if specular_exponent < 2.0:
+                set specular_exponent is 2.0
+
+        # Toggle normal map
+        if calling input.is_key_pressed with raylib.KEY_N:
+            set use_normal_map is if use_normal_map == 1 then 0 else 1
+
+        # Rotate plane model
+        let t as f32 is (calling raylib.GetTime) to f32
+        set plane.transform is calling raymath.MatrixRotateY with (t * 0.5)
+
+        # Update shader uniforms
+        calling shader.set_vec3 with light_pos_loc, light_pos
+
+        let view_loc as int is shader.locs at (raylib.SHADER_LOC_VECTOR_VIEW to int)
+        calling shader.set_vec3 with view_loc, camera.position
+
+        calling shader.set_float with spec_exp_loc, specular_exponent
+        calling shader.set_int with use_norm_loc, use_normal_map
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        calling drawing.begin_shader_mode with shader
+        calling plane.draw with (with x is 0.0, y is 0.0, z is 0.0), 2.0, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling shapes3d.draw_sphere_wires with light_pos, 0.2, 8, 8, raylib.ORANGE
+
+        calling drawing.end_mode_3d
+
+        let toggle_str as string is if use_normal_map == 1 then "On" else "Off"
+        let status_text as string is "Use key [N] to toggle normal map: {toggle_str}"
+        defer banish status_text
+        calling txt.draw_text with status_text, 10, 10, 10, (if use_normal_map == 1 then raylib.DARKGREEN else raylib.RED)
+
+        let y_offset as int is 24
+        calling txt.draw_text with "Use keys [W][A][S][D] to move the light", 10, (10 + (y_offset * 1)), 10, raylib.BLACK
+        calling txt.draw_text with "Use keys [Up][Down] to change specular exponent", 10, (10 + (y_offset * 2)), 10, raylib.BLACK
+
+        let exp_text as string is "Specular Exponent: {specular_exponent}"
+        defer banish exp_text
+        calling txt.draw_text with exp_text, 10, (10 + (y_offset * 3)), 10, raylib.BLUE
+
+        calling txt.draw_fps with (SCREEN_WIDTH - 90), 10
+
+        calling drawing.end_drawing
+
+    return 0

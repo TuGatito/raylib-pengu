@@ -1,0 +1,109 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - texture outline
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Serenity Skiff (@GoldenThumbs) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to generate a customizable outline effect around
+## a transparent sprite texture using a 2D fragment shader.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_texture_outline.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shaders as shaders
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Helpers ------------------------------------------------------------
+
+## Helper to get shader uniform location as an int (or -1 if missing).
+weave loc_of with shader as raylib.Shader, name as string into int:
+    if loc as int is calling shader.location with name:
+        return loc
+    return -1
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - texture outline"
+    defer calling raylib.CloseWindow
+
+    # Load texture
+    var texture as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/fudesumi.png":
+        set texture is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with texture
+
+    # Load outline fragment shader
+    var shdr_outline as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/outline.fs":
+        set shdr_outline is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shdr_outline
+
+    var outline_size as f32 is 2.0
+
+    var outline_color as raylib.Vector4 is with:
+        set .x is 1.0
+        set .y is 0.0
+        set .z is 0.0
+        set .w is 1.0
+
+    var texture_size as raylib.Vector2 is with:
+        set .x is texture.width to f32
+        set .y is texture.height to f32
+
+    # Query uniform locations
+    let outline_size_loc as int is calling loc_of with shdr_outline, "outlineSize"
+    let outline_color_loc as int is calling loc_of with shdr_outline, "outlineColor"
+    let texture_size_loc as int is calling loc_of with shdr_outline, "textureSize"
+
+    # Set initial uniform values
+    calling shdr_outline.set_float with outline_size_loc, outline_size
+    calling shdr_outline.set_vec4 with outline_color_loc, outline_color
+    calling shdr_outline.set_vec2 with texture_size_loc, texture_size
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set outline_size is outline_size + (calling raylib.GetMouseWheelMove)
+        if outline_size < 1.0:
+            set outline_size is 1.0
+
+        calling shdr_outline.set_float with outline_size_loc, outline_size
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_shader_mode with shdr_outline
+        calling texture.draw with ((screen_width / 2) - (texture.width / 2)), -30, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling txt.draw_text with "Shader-based\ntexture\noutline", 10, 10, 20, raylib.GRAY
+        calling txt.draw_text with "Scroll mouse wheel to\nchange outline size", 10, 72, 20, raylib.GRAY
+
+        let size_label as string is "Outline size: {outline_size to int} px"
+        defer banish size_label
+        calling txt.draw_text with size_label, 10, 120, 20, raylib.MAROON
+
+        calling txt.draw_fps with 710, 10
+
+        calling drawing.end_drawing
+
+    return 0

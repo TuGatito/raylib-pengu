@@ -1,0 +1,148 @@
+## ## raylib [shapes] example - ellipse collision
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.5
+## Example contributed by Ziya (@Monjaris)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Ziya (@Monjaris)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_ellipse_collision.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import std.fractio
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+
+# --- Helpers ---
+
+## ## Checks if a point is inside an ellipse
+weave check_collision_point_ellipse with point as raylib.Vector2, center as raylib.Vector2, rx as f32, ry as f32 into bool:
+    let dx as f32 is (point.x - center.x) / rx
+    let dy as f32 is (point.y - center.y) / ry
+    return ((dx * dx) + (dy * dy)) <= 1.0
+
+## ## Checks if two ellipses collide
+## Uses radial boundary distance in the direction between centers — scales correctly with radii
+weave check_collision_ellipses with c1 as raylib.Vector2, rx1 as f32, ry1 as f32, c2 as raylib.Vector2, rx2 as f32, ry2 as f32 into bool:
+    let dx as f32 is c2.x - c1.x
+    var dy as f32 is c2.y - c1.y
+    let dist_sq as f32 is (dx * dx) + (dy * dy)
+    let dist as f32 is calling dist_sq.get_sqrt
+
+    # Ellipses are on top of each other
+    if dist == 0.0:
+        return true
+
+    var theta as f32 is calling dy.get_atan2 with dx
+    let cos_t as f32 is calling theta.get_cos
+    let sin_t as f32 is calling theta.get_sin
+
+    # Radial distance from center to ellipse boundary in direction theta
+    # r(theta) = (rx * ry) / sqrt((ry*cos)^2 + (rx*sin)^2)
+    let term1_1 as f32 is ry1 * cos_t
+    let term1_2 as f32 is rx1 * sin_t
+    let denom1_sq as f32 is (term1_1 * term1_1) + (term1_2 * term1_2)
+    let r1 as f32 is (rx1 * ry1) / (calling denom1_sq.get_sqrt)
+
+    let term2_1 as f32 is ry2 * cos_t
+    let term2_2 as f32 is rx2 * sin_t
+    let denom2_sq as f32 is (term2_1 * term2_1) + (term2_2 * term2_2)
+    let r2 as f32 is (rx2 * ry2) / (calling denom2_sq.get_sqrt)
+
+    return dist <= (r1 + r2)
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - ellipse collision"
+    defer calling raylib.CloseWindow
+    calling raylib.SetTargetFPS with 60
+
+    var ellipse_a_center as raylib.Vector2 is with:
+        set .x is (SCREEN_WIDTH to f32) / 4.0
+        set .y is (SCREEN_HEIGHT to f32) / 2.0
+    let ellipse_a_rx as f32 is 120.0
+    let ellipse_a_ry as f32 is 70.0
+
+    var ellipse_b_center as raylib.Vector2 is with:
+        set .x is ((SCREEN_WIDTH to f32) * 3.0) / 4.0
+        set .y is (SCREEN_HEIGHT to f32) / 2.0
+    let ellipse_b_rx as f32 is 90.0
+    let ellipse_b_ry as f32 is 140.0
+
+    # 0 = controlling A, 1 = controlling B
+    var controlled as int is 0
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling input.is_key_pressed with raylib.KEY_A:
+            set controlled is 0
+        if calling input.is_key_pressed with raylib.KEY_B:
+            set controlled is 1
+
+        var mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+
+        if controlled == 0:
+            set ellipse_a_center is mouse_pos
+        else:
+            set ellipse_b_center is mouse_pos
+
+        let ellipses_collide as bool is calling check_collision_ellipses with ellipse_a_center, ellipse_a_rx, ellipse_a_ry, ellipse_b_center, ellipse_b_rx, ellipse_b_ry
+
+        let mouse_in_a as bool is calling check_collision_point_ellipse with mouse_pos, ellipse_a_center, ellipse_a_rx, ellipse_a_ry
+        let mouse_in_b as bool is calling check_collision_point_ellipse with mouse_pos, ellipse_b_center, ellipse_b_rx, ellipse_b_ry
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        let color_a as raylib.Color is if ellipses_collide then colors.RED else colors.BLUE
+        let color_b as raylib.Color is if ellipses_collide then colors.RED else colors.GREEN
+
+        calling ellipse_a_center.draw_ellipse with ellipse_a_rx, ellipse_a_ry, color_a
+        calling ellipse_b_center.draw_ellipse with ellipse_b_rx, ellipse_b_ry, color_b
+
+        calling ellipse_a_center.draw_ellipse_lines with ellipse_a_rx, ellipse_a_ry, colors.WHITE
+        calling ellipse_b_center.draw_ellipse_lines with ellipse_b_rx, ellipse_b_ry, colors.WHITE
+
+        calling ellipse_a_center.draw_circle with 4.0, colors.WHITE
+        calling ellipse_b_center.draw_circle with 4.0, colors.WHITE
+
+        if ellipses_collide:
+            calling txt.draw_text with "ELLIPSES COLLIDE", (SCREEN_WIDTH / 2) - 120, 40, 28, colors.RED
+        else:
+            calling txt.draw_text with "NO COLLISION", (SCREEN_WIDTH / 2) - 80, 40, 28, colors.DARKGRAY
+
+        if controlled == 0:
+            calling txt.draw_text with "Controlling: A", 20, SCREEN_HEIGHT - 40, 20, colors.YELLOW
+        else:
+            calling txt.draw_text with "Controlling: B", 20, SCREEN_HEIGHT - 40, 20, colors.YELLOW
+
+        if mouse_in_a and (controlled != 0):
+            calling txt.draw_text with "Mouse inside ellipse A", 20, SCREEN_HEIGHT - 70, 20, colors.BLUE
+        if mouse_in_b and (controlled != 1):
+            calling txt.draw_text with "Mouse inside ellipse B", 20, SCREEN_HEIGHT - 70, 20, colors.GREEN
+
+        calling txt.draw_text with "Press [A] or [B] to switch control", 20, 20, 20, colors.GRAY
+
+        calling drawing.end_drawing

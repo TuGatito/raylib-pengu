@@ -1,0 +1,297 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - shadowmap rendering
+##
+## Original example complexity rating: [★★★★] 4/4
+## Contributed by TheManTheMythTheGameDev (@TheManTheMythTheGameDev) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates a basic directional shadow mapping implementation using
+## an orthographic depth framebuffer and custom shadow mapping GLSL shaders.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_shadowmap_rendering.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.text as txt
+import raylibx.window as window
+import raymathx
+import rlgl
+import std.ffi as ffi
+
+# --- Constants ----------------------------------------------------------
+const SHADOWMAP_RESOLUTION as int is 1024
+
+# --- Functions ----------------------------------------------------------
+
+## Loads an empty framebuffer with a depth texture attachment for shadow mapping.
+weave load_shadowmap_render_texture with width as int, height as int into raylib.RenderTexture2D:
+    var target as raylib.RenderTexture2D is with:
+        set .id is calling rlgl.rlLoadFramebuffer
+        set .texture.width is width
+        set .texture.height is height
+
+    if target.id > 0:
+        calling rlgl.rlEnableFramebuffer with target.id
+
+        set target.depth.id is calling rlgl.rlLoadTextureDepth with width, height, false
+        set target.depth.width is width
+        set target.depth.height is height
+        set target.depth.format is 19
+        set target.depth.mipmaps is 1
+
+        calling rlgl.rlFramebufferAttach with target.id, target.depth.id, (rlgl.RL_ATTACHMENT_DEPTH to int), (rlgl.RL_ATTACHMENT_TEXTURE2D to int), 0
+        calling rlgl.rlDisableFramebuffer
+
+    return target
+
+## Unloads a shadowmap render texture framebuffer.
+weave unload_shadowmap_render_texture with target as raylib.RenderTexture2D into void:
+    if target.id > 0:
+        calling rlgl.rlUnloadFramebuffer with target.id
+
+## Helper to get shader uniform location as an int (or -1 if missing).
+weave loc_of with shader as raylib.Shader, name as string into int:
+    if loc as int is calling shader.location with name:
+        return loc
+    return -1
+
+## Draws the full 3D scene (used for both shadow pass and final camera pass).
+weave draw_scene with cube as raylib.Model, robot as raylib.Model into void:
+    var rot_axis as raylib.Vector3 is with:
+        set .x is 0.0
+        set .y is 1.0
+        set .z is 0.0
+
+    var zero_pos as raylib.Vector3 is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .z is 0.0
+
+    var cube_scale1 as raylib.Vector3 is with:
+        set .x is 10.0
+        set .y is 1.0
+        set .z is 10.0
+
+    var cube_pos2 as raylib.Vector3 is with:
+        set .x is 1.5
+        set .y is 1.0
+        set .z is -1.5
+
+    var cube_scale2 as raylib.Vector3 is with:
+        set .x is 1.0
+        set .y is 1.0
+        set .z is 1.0
+
+    var robot_pos as raylib.Vector3 is with:
+        set .x is 0.0
+        set .y is 0.5
+        set .z is 0.0
+
+    var robot_scale as raylib.Vector3 is with:
+        set .x is 1.0
+        set .y is 1.0
+        set .z is 1.0
+
+    calling cube.draw_ex with zero_pos, rot_axis, 0.0, cube_scale1, raylib.BLUE
+    calling cube.draw_ex with cube_pos2, rot_axis, 0.0, cube_scale2, raylib.WHITE
+    calling robot.draw_ex with robot_pos, rot_axis, 0.0, robot_scale, raylib.RED
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32)
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - shadowmap rendering"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D is with:
+        set .position.x is 10.0
+        set .position.y is 10.0
+        set .position.z is 10.0
+        set .target.x is 0.0
+        set .target.y is 0.0
+        set .target.z is 0.0
+        set .up.x is 0.0
+        set .up.y is 1.0
+        set .up.z is 0.0
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var shadow_shader as raylib.Shader is with id is 0
+    if loaded as raylib.Shader is calling shaders.load_shader with "examples/shaders/resources/shaders/glsl330/shadowmap.vs", "examples/shaders/resources/shaders/glsl330/shadowmap.fs":
+        set shadow_shader is loaded
+    else:
+        return 1
+    defer calling shaders.unload_shader with shadow_shader
+
+    let view_pos_loc as int is calling loc_of with shadow_shader, "viewPos"
+    set shadow_shader.locs at (raylib.SHADER_LOC_VECTOR_VIEW to int) is view_pos_loc
+
+    var light_dir_raw as raylib.Vector3 is with:
+        set .x is 0.35
+        set .y is -1.0
+        set .z is -0.35
+
+    var light_dir as raylib.Vector3 is calling light_dir_raw.get_normalize
+
+    var light_col_norm as raylib.Vector4 is with:
+        set .x is 1.0
+        set .y is 1.0
+        set .z is 1.0
+        set .w is 1.0
+
+    let light_dir_loc as int is calling loc_of with shadow_shader, "lightDir"
+    let light_col_loc as int is calling loc_of with shadow_shader, "lightColor"
+    calling shadow_shader.set_vec3 with light_dir_loc, light_dir
+    calling shadow_shader.set_vec4 with light_col_loc, light_col_norm
+
+    let ambient_loc as int is calling loc_of with shadow_shader, "ambient"
+    var ambient_val as raylib.Vector4 is with:
+        set .x is 0.1
+        set .y is 0.1
+        set .z is 0.1
+        set .w is 1.0
+    calling shadow_shader.set_vec4 with ambient_loc, ambient_val
+
+    let light_vp_loc as int is calling loc_of with shadow_shader, "lightVP"
+    let shadow_map_loc as int is calling loc_of with shadow_shader, "shadowMap"
+    let shadow_res_loc as int is calling loc_of with shadow_shader, "shadowMapResolution"
+    calling shadow_shader.set_int with shadow_res_loc, SHADOWMAP_RESOLUTION
+
+    # Load cube model
+    var cube_mesh as raylib.Mesh is calling raylib.GenMeshCube with 1.0, 1.0, 1.0
+    var cube as raylib.Model is calling models.load_model_from_mesh with cube_mesh
+    defer calling models.unload_model with cube
+    var cube_mat as ref to raylib.Material is sigil of (cube.materials at 0)
+    set cube_mat->shader is shadow_shader
+
+    # Load robot model
+    var robot as raylib.Model is with meshCount is 0
+    if loaded_robot as raylib.Model is calling models.load_model with "examples/shaders/resources/models/robot.glb":
+        set robot is loaded_robot
+    else:
+        return 1
+    defer calling models.unload_model with robot
+
+    var mi as int is 0
+    while mi < robot.materialCount:
+        var r_mat as ref to raylib.Material is sigil of (robot.materials at mi)
+        set r_mat->shader is shadow_shader
+        set mi is mi + 1
+
+    # Load animations
+    let loaded_anims as maybe (slice of raylib.ModelAnimation) is calling models.load_animations with "examples/shaders/resources/models/robot.glb"
+    var anims_count as int is 0
+    var anim_first as raylib.ModelAnimation is with keyframeCount is 0
+    if anims as slice of raylib.ModelAnimation is loaded_anims:
+        defer calling models.unload_animations with anims
+        set anims_count is anims.length
+        if anims_count > 0:
+            set anim_first is anims at 0
+
+    var shadow_map as raylib.RenderTexture2D is calling load_shadowmap_render_texture with SHADOWMAP_RESOLUTION, SHADOWMAP_RESOLUTION
+    defer calling unload_shadowmap_render_texture with shadow_map
+
+    var light_camera as raylib.Camera3D is with:
+        set .position is calling light_dir.get_scale with -15.0
+        set .target.x is 0.0
+        set .target.y is 0.0
+        set .target.z is 0.0
+        set .up.x is 0.0
+        set .up.y is 1.0
+        set .up.z is 0.0
+        set .fovy is 20.0
+        set .projection is (raylib.CAMERA_ORTHOGRAPHIC to int)
+
+    var frame_counter as int is 0
+    var light_view as raylib.Matrix is with:
+        set .m0 is 1.0
+    var light_proj as raylib.Matrix is with:
+        set .m0 is 1.0
+    var light_view_proj as raylib.Matrix is with:
+        set .m0 is 1.0
+
+    let texture_active_slot as int is 10
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let delta_time as f32 is calling raylib.GetFrameTime
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        calling shadow_shader.set_vec3 with view_pos_loc, camera.position
+
+        if anims_count > 0 and anim_first.keyframeCount > 0:
+            set frame_counter is (frame_counter + 1) % anim_first.keyframeCount
+            calling robot.update_animation with anim_first, (frame_counter to f32)
+
+        # Move light with arrow keys
+        const camera_speed as f32 is 0.05
+        if calling input.is_key_down with raylib.KEY_LEFT:
+            if light_dir.x < 0.6:
+                set light_dir.x is light_dir.x + (camera_speed * 60.0 * delta_time)
+        if calling input.is_key_down with raylib.KEY_RIGHT:
+            if light_dir.x > -0.6:
+                set light_dir.x is light_dir.x - (camera_speed * 60.0 * delta_time)
+        if calling input.is_key_down with raylib.KEY_UP:
+            if light_dir.z < 0.6:
+                set light_dir.z is light_dir.z + (camera_speed * 60.0 * delta_time)
+        if calling input.is_key_down with raylib.KEY_DOWN:
+            if light_dir.z > -0.6:
+                set light_dir.z is light_dir.z - (camera_speed * 60.0 * delta_time)
+
+        set light_dir is calling light_dir.get_normalize
+        set light_camera.position is calling light_dir.get_scale with -15.0
+        calling shadow_shader.set_vec3 with light_dir_loc, light_dir
+
+        # Pass 1: Render all objects into shadowmap render texture
+        calling drawing.begin_texture_mode with shadow_map
+        calling drawing.clear_background with raylib.WHITE
+
+        calling drawing.begin_mode_3d with light_camera
+        set light_view is calling rlgl.rlGetMatrixModelview
+        set light_proj is calling rlgl.rlGetMatrixProjection
+        calling draw_scene with cube, robot
+        calling drawing.end_mode_3d
+
+        calling drawing.end_texture_mode
+
+        set light_view_proj is calling light_view.get_multiply with light_proj
+
+        # Pass 2: Draw scene into main framebuffer using generated shadowmap
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling shadow_shader.set_matrix with light_vp_loc, light_view_proj
+        calling rlgl.rlEnableShader with shadow_shader.id
+
+        var slot as int is texture_active_slot
+        calling rlgl.rlActiveTextureSlot with slot
+        calling rlgl.rlEnableTexture with shadow_map.depth.id
+        calling rlgl.rlSetUniform with shadow_map_loc, (transmute (sigil of slot) to ref to frozen void), (raylib.SHADER_UNIFORM_INT to int), 1
+
+        calling drawing.begin_mode_3d with camera
+        calling draw_scene with cube, robot
+        calling drawing.end_mode_3d
+
+        calling rlgl.rlActiveTextureSlot with slot
+        calling rlgl.rlDisableTexture
+
+        calling txt.draw_text with "Use the arrow keys to rotate the light!", 10, 10, 30, raylib.RED
+        calling txt.draw_text with "Shadows in raylib using the shadowmapping algorithm!", (screen_width - 280), (screen_height - 20), 10, raylib.GRAY
+
+        calling drawing.end_drawing
+
+    return 0

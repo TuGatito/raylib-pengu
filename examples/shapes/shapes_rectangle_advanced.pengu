@@ -1,0 +1,288 @@
+## raylib [shapes] example - rectangle advanced
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.5
+## Example contributed by Everton Jr. (@evertonse) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2024-2025 Everton Jr. (@evertonse) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript using rlgl for immediate mode geometry rendering and raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_rectangle_advanced.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.rlgl as rlgl
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.colors as colors
+import std.fractio as fractio
+
+# --- Constants ---
+
+## Degrees to radians conversion constant
+const DEG2RAD as f32 is 0.017453292519943295
+
+# --- Helpers ---
+
+## Draws a rectangle with rounded edges and horizontal gradient, with options to choose side roundness
+##
+## ## Parameters
+## - `rec`: base rectangle dimensions
+## - `roundness_left`: corner roundness factor for left side (0.0 to 1.0)
+## - `roundness_right`: corner roundness factor for right side (0.0 to 1.0)
+## - `segments`: number of segments per rounded corner
+## - `left`: starting gradient color on the left
+## - `right`: ending gradient color on the right
+##
+## ## Notes
+## Adapted from both `DrawRectangleRounded()` and `DrawRectangleGradientH()` raylib [rshapes] implementations
+## using triangles and vertex color interpolation in OpenGL via `rlgl`.
+weave draw_rectangle_rounded_gradient_h with rec as raylib.Rectangle, roundness_left as f32, roundness_right as f32, segments as int, left as raylib.Color, right as raylib.Color into void:
+    # Neither side is rounded or rectangle dimensions are degenerate
+    if ((roundness_left <= 0.0 and roundness_right <= 0.0) or (rec.width < 1.0) or (rec.height < 1.0)):
+        calling raylib.DrawRectangleGradientEx with rec, left, left, right, right
+        return
+
+    var rl as f32 is roundness_left
+    var rr as f32 is roundness_right
+    if rl > 1.0:
+        set rl is 1.0
+    if rr > 1.0:
+        set rr is 1.0
+
+    # Calculate corner radius both from right and left
+    let rec_size as f32 is if rec.width > rec.height then rec.height else rec.width
+    var radius_left as f32 is (rec_size * rl) / 2.0
+    var radius_right as f32 is (rec_size * rr) / 2.0
+
+    if radius_left < 0.0:
+        set radius_left is 0.0
+    if radius_right < 0.0:
+        set radius_right is 0.0
+
+    if radius_right <= 0.0 and radius_left <= 0.0:
+        return
+
+    let step_length as f32 is 90.0 / (segments to f32)
+
+    # Coordinates of the 12 points adapted from DrawRectangleRounded
+    #
+    #       P0____________________P1
+    #       /|                    |\
+    #      /1|          2         |3\
+    #  P7 /__|____________________|__\ P2
+    #    |   |P8                P9|   |
+    #    | 8 |          9         | 4 |
+    #    | __|____________________|__ |
+    #  P6 \  |P11              P10|  / P3
+    #      \7|          6         |5/
+    #       \|____________________|/
+    #       P5                    P4
+    #
+
+    # P0, P1, P2
+    let p0 as raylib.Vector2 is with:
+        set .x is rec.x + radius_left
+        set .y is rec.y
+    let p1 as raylib.Vector2 is with:
+        set .x is (rec.x + rec.width) - radius_right
+        set .y is rec.y
+    let p2 as raylib.Vector2 is with:
+        set .x is rec.x + rec.width
+        set .y is rec.y + radius_right
+
+    # P3, P4
+    let p3 as raylib.Vector2 is with:
+        set .x is rec.x + rec.width
+        set .y is (rec.y + rec.height) - radius_right
+    let p4 as raylib.Vector2 is with:
+        set .x is (rec.x + rec.width) - radius_right
+        set .y is rec.y + rec.height
+
+    # P5, P6, P7
+    let p5 as raylib.Vector2 is with:
+        set .x is rec.x + radius_left
+        set .y is rec.y + rec.height
+    let p6 as raylib.Vector2 is with:
+        set .x is rec.x
+        set .y is (rec.y + rec.height) - radius_left
+    let p7 as raylib.Vector2 is with:
+        set .x is rec.x
+        set .y is rec.y + radius_left
+
+    # P8, P9, P10, P11
+    let p8 as raylib.Vector2 is with:
+        set .x is rec.x + radius_left
+        set .y is rec.y + radius_left
+    let p9 as raylib.Vector2 is with:
+        set .x is (rec.x + rec.width) - radius_right
+        set .y is rec.y + radius_right
+    let p10 as raylib.Vector2 is with:
+        set .x is (rec.x + rec.width) - radius_right
+        set .y is (rec.y + rec.height) - radius_right
+    let p11 as raylib.Vector2 is with:
+        set .x is rec.x + radius_left
+        set .y is (rec.y + rec.height) - radius_left
+
+    calling rlgl.rlBegin with rlgl.RL_TRIANGLES
+
+    # Draw all 4 corners:
+    # [1] Upper Left Corner, [3] Upper Right Corner, [5] Lower Right Corner, [7] Lower Left Corner
+    for k from 0 to 4:
+        var corner_color as raylib.Color is left
+        var corner_radius as f32 is radius_left
+        var corner_angle as f32 is 180.0
+        var center as raylib.Vector2 is p8
+
+        if k == 0:
+            set corner_color is left
+            set corner_radius is radius_left
+            set corner_angle is 180.0
+            set center is p8
+        else if k == 1:
+            set corner_color is right
+            set corner_radius is radius_right
+            set corner_angle is 270.0
+            set center is p9
+        else if k == 2:
+            set corner_color is right
+            set corner_radius is radius_right
+            set corner_angle is 0.0
+            set center is p10
+        else:
+            set corner_color is left
+            set corner_radius is radius_left
+            set corner_angle is 90.0
+            set center is p11
+
+        for i from 0 to segments:
+            let rad1 as f32 is DEG2RAD * (corner_angle + step_length)
+            let rad0 as f32 is DEG2RAD * corner_angle
+
+            let cos1 as f32 is calling rad1.get_cos
+            let sin1 as f32 is calling rad1.get_sin
+            let cos0 as f32 is calling rad0.get_cos
+            let sin0 as f32 is calling rad0.get_sin
+
+            calling rlgl.rlColor4ub with corner_color.r, corner_color.g, corner_color.b, corner_color.a
+            calling rlgl.rlVertex2f with center.x, center.y
+            calling rlgl.rlVertex2f with center.x + (cos1 * corner_radius), center.y + (sin1 * corner_radius)
+            calling rlgl.rlVertex2f with center.x + (cos0 * corner_radius), center.y + (sin0 * corner_radius)
+
+            set corner_angle is corner_angle + step_length
+
+    # [2] Upper Rectangle
+    calling rlgl.rlColor4ub with left.r, left.g, left.b, left.a
+    calling rlgl.rlVertex2f with p0.x, p0.y
+    calling rlgl.rlVertex2f with p8.x, p8.y
+    calling rlgl.rlColor4ub with right.r, right.g, right.b, right.a
+    calling rlgl.rlVertex2f with p9.x, p9.y
+    calling rlgl.rlVertex2f with p1.x, p1.y
+    calling rlgl.rlColor4ub with left.r, left.g, left.b, left.a
+    calling rlgl.rlVertex2f with p0.x, p0.y
+    calling rlgl.rlColor4ub with right.r, right.g, right.b, right.a
+    calling rlgl.rlVertex2f with p9.x, p9.y
+
+    # [4] Right Rectangle
+    calling rlgl.rlColor4ub with right.r, right.g, right.b, right.a
+    calling rlgl.rlVertex2f with p9.x, p9.y
+    calling rlgl.rlVertex2f with p10.x, p10.y
+    calling rlgl.rlVertex2f with p3.x, p3.y
+    calling rlgl.rlVertex2f with p2.x, p2.y
+    calling rlgl.rlVertex2f with p9.x, p9.y
+    calling rlgl.rlVertex2f with p3.x, p3.y
+
+    # [6] Bottom Rectangle
+    calling rlgl.rlColor4ub with left.r, left.g, left.b, left.a
+    calling rlgl.rlVertex2f with p11.x, p11.y
+    calling rlgl.rlVertex2f with p5.x, p5.y
+    calling rlgl.rlColor4ub with right.r, right.g, right.b, right.a
+    calling rlgl.rlVertex2f with p4.x, p4.y
+    calling rlgl.rlVertex2f with p10.x, p10.y
+    calling rlgl.rlColor4ub with left.r, left.g, left.b, left.a
+    calling rlgl.rlVertex2f with p11.x, p11.y
+    calling rlgl.rlColor4ub with right.r, right.g, right.b, right.a
+    calling rlgl.rlVertex2f with p4.x, p4.y
+
+    # [8] Left Rectangle
+    calling rlgl.rlColor4ub with left.r, left.g, left.b, left.a
+    calling rlgl.rlVertex2f with p7.x, p7.y
+    calling rlgl.rlVertex2f with p6.x, p6.y
+    calling rlgl.rlVertex2f with p11.x, p11.y
+    calling rlgl.rlVertex2f with p8.x, p8.y
+    calling rlgl.rlVertex2f with p7.x, p7.y
+    calling rlgl.rlVertex2f with p11.x, p11.y
+
+    # [9] Middle Rectangle
+    calling rlgl.rlColor4ub with left.r, left.g, left.b, left.a
+    calling rlgl.rlVertex2f with p8.x, p8.y
+    calling rlgl.rlVertex2f with p11.x, p11.y
+    calling rlgl.rlColor4ub with right.r, right.g, right.b, right.a
+    calling rlgl.rlVertex2f with p10.x, p10.y
+    calling rlgl.rlVertex2f with p9.x, p9.y
+    calling rlgl.rlColor4ub with left.r, left.g, left.b, left.a
+    calling rlgl.rlVertex2f with p8.x, p8.y
+    calling rlgl.rlColor4ub with right.r, right.g, right.b, right.a
+    calling rlgl.rlVertex2f with p10.x, p10.y
+
+    calling rlgl.rlEnd
+
+# --- Main entry point ---
+
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - rectangle advanced"
+    defer calling raylib.CloseWindow
+
+    calling raylib.SetTargetFPS with 60
+
+    # Colors used in gradients
+    let col_blue as raylib.Color is raylib.BLUE
+    let col_red as raylib.Color is raylib.RED
+    let col_pink as raylib.Color is raylib.PINK
+    let col_black as raylib.Color is raylib.BLACK
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update rectangle bounds
+        let width as f32 is (calling raylib.GetScreenWidth to f32) / 2.0
+        let height as f32 is (calling raylib.GetScreenHeight to f32) / 6.0
+        var rec as raylib.Rectangle is with:
+            set .x is ((calling raylib.GetScreenWidth to f32) / 2.0) - (width / 2.0)
+            set .y is ((calling raylib.GetScreenHeight to f32) / 2.0) - (5.0 * (height / 2.0))
+            set .width is width
+            set .height is height
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Draw All Rectangles with different roundness for each side and different gradients
+        calling draw_rectangle_rounded_gradient_h with rec, 0.8, 0.8, 36, col_blue, col_red
+
+        set rec.y is rec.y + rec.height + 1.0
+        calling draw_rectangle_rounded_gradient_h with rec, 0.5, 1.0, 36, col_red, col_pink
+
+        set rec.y is rec.y + rec.height + 1.0
+        calling draw_rectangle_rounded_gradient_h with rec, 1.0, 0.5, 36, col_red, col_blue
+
+        set rec.y is rec.y + rec.height + 1.0
+        calling draw_rectangle_rounded_gradient_h with rec, 0.0, 1.0, 36, col_blue, col_black
+
+        set rec.y is rec.y + rec.height + 1.0
+        calling draw_rectangle_rounded_gradient_h with rec, 1.0, 0.0, 36, col_blue, col_pink
+
+        calling drawing.end_drawing
+
+    return 0

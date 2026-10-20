@@ -1,0 +1,272 @@
+## raylib [shapes] example - simple particles
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.6, last time updated with raylib 5.6
+## Example contributed by Jordi Santonja (@JordSant)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Jordi Santonja (@JordSant)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and circular buffer particles.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_simple_particles.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import pengu.raylibx.random as random
+import pengu.raymathx as raymathx
+import std.fractio as fractio
+
+# --- Constants ---
+
+## Maximum number of particles in the circular buffer
+const MAX_PARTICLES as int is 3000
+
+# --- Types ---
+
+## Represents the distinct particle behavior styles
+omen ParticleType:
+    Water
+    Smoke
+    Fire
+
+## Represents an individual particle state
+rune Particle:
+    ptype as ParticleType
+    position as raylib.Vector2
+    velocity as raylib.Vector2
+    radius as f32
+    color as raylib.Color
+    life_time as f32
+    alive as bool
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - simple particles"
+    defer calling raylib.CloseWindow
+
+    var particles as list of Particle is list of Particle
+    defer banish particles
+    for k from 0 to MAX_PARTICLES - 1:
+        calling particles.push with with:
+            set .ptype is ParticleType.Water
+            set .position is with:
+                set .x is 0.0
+                set .y is 0.0
+            set .velocity is with:
+                set .x is 0.0
+                set .y is 0.0
+            set .radius is 0.0
+            set .color is raylib.BLANK
+            set .life_time is 0.0
+            set .alive is false
+
+    var head as int is 0
+    var tail as int is 0
+
+    # Particle emitter parameters
+    var emission_rate as int is -2
+    var current_type as ParticleType is ParticleType.Water
+    var emitter_position as raylib.Vector2 is with:
+        set .x is (screen_width to f32) / 2.0
+        set .y is (screen_height to f32) / 2.0
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        # Emit new particles
+        var to_emit as int is 0
+        if emission_rate < 0:
+            let mod_rate as int is -emission_rate
+            if (calling random.between with 0, (mod_rate - 1)) == 0:
+                set to_emit is 1
+        else:
+            set to_emit is emission_rate + 1
+
+        for e from 0 to to_emit - 1:
+            if ((head + 1) % MAX_PARTICLES) != tail:
+                var p_radius as f32 is 5.0
+                var p_color as raylib.Color is raylib.BLUE
+                var base_speed as f32 is ((calling random.between with 0, 9) to f32) / 5.0
+
+                judge current_type:
+                    when ParticleType.Water ->
+                        set p_radius is 5.0
+                        set p_color is raylib.BLUE
+                    when ParticleType.Smoke ->
+                        set p_radius is 7.0
+                        set p_color is raylib.GRAY
+                    when ParticleType.Fire ->
+                        set p_radius is 10.0
+                        set p_color is raylib.YELLOW
+                        set base_speed is base_speed / 10.0
+
+                let dir_deg as f32 is (calling random.between with 0, 359) to f32
+                let dir_rad as f32 is dir_deg * raymathx.DEG2RAD
+                let p_vel as raylib.Vector2 is with:
+                    set .x is base_speed * (calling dir_rad.get_cos)
+                    set .y is base_speed * (calling dir_rad.get_sin)
+
+                let new_particle as Particle is with:
+                    set .ptype is current_type
+                    set .position is emitter_position
+                    set .velocity is p_vel
+                    set .radius is p_radius
+                    set .color is p_color
+                    set .life_time is 0.0
+                    set .alive is true
+
+                set particles at head is new_particle
+                set head is (head + 1) % MAX_PARTICLES
+
+        # Update the parameters of each particle
+        var cur_idx as int is tail
+        while cur_idx != head:
+            var p as Particle is particles at cur_idx
+            set p.life_time is p.life_time + (1.0 / 60.0)
+
+            judge p.ptype:
+                when ParticleType.Water ->
+                    set p.position.x is p.position.x + p.velocity.x
+                    set p.velocity.y is p.velocity.y + 0.2
+                    set p.position.y is p.position.y + p.velocity.y
+                when ParticleType.Smoke ->
+                    set p.position.x is p.position.x + p.velocity.x
+                    set p.velocity.y is p.velocity.y - 0.05
+                    set p.position.y is p.position.y + p.velocity.y
+                    set p.radius is p.radius + 0.5
+                    let new_a as int is (p.color.a to int) - 4
+                    if new_a < 4:
+                        set p.alive is false
+                        set p.color.a is 0 to byte
+                    else:
+                        set p.color.a is new_a to byte
+                when ParticleType.Fire ->
+                    let wave as f32 is p.life_time * 215.0
+                    set p.position.x is p.position.x + p.velocity.x + (calling wave.get_cos)
+                    set p.velocity.y is p.velocity.y - 0.05
+                    set p.position.y is p.position.y + p.velocity.y
+                    set p.radius is p.radius - 0.15
+                    let new_g as int is (p.color.g to int) - 3
+                    set p.color.g is if new_g < 0 then (0 to byte) else (new_g to byte)
+                    if p.radius <= 0.02:
+                        set p.alive is false
+
+            # Disable particle when out of screen
+            let cx as f32 is p.position.x
+            let cy as f32 is p.position.y
+            let pr as f32 is p.radius
+
+            if (cx < -pr) or (cx > ((screen_width to f32) + pr)) or (cy < -pr) or (cy > ((screen_height to f32) + pr)):
+                set p.alive is false
+
+            set particles at cur_idx is p
+            set cur_idx is (cur_idx + 1) % MAX_PARTICLES
+
+        # Remove dead particles from the circular buffer tail
+        while (tail != head) and (not (particles at tail).alive):
+            set tail is (tail + 1) % MAX_PARTICLES
+
+        # Change Particle Emission Rate (UP/DOWN arrows)
+        if calling input.is_key_pressed with raylib.KEY_UP:
+            set emission_rate is emission_rate + 1
+        if calling input.is_key_pressed with raylib.KEY_DOWN:
+            set emission_rate is emission_rate - 1
+
+        # Change Particle Type (LEFT/RIGHT arrows)
+        if calling input.is_key_pressed with raylib.KEY_RIGHT:
+            judge current_type:
+                when ParticleType.Water ->
+                    set current_type is ParticleType.Smoke
+                when ParticleType.Smoke ->
+                    set current_type is ParticleType.Fire
+                when ParticleType.Fire ->
+                    set current_type is ParticleType.Water
+
+        if calling input.is_key_pressed with raylib.KEY_LEFT:
+            judge current_type:
+                when ParticleType.Water ->
+                    set current_type is ParticleType.Fire
+                when ParticleType.Smoke ->
+                    set current_type is ParticleType.Water
+                when ParticleType.Fire ->
+                    set current_type is ParticleType.Smoke
+
+        if calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT:
+            set emitter_position is calling raylib.GetMousePosition
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Draw all particles
+        var draw_idx as int is tail
+        while draw_idx != head:
+            let p as Particle is particles at draw_idx
+            if p.alive:
+                calling p.position.draw_circle with p.radius, p.color
+            set draw_idx is (draw_idx + 1) % MAX_PARTICLES
+
+        # Draw UI and Instructions
+        let ui_rec as raylib.Rectangle is with:
+            set .x is 5.0
+            set .y is 5.0
+            set .width is 315.0
+            set .height is 75.0
+
+        calling ui_rec.draw with (calling colors.fade with raylib.SKYBLUE, 0.5)
+        calling shapes.draw_rectangle_lines with 5, 5, 315, 75, raylib.BLUE
+
+        calling txt.draw_text with "CONTROLS:", 15, 15, 10, raylib.BLACK
+        calling txt.draw_text with "UP/DOWN: Change Particle Emission Rate", 15, 35, 10, raylib.BLACK
+        calling txt.draw_text with "LEFT/RIGHT: Change Particle Type (Water, Smoke, Fire)", 15, 55, 10, raylib.BLACK
+
+        var type_name as string is judge current_type:
+            when ParticleType.Water ->
+                "WATER"
+            when ParticleType.Smoke ->
+                "SMOKE"
+            when ParticleType.Fire ->
+                "FIRE"
+
+        if emission_rate < 0:
+            let inv_rate as int is -emission_rate
+            var status_msg as string is "Particles every {inv_rate} frames | Type: {type_name}"
+            calling txt.draw_text with status_msg, 15, 95, 10, raylib.DARKGRAY
+            banish status_msg
+        else:
+            let per_frame as int is emission_rate + 1
+            var status_msg as string is "{per_frame} Particles per frame | Type: {type_name}"
+            calling txt.draw_text with status_msg, 15, 95, 10, raylib.DARKGRAY
+            banish status_msg
+
+        calling txt.draw_fps with screen_width - 80, 10
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

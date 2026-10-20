@@ -1,0 +1,339 @@
+## raylib [shapes] example - splines drawing
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 5.0, last time updated with raylib 5.0
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2023-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript using raylibx wrappers and rayguix controls.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_splines_drawing.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raygui as raygui
+import pengu.rayguix as rayguix
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+
+# --- Constants ---
+
+## Maximum number of spline points
+const MAX_SPLINE_POINTS as int is 32
+
+# --- Types ---
+
+## Cubic Bezier spline control points for a segment
+rune ControlPoint:
+    ## Starting tangent handle
+    start as raylib.Vector2
+    ## Ending tangent handle
+    end as raylib.Vector2
+
+# --- Helpers ---
+
+## Helper to construct a Vector2 value
+##
+## ## Parameters
+## - `x`: x coordinate
+## - `y`: y coordinate
+##
+## ## Returns
+## Initialized Vector2 struct
+weave vec2 with x as f32, y as f32 into raylib.Vector2:
+    return with:
+        set .x is x
+        set .y is y
+
+## Helper to construct a ControlPoint struct
+##
+## ## Parameters
+## - `start`: starting tangent handle
+## - `end`: ending tangent handle
+##
+## ## Returns
+## Initialized ControlPoint struct
+weave make_control_point with start as raylib.Vector2, end as raylib.Vector2 into ControlPoint:
+    return with:
+        set .start is start
+        set .end is end
+
+## Helper to construct a Rectangle struct
+##
+## ## Parameters
+## - `x`: top-left x
+## - `y`: top-left y
+## - `w`: width
+## - `h`: height
+##
+## ## Returns
+## Initialized Rectangle struct
+weave make_rec with x as f32, y as f32, w as f32, h as f32 into raylib.Rectangle:
+    return with:
+        set .x is x
+        set .y is y
+        set .width is w
+        set .height is h
+
+# --- Main entry point ---
+
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - splines drawing"
+    defer calling raylib.CloseWindow
+
+    # Initialize spline points list
+    var points as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish points
+
+    calling points.push with (calling vec2 with 50.0, 400.0)
+    calling points.push with (calling vec2 with 160.0, 220.0)
+    calling points.push with (calling vec2 with 340.0, 380.0)
+    calling points.push with (calling vec2 with 520.0, 60.0)
+    calling points.push with (calling vec2 with 710.0, 260.0)
+
+    # Pad list to MAX_SPLINE_POINTS
+    for _ from 5 to MAX_SPLINE_POINTS:
+        calling points.push with (calling vec2 with 0.0, 0.0)
+
+    var point_count as int is 5
+
+    # Array required for spline bezier-cubic, including control points interleaved
+    # 3 * (MAX_SPLINE_POINTS - 1) + 1 = 94 points
+    let max_interleaved as int is 3 * (MAX_SPLINE_POINTS - 1) + 1
+    var points_interleaved as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish points_interleaved
+    for _ from 0 to max_interleaved:
+        calling points_interleaved.push with (calling vec2 with 0.0, 0.0)
+
+    # Cubic Bezier control points initialization
+    var control as list of ControlPoint is list of ControlPoint
+    defer banish control
+    for i from 0 to (MAX_SPLINE_POINTS - 1):
+        let p_start as raylib.Vector2 is if i < point_count then (calling vec2 with (points at i).x + 50.0, (points at i).y) else (calling vec2 with 0.0, 0.0)
+        let p_end as raylib.Vector2 is if (i + 1) < point_count then (calling vec2 with (points at (i + 1)).x - 50.0, (points at (i + 1)).y) else (calling vec2 with 0.0, 0.0)
+        calling control.push with (calling make_control_point with p_start, p_end)
+
+    var selected_point as int is -1
+    var focused_point as int is -1
+
+    var selected_control_index as int is -1
+    var selected_control_is_end as bool is false
+
+    var focused_control_index as int is -1
+    var focused_control_is_end as bool is false
+
+    # Spline config variables
+    var spline_thickness as f32 is 8.0
+    var spline_type_active as int is 0 # 0-Linear, 1-BSpline, 2-CatmullRom, 3-Bezier
+    var spline_type_edit_mode as bool is false
+    var spline_helpers_active as bool is true
+
+    calling raylib.SetTargetFPS with 60
+
+    # Colors
+    let col_red as raylib.Color is raylib.RED
+    let col_gold as raylib.Color is raylib.GOLD
+    let col_green as raylib.Color is raylib.GREEN
+    let col_lightgray as raylib.Color is raylib.LIGHTGRAY
+    let col_gray as raylib.Color is raylib.GRAY
+    let col_blue as raylib.Color is raylib.BLUE
+    let col_darkblue as raylib.Color is raylib.DARKBLUE
+    let col_black as raylib.Color is raylib.BLACK
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+
+        # Update
+        # Spline points creation logic (at the end of spline)
+        if (calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_RIGHT) and (point_count < MAX_SPLINE_POINTS):
+            set points at point_count is mouse_pos
+            let prev_idx as int is point_count - 1
+            let prev_pt as raylib.Vector2 is points at prev_idx
+            let start_pt as raylib.Vector2 is calling vec2 with prev_pt.x + 50.0, prev_pt.y
+            let end_pt as raylib.Vector2 is calling vec2 with mouse_pos.x - 50.0, mouse_pos.y
+            var new_ctrl as ControlPoint is calling make_control_point with start_pt, end_pt
+            set control at prev_idx is new_ctrl
+            set point_count is point_count + 1
+
+        # Spline point focus and selection logic
+        if (selected_point == -1) and ((spline_type_active != 3) or (selected_control_index == -1)):
+            set focused_point is -1
+            for i from 0 to point_count:
+                if calling shapes.collision_point_circle with mouse_pos, (points at i), 8.0:
+                    set focused_point is i
+                    break
+
+            if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT:
+                set selected_point is focused_point
+
+        # Spline point movement logic
+        if selected_point >= 0:
+            set points at selected_point is mouse_pos
+            if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+                set selected_point is -1
+
+        # Cubic Bezier spline control points logic
+        if (spline_type_active == 3) and (focused_point == -1):
+            # Spline control point focus and selection logic
+            if selected_control_index == -1:
+                set focused_control_index is -1
+                set focused_control_is_end is false
+
+                for i from 0 to (point_count - 1):
+                    let ctrl as ControlPoint is control at i
+                    if calling shapes.collision_point_circle with mouse_pos, ctrl.start, 6.0:
+                        set focused_control_index is i
+                        set focused_control_is_end is false
+                        break
+                    else if calling shapes.collision_point_circle with mouse_pos, ctrl.end, 6.0:
+                        set focused_control_index is i
+                        set focused_control_is_end is true
+                        break
+
+                if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT:
+                    set selected_control_index is focused_control_index
+                    set selected_control_is_end is focused_control_is_end
+
+            # Spline control point movement logic
+            if selected_control_index >= 0:
+                var moving_ctrl as ControlPoint is control at selected_control_index
+                if selected_control_is_end:
+                    set moving_ctrl.end is mouse_pos
+                else:
+                    set moving_ctrl.start is mouse_pos
+                set control at selected_control_index is moving_ctrl
+
+                if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+                    set selected_control_index is -1
+
+        # Spline type selection shortcuts
+        if calling input.is_key_pressed with raylib.KEY_ONE:
+            set spline_type_active is 0
+        else if calling input.is_key_pressed with raylib.KEY_TWO:
+            set spline_type_active is 1
+        else if calling input.is_key_pressed with raylib.KEY_THREE:
+            set spline_type_active is 2
+        else if calling input.is_key_pressed with raylib.KEY_FOUR:
+            set spline_type_active is 3
+
+        # Clear control point selection when changing away from Bezier
+        if (calling input.is_key_pressed with raylib.KEY_ONE) or (calling input.is_key_pressed with raylib.KEY_TWO) or (calling input.is_key_pressed with raylib.KEY_THREE):
+            set selected_control_index is -1
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        if spline_type_active == 0:
+            # Draw spline: linear
+            calling shapes.draw_spline_linear with (points at 0 to point_count), spline_thickness, col_red
+        else if spline_type_active == 1:
+            # Draw spline: basis
+            calling shapes.draw_spline_basis with (points at 0 to point_count), spline_thickness, col_red
+        else if spline_type_active == 2:
+            # Draw spline: catmull-rom
+            calling shapes.draw_spline_catmull_rom with (points at 0 to point_count), spline_thickness, col_red
+        else if spline_type_active == 3:
+            # Cubic-bezier spline interleaves start/end points with two control points per segment
+            for i from 0 to (point_count - 1):
+                let ctrl as ControlPoint is control at i
+                set points_interleaved at (3 * i) is (points at i)
+                set points_interleaved at (3 * i + 1) is ctrl.start
+                set points_interleaved at (3 * i + 2) is ctrl.end
+
+            let last_idx as int is point_count - 1
+            set points_interleaved at (3 * last_idx) is (points at last_idx)
+
+            let interleaved_count as int is 3 * (point_count - 1) + 1
+            calling shapes.draw_spline_bezier_cubic with (points_interleaved at 0 to interleaved_count), spline_thickness, col_red
+
+            # Draw spline control points and handles
+            for i from 0 to (point_count - 1):
+                let ctrl as ControlPoint is control at i
+                let is_start_focused as bool is (focused_control_index == i and not focused_control_is_end)
+                let is_end_focused as bool is (focused_control_index == i and focused_control_is_end)
+
+                if is_start_focused:
+                    calling ctrl.start.draw_circle with 8.0, col_green
+                else:
+                    calling ctrl.start.draw_circle with 6.0, col_gold
+
+                if is_end_focused:
+                    calling ctrl.end.draw_circle with 8.0, col_green
+                else:
+                    calling ctrl.end.draw_circle with 6.0, col_gold
+
+                let p_curr as raylib.Vector2 is points at i
+                let p_next as raylib.Vector2 is points at (i + 1)
+
+                calling p_curr.draw_line_ex with ctrl.start, 1.0, col_lightgray
+                calling p_next.draw_line_ex with ctrl.end, 1.0, col_lightgray
+
+                calling p_curr.draw_line_to with ctrl.start, col_gray
+                calling ctrl.end.draw_line_to with p_next, col_gray
+
+        if spline_helpers_active:
+            # Draw spline point helpers
+            for i from 0 to point_count:
+                let pt as raylib.Vector2 is points at i
+                let is_focused as bool is (focused_point == i)
+                let helper_radius as f32 is if is_focused then 12.0 else 8.0
+                let helper_color as raylib.Color is if is_focused then col_blue else col_darkblue
+
+                calling pt.draw_circle_lines with helper_radius, helper_color
+
+                if (spline_type_active != 0) and (spline_type_active != 3) and (i < point_count - 1):
+                    let p_next as raylib.Vector2 is points at (i + 1)
+                    calling pt.draw_line_to with p_next, col_gray
+
+                var pos_str as string is "[{pt.x to int}, {pt.y to int}]"
+                defer banish pos_str
+                calling txt.draw_text with pos_str, (pt.x to int), (pt.y to int) + 10, 10, col_black
+
+        # Check all possible UI states that require controls lock
+        let is_locked as bool is spline_type_edit_mode or (selected_point != -1) or (selected_control_index != -1)
+        if is_locked:
+            calling raygui.GuiLock
+
+        # Draw spline thickness slider
+        var thickness_str as string is "Spline thickness: {spline_thickness to int}"
+        defer banish thickness_str
+        let label_bounds as raylib.Rectangle is calling make_rec with 12.0, 62.0, 140.0, 24.0
+        let _l1 as int is calling rayguix.label with label_bounds, thickness_str
+
+        let slider_bounds as raylib.Rectangle is calling make_rec with 12.0, 84.0, 140.0, 16.0
+        let _s1 as int is calling rayguix.slider_bar with slider_bounds, "", "", (sigil of spline_thickness), 1.0, 40.0
+
+        let check_bounds as raylib.Rectangle is calling make_rec with 12.0, 110.0, 20.0, 20.0
+        let _c1 as int is calling rayguix.check_box with check_bounds, "Show point helpers", (sigil of spline_helpers_active)
+
+        if spline_type_edit_mode:
+            calling raygui.GuiUnlock
+
+        let type_label_bounds as raylib.Rectangle is calling make_rec with 12.0, 10.0, 140.0, 24.0
+        let _l2 as int is calling rayguix.label with type_label_bounds, "Spline type:"
+
+        let dropdown_bounds as raylib.Rectangle is calling make_rec with 12.0, 32.0, 140.0, 28.0
+        if (calling rayguix.dropdown_box with dropdown_bounds, "LINEAR;BSPLINE;CATMULLROM;BEZIER", (sigil of spline_type_active), spline_type_edit_mode) > 0:
+            set spline_type_edit_mode is not spline_type_edit_mode
+
+        calling raygui.GuiUnlock
+
+        calling drawing.end_drawing
+
+    return 0

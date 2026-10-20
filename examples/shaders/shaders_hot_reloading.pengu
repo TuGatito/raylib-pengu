@@ -1,0 +1,139 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - hot reloading
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to implement runtime shader hot reloading by
+## monitoring file modification timestamps and swapping shaders dynamically.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_hot_reloading.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.files as files
+import raylibx.input as input
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import rlgl
+
+# --- C Time Declarations ------------------------------------------------
+declare localtime with timer as ref to frozen i64 into ref to void
+declare asctime with timeptr as ref to frozen void into ref to frozen char
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Relative path to the reloadable fragment shader.
+const SHADER_FILE_NAME as string is "examples/shaders/resources/shaders/glsl330/reload.fs"
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - hot reloading"
+    defer calling raylib.CloseWindow
+
+    var frag_mod_time as int is calling files.file_mod_time with SHADER_FILE_NAME
+
+    # Load raymarching fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with SHADER_FILE_NAME:
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Query uniform locations
+    var resolution_loc as int is 0
+    if loc as int is calling shader.location with "resolution":
+        set resolution_loc is loc
+
+    var mouse_loc as int is 0
+    if loc as int is calling shader.location with "mouse":
+        set mouse_loc is loc
+
+    var time_loc as int is 0
+    if loc as int is calling shader.location with "time":
+        set time_loc is loc
+
+    let resolution as raylib.Vector2 is with:
+        set .x is SCREEN_WIDTH to f32
+        set .y is SCREEN_HEIGHT to f32
+    calling shader.set_vec2 with resolution_loc, resolution
+
+    var total_time as f32 is 0.0
+    var auto_reloading as bool is false
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set total_time is total_time + (calling raylib.GetFrameTime)
+        let mouse as raylib.Vector2 is calling raylib.GetMousePosition
+
+        calling shader.set_float with time_loc, total_time
+        calling shader.set_vec2 with mouse_loc, mouse
+
+        # Hot reloading check
+        if auto_reloading or (calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT):
+            let current_mod_time as int is calling files.file_mod_time with SHADER_FILE_NAME
+            if current_mod_time != frag_mod_time:
+                # Try loading updated shader
+                if reloaded_opt as raylib.Shader is calling shaders.load_fragment_shader with SHADER_FILE_NAME:
+                    var updated as raylib.Shader is reloaded_opt
+                    if updated.id != (calling rlgl.rlGetShaderIdDefault):
+                        calling shaders.unload_shader with shader
+                        set shader is updated
+
+                        if loc as int is calling shader.location with "resolution":
+                            set resolution_loc is loc
+                        if loc as int is calling shader.location with "mouse":
+                            set mouse_loc is loc
+                        if loc as int is calling shader.location with "time":
+                            set time_loc is loc
+
+                        calling shader.set_vec2 with resolution_loc, resolution
+
+                set frag_mod_time is current_mod_time
+
+        if calling input.is_key_pressed with raylib.KEY_A:
+            set auto_reloading is not auto_reloading
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_shader_mode with shader
+        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        let auto_str as string is if auto_reloading then "AUTO" else "MANUAL"
+        let status_txt as string is "PRESS [A] to TOGGLE SHADER AUTOLOADING: {auto_str}"
+        defer banish status_txt
+        calling txt.draw_text with status_txt, 10, 10, 10, (if auto_reloading then raylib.RED else raylib.BLACK)
+
+        if not auto_reloading:
+            calling txt.draw_text with "MOUSE CLICK to SHADER RE-LOADING", 10, 30, 10, raylib.BLACK
+
+        var mod_i64 as i64 is frag_mod_time to i64
+        let time_cstr as ref to frozen char is calling asctime with (calling localtime with (sigil of mod_i64))
+        calling raylib.DrawText with (calling raylib.TextFormat with "Shader last modification: %s", time_cstr), 10, 430, 10, raylib.BLACK
+
+        calling drawing.end_drawing
+
+    return 0

@@ -1,0 +1,85 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - texture rendering
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Michal Ciesielski (@ciessielski) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to paint and animate procedural content directly on a
+## blank texture using a custom fragment shader (cubes_panning.fs).
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_texture_rendering.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.shaders as shaders
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Helpers ------------------------------------------------------------
+
+## Helper to get shader uniform location as an int (or -1 if missing).
+weave loc_of with shader as raylib.Shader, name as string into int:
+    if loc as int is calling shader.location with name:
+        return loc
+    return -1
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - texture rendering"
+    defer calling raylib.CloseWindow
+
+    # Load blank texture to fill on shader
+    var im_blank as raylib.Image is calling raylib.GenImageColor with 1024, 1024, raylib.BLANK
+    var texture as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture_from_image with im_blank:
+        set texture is loaded_tex
+    else:
+        calling raylib.UnloadImage with im_blank
+        return 1
+    calling raylib.UnloadImage with im_blank
+    defer calling textures.unload_texture with texture
+
+    # Load cubes_panning fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/cubes_panning.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    let time_loc as int is calling loc_of with shader, "uTime"
+    var time_val as f32 is 0.0
+    calling shader.set_float with time_loc, time_val
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set time_val is (calling raylib.GetTime) to f32
+        calling shader.set_float with time_loc, time_val
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_shader_mode with shader
+        calling texture.draw with 0, 0, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling txt.draw_text with "BACKGROUND is PAINTED and ANIMATED on SHADER!", 10, 10, 20, raylib.MAROON
+
+        calling drawing.end_drawing
+
+    return 0

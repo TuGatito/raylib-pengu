@@ -1,0 +1,527 @@
+## raylib [shapes] example - top down lights
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 4.2, last time updated with raylib 4.2
+## Example contributed by Jeffery Myers (@JeffM2501) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2022-2025 Jeffery Myers (@JeffM2501)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript using rlgl custom blend modes, raymath vector operations,
+## and raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_top_down_lights.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.rlgl as rlgl
+import pengu.raymath as raymath
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import pengu.raylibx.textures as textures
+import pengu.raylibx.images as images
+import pengu.raylibx.random as random
+
+# --- Constants ---
+
+## Custom OpenGL blend equation / factor constants
+const RLGL_SRC_ALPHA as int is 0x0302
+const RLGL_MIN as int is 0x8007
+const RLGL_MAX as int is 0x8008
+
+## Maximum number of occluder boxes in world
+const MAX_BOXES as int is 20
+
+## Maximum shadow volumes per light (up to 3 per box)
+const MAX_SHADOWS as int is 60
+
+## Maximum lights supported concurrently
+const MAX_LIGHTS as int is 16
+
+# --- Types ---
+
+## Shadow quad geometry
+rune ShadowGeometry:
+    ## Vertex 0 of shadow volume
+    v0 as raylib.Vector2
+    ## Vertex 1 of shadow volume
+    v1 as raylib.Vector2
+    ## Vertex 2 of shadow volume
+    v2 as raylib.Vector2
+    ## Vertex 3 of shadow volume
+    v3 as raylib.Vector2
+
+## Information and buffers for a single top-down light
+rune LightInfo:
+    ## Is this light slot active?
+    active as bool
+    ## Does this light need to be updated?
+    dirty as bool
+    ## Is this light in a valid position?
+    valid as bool
+    ## Light position in screen space
+    position as raylib.Vector2
+    ## Alpha mask for the light
+    mask as raylib.RenderTexture
+    ## The distance the light touches
+    outer_radius as f32
+    ## Cached bounding rectangle for culling
+    bounds as raylib.Rectangle
+    ## Buffer of cast shadow volumes
+    shadows as list of ShadowGeometry
+    ## Number of active shadows
+    shadow_count as int
+
+# --- Helpers ---
+
+## Helper to construct a Vector2 value
+##
+## ## Parameters
+## - `x`: x coordinate
+## - `y`: y coordinate
+##
+## ## Returns
+## Initialized Vector2 struct
+weave vec2 with x as f32, y as f32 into raylib.Vector2:
+    return with:
+        set .x is x
+        set .y is y
+
+## Helper to construct a Rectangle struct
+##
+## ## Parameters
+## - `x`: top-left x
+## - `y`: top-left y
+## - `w`: width
+## - `h`: height
+##
+## ## Returns
+## Initialized Rectangle struct
+weave make_rec with x as f32, y as f32, w as f32, h as f32 into raylib.Rectangle:
+    return with:
+        set .x is x
+        set .y is y
+        set .width is w
+        set .height is h
+
+## Helper to construct a ShadowGeometry struct
+##
+## ## Parameters
+## - `v0`: vertex 0
+## - `v1`: vertex 1
+## - `v2`: vertex 2
+## - `v3`: vertex 3
+##
+## ## Returns
+## Initialized ShadowGeometry struct
+weave make_shadow_geometry with v0 as raylib.Vector2, v1 as raylib.Vector2, v2 as raylib.Vector2, v3 as raylib.Vector2 into ShadowGeometry:
+    return with:
+        set .v0 is v0
+        set .v1 is v1
+        set .v2 is v2
+        set .v3 is v3
+
+## Helper to construct an empty RenderTexture struct
+##
+## ## Returns
+## Empty RenderTexture with id 0
+weave make_empty_render_texture into raylib.RenderTexture:
+    return with:
+        set .id is 0
+
+## Moves a light and marks it dirty
+##
+## ## Parameters
+## - `light`: source light
+## - `x`: target x position
+## - `y`: target y position
+##
+## ## Returns
+## Updated LightInfo
+weave move_light with light as LightInfo, x as f32, y as f32 into LightInfo:
+    var res as LightInfo is light
+    set res.dirty is true
+    set res.position.x is x
+    set res.position.y is y
+    set res.bounds.x is x - res.outer_radius
+    set res.bounds.y is y - res.outer_radius
+    return res
+
+## Computes a shadow volume for a box edge projected away from the light
+##
+## ## Parameters
+## - `light`: current light
+## - `sp`: start point of edge
+## - `ep`: end point of edge
+##
+## ## Returns
+## Updated LightInfo with added shadow
+weave compute_shadow_volume_for_edge with light as LightInfo, sp as raylib.Vector2, ep as raylib.Vector2 into LightInfo:
+    if light.shadow_count >= MAX_SHADOWS:
+        return light
+
+    var res as LightInfo is light
+    let extension as f32 is light.outer_radius * 2.0
+
+    let sp_sub as raylib.Vector2 is calling raymath.Vector2Subtract with sp, light.position
+    let sp_vector as raylib.Vector2 is calling raymath.Vector2Normalize with sp_sub
+    let sp_scale as raylib.Vector2 is calling raymath.Vector2Scale with sp_vector, extension
+    let sp_projection as raylib.Vector2 is calling raymath.Vector2Add with sp, sp_scale
+
+    let ep_sub as raylib.Vector2 is calling raymath.Vector2Subtract with ep, light.position
+    let ep_vector as raylib.Vector2 is calling raymath.Vector2Normalize with ep_sub
+    let ep_scale as raylib.Vector2 is calling raymath.Vector2Scale with ep_vector, extension
+    let ep_projection as raylib.Vector2 is calling raymath.Vector2Add with ep, ep_scale
+
+    var shadow as ShadowGeometry is calling make_shadow_geometry with sp, ep, ep_projection, sp_projection
+
+    var s_list as list of ShadowGeometry is res.shadows
+    let cur_idx as int is res.shadow_count
+    set s_list at cur_idx is shadow
+    set res.shadow_count is res.shadow_count + 1
+    return res
+
+## Draws the light mask and shadow volumes to the light's render texture
+##
+## ## Parameters
+## - `light`: light to render mask for
+weave draw_light_mask with light as LightInfo into void:
+    calling drawing.begin_texture_mode with light.mask
+    calling drawing.clear_background with raylib.WHITE
+
+    # Force the blend mode to only set the alpha of the destination
+    calling rlgl.rlSetBlendFactors with RLGL_SRC_ALPHA, RLGL_SRC_ALPHA, RLGL_MIN
+    calling rlgl.rlSetBlendMode with raylib.BLEND_CUSTOM
+
+    # If we are valid, then draw the light radius to the alpha mask
+    if light.valid:
+        let c_white as raylib.Color is raylib.WHITE
+        let white_zero as raylib.Color is calling c_white.with_alpha with 0.0
+        calling light.position.draw_circle_gradient with light.outer_radius, white_zero, c_white
+
+    calling rlgl.rlDrawRenderBatchActive
+
+    # Cut out the shadows from the light radius by forcing the alpha to maximum
+    calling rlgl.rlSetBlendMode with raylib.BLEND_ALPHA
+    calling rlgl.rlSetBlendFactors with RLGL_SRC_ALPHA, RLGL_SRC_ALPHA, RLGL_MAX
+    calling rlgl.rlSetBlendMode with raylib.BLEND_CUSTOM
+
+    # Draw the shadows to the alpha mask
+    var fan_verts as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish fan_verts
+    for _ from 0 to 4:
+        calling fan_verts.push with (calling vec2 with 0.0, 0.0)
+
+    for i from 0 to light.shadow_count:
+        let geom as ShadowGeometry is light.shadows at i
+        set fan_verts at 0 is geom.v0
+        set fan_verts at 1 is geom.v1
+        set fan_verts at 2 is geom.v2
+        set fan_verts at 3 is geom.v3
+        calling shapes.draw_triangle_fan with (fan_verts at 0 to 4), raylib.WHITE
+
+    calling rlgl.rlDrawRenderBatchActive
+
+    # Go back to normal blend mode
+    calling rlgl.rlSetBlendMode with raylib.BLEND_ALPHA
+
+    calling drawing.end_texture_mode
+
+## Sets up a light slot
+##
+## ## Parameters
+## - `light`: initial light structure
+## - `x`: initial x
+## - `y`: initial y
+## - `radius`: light outer radius
+## - `screen_w`: screen width for render texture
+## - `screen_h`: screen height for render texture
+##
+## ## Returns
+## Initialized LightInfo
+weave setup_light with light as LightInfo, x as f32, y as f32, radius as f32, screen_w as int, screen_h as int into LightInfo:
+    var res as LightInfo is light
+    set res.active is true
+    set res.valid is false
+    set res.mask is calling raylib.LoadRenderTexture with screen_w, screen_h
+    set res.outer_radius is radius
+    set res.bounds.width is radius * 2.0
+    set res.bounds.height is radius * 2.0
+
+    set res is calling move_light with res, x, y
+    calling draw_light_mask with res
+    return res
+
+## Updates a light's shadow volumes and mask if dirty
+##
+## ## Parameters
+## - `light`: light to test and update
+## - `boxes`: world occluder boxes
+## - `count`: number of boxes
+##
+## ## Returns
+## Updated LightInfo
+weave update_light with light as LightInfo, boxes as list of raylib.Rectangle, count as int into LightInfo:
+    if (not light.active) or (not light.dirty):
+        return light
+
+    var res as LightInfo is light
+    set res.dirty is false
+    set res.shadow_count is 0
+    set res.valid is false
+
+    for i from 0 to count:
+        let box as raylib.Rectangle is boxes at i
+
+        # Are we in a box? if so we are not valid
+        if calling box.contains_point with res.position:
+            return res
+
+        # If this box is outside our bounds, we can skip it
+        if not (calling shapes.collision_recs with res.bounds, box):
+            continue
+
+        # Check the edges that are on the same side we are, and cast shadow volumes out from them
+        let light_pos as raylib.Vector2 is res.position
+
+        # Top
+        var sp as raylib.Vector2 is calling vec2 with box.x, box.y
+        var ep as raylib.Vector2 is calling vec2 with box.x + box.width, box.y
+        if light_pos.y > ep.y:
+            set res is calling compute_shadow_volume_for_edge with res, sp, ep
+
+        # Right
+        set sp is ep
+        set ep.y is ep.y + box.height
+        if light_pos.x < ep.x:
+            set res is calling compute_shadow_volume_for_edge with res, sp, ep
+
+        # Bottom
+        set sp is ep
+        set ep.x is ep.x - box.width
+        if light_pos.y < ep.y:
+            set res is calling compute_shadow_volume_for_edge with res, sp, ep
+
+        # Left
+        set sp is ep
+        set ep.y is ep.y - box.height
+        if light_pos.x > ep.x:
+            set res is calling compute_shadow_volume_for_edge with res, sp, ep
+
+        # The box itself
+        let p0 as raylib.Vector2 is calling vec2 with box.x, box.y
+        let p1 as raylib.Vector2 is calling vec2 with box.x, box.y + box.height
+        let p2 as raylib.Vector2 is calling vec2 with box.x + box.width, box.y + box.height
+        let p3 as raylib.Vector2 is calling vec2 with box.x + box.width, box.y
+        var box_shadow as ShadowGeometry is calling make_shadow_geometry with p0, p1, p2, p3
+
+        var s_cur_list as list of ShadowGeometry is res.shadows
+        let box_idx as int is res.shadow_count
+        set s_cur_list at box_idx is box_shadow
+        set res.shadow_count is res.shadow_count + 1
+
+    set res.valid is true
+    calling draw_light_mask with res
+    return res
+
+## Sets up initial world boxes
+##
+## ## Parameters
+## - `screen_w`: screen width
+## - `screen_h`: screen height
+##
+## ## Returns
+## Initialized list of occluder boxes
+weave setup_boxes with screen_w as int, screen_h as int into list of raylib.Rectangle:
+    var boxes as list of raylib.Rectangle is list of raylib.Rectangle
+    calling boxes.push with (calling make_rec with 150.0, 80.0, 40.0, 40.0)
+    calling boxes.push with (calling make_rec with 1200.0, 700.0, 40.0, 40.0)
+    calling boxes.push with (calling make_rec with 200.0, 600.0, 40.0, 40.0)
+    calling boxes.push with (calling make_rec with 1000.0, 50.0, 40.0, 40.0)
+    calling boxes.push with (calling make_rec with 500.0, 350.0, 40.0, 40.0)
+
+    for _ from 5 to MAX_BOXES:
+        let rx as f32 is (calling random.between with 0, screen_w) to f32
+        let ry as f32 is (calling random.between with 0, screen_h) to f32
+        let rw as f32 is (calling random.between with 10, 100) to f32
+        let rh as f32 is (calling random.between with 10, 100) to f32
+        calling boxes.push with (calling make_rec with rx, ry, rw, rh)
+
+    return boxes
+
+# --- Main entry point ---
+
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - top down lights"
+    defer calling raylib.CloseWindow
+
+    # Initialize boxes list
+    var boxes as list of raylib.Rectangle is calling setup_boxes with screen_width, screen_height
+    defer banish boxes
+
+    # Scratch buffer for drawing triangle fans in show_lines debug mode
+    var fan_verts as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish fan_verts
+    for _ from 0 to 4:
+        calling fan_verts.push with (calling vec2 with 0.0, 0.0)
+
+    # Initialize lights list
+    var lights as list of LightInfo is list of LightInfo
+    for _ from 0 to MAX_LIGHTS:
+        var empty_shadows as list of ShadowGeometry is list of ShadowGeometry
+        for _ from 0 to MAX_SHADOWS:
+            let zero_pt as raylib.Vector2 is calling vec2 with 0.0, 0.0
+            calling empty_shadows.push with (calling make_shadow_geometry with zero_pt, zero_pt, zero_pt, zero_pt)
+
+        var empty_light as LightInfo is with:
+            set .active is false
+            set .dirty is false
+            set .valid is false
+            set .position is calling vec2 with 0.0, 0.0
+            set .mask is calling make_empty_render_texture
+            set .outer_radius is 0.0
+            set .bounds is calling make_rec with 0.0, 0.0, 0.0, 0.0
+            set .shadows is empty_shadows
+            set .shadow_count is 0
+
+        calling lights.push with empty_light
+
+    # Create a checkerboard ground texture
+    var img as raylib.Image is calling images.gen_image_checked with 64, 64, 32, 32, raylib.DARKBROWN, raylib.DARKGRAY
+    var background_texture as raylib.Texture is calling raylib.LoadTextureFromImage with img
+    calling images.unload_image with img
+    defer calling textures.unload_texture with background_texture
+
+    # Create master light mask
+    var light_mask as raylib.RenderTexture is calling raylib.LoadRenderTexture with screen_width, screen_height
+    defer calling raylib.UnloadRenderTexture with light_mask
+
+    # Setup initial light
+    set lights at 0 is (calling setup_light with (lights at 0), 600.0, 400.0, 300.0, screen_width, screen_height)
+    var next_light as int is 1
+
+    var show_lines as bool is false
+
+    calling raylib.SetTargetFPS with 60
+
+    let flip_h as f32 is -(screen_height to f32)
+    let src_rect as raylib.Rectangle is calling make_rec with 0.0, 0.0, (screen_width to f32), flip_h
+    let normal_src_rect as raylib.Rectangle is calling make_rec with 0.0, 0.0, (screen_width to f32), (screen_height to f32)
+    let zero_pos as raylib.Vector2 is calling vec2 with 0.0, 0.0
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+
+        # Update
+        # Drag light 0
+        if calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT:
+            set lights at 0 is (calling move_light with (lights at 0), mouse_pos.x, mouse_pos.y)
+
+        # Make a new light
+        if (calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_RIGHT) and (next_light < MAX_LIGHTS):
+            set lights at next_light is (calling setup_light with (lights at next_light), mouse_pos.x, mouse_pos.y, 200.0, screen_width, screen_height)
+            set next_light is next_light + 1
+
+        # Toggle debug info
+        if calling input.is_key_pressed with raylib.KEY_F1:
+            set show_lines is not show_lines
+
+        # Update lights and keep track if any were dirty
+        var dirty_lights as bool is false
+        for i from 0 to MAX_LIGHTS:
+            let cur_l as LightInfo is lights at i
+            if cur_l.active and cur_l.dirty:
+                set lights at i is (calling update_light with cur_l, boxes, MAX_BOXES)
+                set dirty_lights is true
+
+        # Update the master light mask
+        if dirty_lights:
+            calling drawing.begin_texture_mode with light_mask
+            calling drawing.clear_background with raylib.BLACK
+
+            # Force the blend mode to only set the alpha of the destination
+            calling rlgl.rlSetBlendFactors with RLGL_SRC_ALPHA, RLGL_SRC_ALPHA, RLGL_MIN
+            calling rlgl.rlSetBlendMode with raylib.BLEND_CUSTOM
+
+            # Merge in all the light masks
+            for i from 0 to MAX_LIGHTS:
+                let l as LightInfo is lights at i
+                if l.active:
+                    calling l.mask.texture.draw_rec with src_rect, zero_pos, raylib.WHITE
+
+            calling rlgl.rlDrawRenderBatchActive
+
+            # Go back to normal blend
+            calling rlgl.rlSetBlendMode with raylib.BLEND_ALPHA
+            calling drawing.end_texture_mode
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.BLACK
+
+        # Draw the tile background
+        calling background_texture.draw_rec with normal_src_rect, zero_pos, raylib.WHITE
+
+        # Overlay the shadows from all the lights
+        let mask_alpha as f32 is if show_lines then 0.75 else 1.0
+        let c_white as raylib.Color is raylib.WHITE
+        let mask_tint as raylib.Color is calling c_white.with_alpha with mask_alpha
+        calling light_mask.texture.draw_rec with src_rect, zero_pos, mask_tint
+
+        # Draw the light center circles
+        for i from 0 to MAX_LIGHTS:
+            let l as LightInfo is lights at i
+            if l.active:
+                let light_color as raylib.Color is if i == 0 then raylib.YELLOW else raylib.WHITE
+                calling l.position.draw_circle with 10.0, light_color
+
+        if show_lines:
+            let l0 as LightInfo is lights at 0
+            for s from 0 to l0.shadow_count:
+                let geom as ShadowGeometry is l0.shadows at s
+                set fan_verts at 0 is geom.v0
+                set fan_verts at 1 is geom.v1
+                set fan_verts at 2 is geom.v2
+                set fan_verts at 3 is geom.v3
+                calling shapes.draw_triangle_fan with (fan_verts at 0 to 4), raylib.DARKPURPLE
+
+            for b from 0 to MAX_BOXES:
+                let box as raylib.Rectangle is boxes at b
+                if calling shapes.collision_recs with box, l0.bounds:
+                    calling box.draw with raylib.PURPLE
+                calling box.draw_outline with 1.0, raylib.DARKBLUE
+
+            calling txt.draw_text with "(F1) Hide Shadow Volumes", 10, 50, 10, raylib.GREEN
+        else:
+            calling txt.draw_text with "(F1) Show Shadow Volumes", 10, 50, 10, raylib.GREEN
+
+        calling txt.draw_fps with screen_width - 80, 10
+        calling txt.draw_text with "Drag to move light #1", 10, 10, 10, raylib.DARKGREEN
+        calling txt.draw_text with "Right click to add new light", 10, 30, 10, raylib.DARKGREEN
+
+        calling drawing.end_drawing
+
+    # De-Initialization
+    for i from 0 to MAX_LIGHTS:
+        let l as LightInfo is lights at i
+        if l.active:
+            calling raylib.UnloadRenderTexture with l.mask
+        banish l.shadows
+
+    banish lights
+
+    return 0

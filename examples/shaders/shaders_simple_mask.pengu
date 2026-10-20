@@ -1,0 +1,179 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - simple mask
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Chris Camacho (@chriscamacho) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to apply a multi-texture mask shader to 3D models
+## by reusing spare material map channels (such as MATERIAL_MAP_EMISSION).
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_simple_mask.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymath
+
+# --- Helpers ------------------------------------------------------------
+
+## Helper to get shader uniform location as an int (or -1 if missing).
+weave loc_of with shader as raylib.Shader, name as string into int:
+    if loc as int is calling shader.location with name:
+        return loc
+    return -1
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - simple mask"
+    defer calling raylib.CloseWindow
+
+    # Define camera to look into our 3D world
+    var camera as raylib.Camera3D is with:
+        set .position.x is 0.0
+        set .position.y is 1.0
+        set .position.z is 2.0
+        set .target.x is 0.0
+        set .target.y is 0.0
+        set .target.z is 0.0
+        set .up.x is 0.0
+        set .up.y is 1.0
+        set .up.z is 0.0
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Define three models to show the shader on
+    var torus_mesh as raylib.Mesh is calling raylib.GenMeshTorus with 0.3, 1.0, 16, 32
+    var model1 as raylib.Model is calling models.load_model_from_mesh with torus_mesh
+    defer calling models.unload_model with model1
+
+    var cube_mesh as raylib.Mesh is calling raylib.GenMeshCube with 0.8, 0.8, 0.8
+    var model2 as raylib.Model is calling models.load_model_from_mesh with cube_mesh
+    defer calling models.unload_model with model2
+
+    var sphere_mesh as raylib.Mesh is calling raylib.GenMeshSphere with 1.0, 16, 16
+    var model3 as raylib.Model is calling models.load_model_from_mesh with sphere_mesh
+    defer calling models.unload_model with model3
+
+    # Load mask fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/mask.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Load textures
+    var tex_diffuse as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/plasma.png":
+        set tex_diffuse is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with tex_diffuse
+
+    var tex_mask as raylib.Texture2D is with id is 0
+    if loaded_tex2 as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/mask.png":
+        set tex_mask is loaded_tex2
+    else:
+        return 1
+    defer calling textures.unload_texture with tex_mask
+
+    var mat1 as ref to raylib.Material is sigil of (model1.materials at 0)
+    calling mat1.set_texture with raylib.MATERIAL_MAP_DIFFUSE, tex_diffuse
+    calling mat1.set_texture with raylib.MATERIAL_MAP_EMISSION, tex_mask
+    set mat1->shader is shader
+
+    var mat2 as ref to raylib.Material is sigil of (model2.materials at 0)
+    calling mat2.set_texture with raylib.MATERIAL_MAP_DIFFUSE, tex_diffuse
+    calling mat2.set_texture with raylib.MATERIAL_MAP_EMISSION, tex_mask
+    set mat2->shader is shader
+
+    set shader.locs at (raylib.SHADER_LOC_MAP_EMISSION to int) is calling loc_of with shader, "mask"
+    let shader_frame as int is calling loc_of with shader, "frame"
+
+    var frames_counter as int is 0
+    var rotation as raylib.Vector3 is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .z is 0.0
+
+    calling raylib.DisableCursor
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FIRST_PERSON to int)
+
+        set frames_counter is frames_counter + 1
+        set rotation.x is rotation.x + 0.01
+        set rotation.y is rotation.y + 0.005
+        set rotation.z is rotation.z - 0.0025
+
+        # Send frames counter to shader for animation
+        calling shader.set_int with shader_frame, frames_counter
+
+        # Rotate model 1
+        set model1.transform is calling raymath.MatrixRotateXYZ with rotation
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.DARKBLUE
+
+        calling drawing.begin_mode_3d with camera
+
+        var m1_pos as raylib.Vector3 is with:
+            set .x is 0.5
+            set .y is 0.0
+            set .z is 0.0
+        calling model1.draw with m1_pos, 1.0, raylib.WHITE
+
+        var m2_pos as raylib.Vector3 is with:
+            set .x is -0.5
+            set .y is 0.0
+            set .z is 0.0
+        var m2_rot_axis as raylib.Vector3 is with:
+            set .x is 1.0
+            set .y is 1.0
+            set .z is 0.0
+        var m2_scale as raylib.Vector3 is with:
+            set .x is 1.0
+            set .y is 1.0
+            set .z is 1.0
+        calling model2.draw_ex with m2_pos, m2_rot_axis, 50.0, m2_scale, raylib.WHITE
+
+        var m3_pos as raylib.Vector3 is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .z is -1.5
+        calling model3.draw with m3_pos, 1.0, raylib.WHITE
+
+        calling shapes3d.draw_grid with 10, 1.0
+
+        calling drawing.end_mode_3d
+
+        let frame_label as string is "Frame: {frames_counter}"
+        defer banish frame_label
+        let text_w as int is calling txt.measure_text with frame_label, 20
+        calling shapes.draw_rectangle with 16, 400, (text_w + 8), 42, raylib.BLUE
+        calling txt.draw_text with frame_label, 20, 410, 20, raylib.WHITE
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+
+    return 0

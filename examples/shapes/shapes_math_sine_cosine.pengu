@@ -1,0 +1,328 @@
+## ## raylib [shapes] example - math sine cosine
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+## Example contributed by Jopestpe (@jopestpe) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Jopestpe (@jopestpe)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx and rayguix wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_math_sine_cosine.pengu
+## ```
+
+import pengu.raygui as raygui
+import pengu.rayguix as rayguix
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raymathx as raymathx
+import std.fractio
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+const WAVE_POINTS as int is 36
+const DEG2RAD as f32 is 0.017453292519943295
+
+# --- Helpers ---
+
+## ## Computes absolute value of a float
+weave abs_f32 with v as f32 into f32:
+    if v < 0.0:
+        return -v
+    return v
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - math sine cosine"
+    defer calling raylib.CloseWindow
+
+    var sine_points as list of raylib.Vector2 is []
+    defer banish sine_points
+    var cos_points as list of raylib.Vector2 is []
+    defer banish cos_points
+
+    var center as raylib.Vector2 is with:
+        set .x is ((SCREEN_WIDTH to f32) / 2.0) - 30.0
+        set .y is (SCREEN_HEIGHT to f32) / 2.0
+
+    var start as raylib.Rectangle is with:
+        set .x is 20.0
+        set .y is (SCREEN_HEIGHT to f32) - 120.0
+        set .width is 200.0
+        set .height is 100.0
+
+    let radius as f32 is 130.0
+    var angle as f32 is 0.0
+    var pause as bool is false
+
+    for i from 0 to WAVE_POINTS - 1:
+        let t as f32 is (i to f32) / ((WAVE_POINTS - 1) to f32)
+        var cur_ang as f32 is t * 360.0 * DEG2RAD
+
+        var sp as raylib.Vector2 is with:
+            set .x is start.x + (t * start.width)
+            set .y is start.y + (start.height / 2.0) - ((calling cur_ang.get_sin) * (start.height / 2.0))
+        calling sine_points.append with sp
+
+        var cp as raylib.Vector2 is with:
+            set .x is start.x + (t * start.width)
+            set .y is start.y + (start.height / 2.0) - ((calling cur_ang.get_cos) * (start.height / 2.0))
+        calling cos_points.append with cp
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        var angle_rad as f32 is angle * DEG2RAD
+        let cos_rad as f32 is calling angle_rad.get_cos
+        let sin_rad as f32 is calling angle_rad.get_sin
+
+        var point as raylib.Vector2 is with:
+            set .x is center.x + (cos_rad * radius)
+            set .y is center.y - (sin_rad * radius)
+
+        var limit_min as raylib.Vector2 is with:
+            set .x is center.x - radius
+            set .y is center.y - radius
+
+        var limit_max as raylib.Vector2 is with:
+            set .x is center.x + radius
+            set .y is center.y + radius
+
+        let complementary as f32 is 90.0 - angle
+        let supplementary as f32 is 180.0 - angle
+        let explementary as f32 is 360.0 - angle
+
+        let tangent_raw as f32 is calling angle_rad.get_tan
+        let tangent as f32 is calling raymathx.clamp with tangent_raw, -10.0, 10.0
+        let cotangent as f32 is if (calling abs_f32 with tangent) > 0.001 then (calling raymathx.clamp with (1.0 / tangent), -radius, radius) else 0.0
+
+        var tangent_point as raylib.Vector2 is with:
+            set .x is center.x + radius
+            set .y is center.y - (tangent * radius)
+
+        var cotangent_point as raylib.Vector2 is with:
+            set .x is center.x + (cotangent * radius)
+            set .y is center.y - radius
+
+        let step_ang as f32 is if not pause then 1.0 else 0.0
+        set angle is calling raymathx.wrap with angle + step_ang, 0.0, 360.0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        # Cotangent (orange)
+        var cot_start as raylib.Vector2 is with:
+            set .x is center.x
+            set .y is limit_min.y
+        var cot_end as raylib.Vector2 is with:
+            set .x is cotangent_point.x
+            set .y is limit_min.y
+        calling cot_start.draw_line_ex with cot_end, 2.0, colors.ORANGE
+        calling center.draw_line_dashed with cotangent_point, 10, 4, colors.ORANGE
+
+        # Side background
+        var side_line_col as raylib.Color is with:
+            set .r is 218 to byte
+            set .g is 218 to byte
+            set .b is 218 to byte
+            set .a is 255 to byte
+        calling shapes.draw_line with 580, 0, 580, SCREEN_HEIGHT, side_line_col
+
+        var side_bg_col as raylib.Color is with:
+            set .r is 232 to byte
+            set .g is 232 to byte
+            set .b is 232 to byte
+            set .a is 255 to byte
+        calling shapes.draw_rectangle with 580, 0, SCREEN_WIDTH - 580, SCREEN_HEIGHT, side_bg_col
+
+        # Base circle and axes
+        calling center.draw_circle_lines with radius, colors.GRAY
+
+        var ax1_start as raylib.Vector2 is with:
+            set .x is center.x
+            set .y is limit_min.y
+        var ax1_end as raylib.Vector2 is with:
+            set .x is center.x
+            set .y is limit_max.y
+        calling ax1_start.draw_line_ex with ax1_end, 1.0, colors.GRAY
+
+        var ax2_start as raylib.Vector2 is with:
+            set .x is limit_min.x
+            set .y is center.y
+        var ax2_end as raylib.Vector2 is with:
+            set .x is limit_max.x
+            set .y is center.y
+        calling ax2_start.draw_line_ex with ax2_end, 1.0, colors.GRAY
+
+        # Wave graph axes
+        var wg1_s as raylib.Vector2 is with:
+            set .x is start.x
+            set .y is start.y
+        var wg1_e as raylib.Vector2 is with:
+            set .x is start.x
+            set .y is start.y + start.height
+        calling wg1_s.draw_line_ex with wg1_e, 2.0, colors.GRAY
+
+        var wg2_s as raylib.Vector2 is with:
+            set .x is start.x + start.width
+            set .y is start.y
+        var wg2_e as raylib.Vector2 is with:
+            set .x is start.x + start.width
+            set .y is start.y + start.height
+        calling wg2_s.draw_line_ex with wg2_e, 2.0, colors.GRAY
+
+        var wg3_s as raylib.Vector2 is with:
+            set .x is start.x
+            set .y is start.y + (start.height / 2.0)
+        var wg3_e as raylib.Vector2 is with:
+            set .x is start.x + start.width
+            set .y is start.y + (start.height / 2.0)
+        calling wg3_s.draw_line_ex with wg3_e, 2.0, colors.GRAY
+
+        # Wave graph axis labels
+        calling txt.draw_text with "1", (start.x to int) - 8, start.y to int, 6, colors.GRAY
+        calling txt.draw_text with "0", (start.x to int) - 8, ((start.y + (start.height / 2.0)) to int) - 6, 6, colors.GRAY
+        calling txt.draw_text with "-1", (start.x to int) - 12, ((start.y + start.height) to int) - 8, 6, colors.GRAY
+        calling txt.draw_text with "0", (start.x to int) - 2, ((start.y + start.height) to int) + 4, 6, colors.GRAY
+        calling txt.draw_text with "360", ((start.x + start.width) to int) - 8, ((start.y + start.height) to int) + 4, 6, colors.GRAY
+
+        # Sine (red - vertical)
+        var sin_s as raylib.Vector2 is center
+        var sin_e as raylib.Vector2 is with:
+            set .x is center.x
+            set .y is point.y
+        calling sin_s.draw_line_ex with sin_e, 2.0, colors.RED
+
+        var sin_d_s as raylib.Vector2 is with:
+            set .x is point.x
+            set .y is center.y
+        var sin_d_e as raylib.Vector2 is point
+        calling sin_d_s.draw_line_dashed with sin_d_e, 10, 4, colors.RED
+
+        var sin_label as string is "Sine {sin_rad to int}"
+        calling txt.draw_text with sin_label, 640, 190, 6, colors.RED
+        banish sin_label
+
+        var sin_pt as raylib.Vector2 is with:
+            set .x is start.x + ((angle / 360.0) * start.width)
+            set .y is start.y + ((-sin_rad + 1.0) * (start.height / 2.0))
+        calling sin_pt.draw_circle with 4.0, colors.RED
+
+        calling shapes.draw_spline_linear with (sine_points at 0 to WAVE_POINTS), 1.0, colors.RED
+
+        # Cosine (blue - horizontal)
+        var cos_s as raylib.Vector2 is center
+        var cos_e as raylib.Vector2 is with:
+            set .x is point.x
+            set .y is center.y
+        calling cos_s.draw_line_ex with cos_e, 2.0, colors.BLUE
+
+        var cos_d_s as raylib.Vector2 is with:
+            set .x is center.x
+            set .y is point.y
+        var cos_d_e as raylib.Vector2 is point
+        calling cos_d_s.draw_line_dashed with cos_d_e, 10, 4, colors.BLUE
+
+        var cos_label as string is "Cosine {cos_rad to int}"
+        calling txt.draw_text with cos_label, 640, 210, 6, colors.BLUE
+        banish cos_label
+
+        var cos_pt as raylib.Vector2 is with:
+            set .x is start.x + ((angle / 360.0) * start.width)
+            set .y is start.y + ((-cos_rad + 1.0) * (start.height / 2.0))
+        calling cos_pt.draw_circle with 4.0, colors.BLUE
+
+        calling shapes.draw_spline_linear with (cos_points at 0 to WAVE_POINTS), 1.0, colors.BLUE
+
+        # Tangent (purple)
+        var tan_s as raylib.Vector2 is with:
+            set .x is limit_max.x
+            set .y is center.y
+        var tan_e as raylib.Vector2 is with:
+            set .x is limit_max.x
+            set .y is tangent_point.y
+        calling tan_s.draw_line_ex with tan_e, 2.0, colors.PURPLE
+        calling center.draw_line_dashed with tangent_point, 10, 4, colors.PURPLE
+
+        var tan_label as string is "Tangent {tangent to int}"
+        calling txt.draw_text with tan_label, 640, 230, 6, colors.PURPLE
+        banish tan_label
+
+        # Cotangent (orange)
+        var cot_label as string is "Cotangent {cotangent to int}"
+        calling txt.draw_text with cot_label, 640, 250, 6, colors.ORANGE
+        banish cot_label
+
+        # Complementary angle (beige)
+        calling center.draw_circle_sector_lines with radius * 0.6, -angle, -90.0, 36, colors.BEIGE
+        var comp_label as string is "Complementary {complementary to int} deg"
+        calling txt.draw_text with comp_label, 640, 150, 6, colors.BEIGE
+        banish comp_label
+
+        # Supplementary angle (darkblue)
+        calling center.draw_circle_sector_lines with radius * 0.5, -angle, -180.0, 36, colors.DARKBLUE
+        var supp_label as string is "Supplementary {supplementary to int} deg"
+        calling txt.draw_text with supp_label, 640, 130, 6, colors.DARKBLUE
+        banish supp_label
+
+        # Explementary angle (pink)
+        calling center.draw_circle_sector_lines with radius * 0.4, -angle, -360.0, 36, colors.PINK
+        var exp_label as string is "Explementary {explementary to int} deg"
+        calling txt.draw_text with exp_label, 640, 170, 6, colors.PINK
+        banish exp_label
+
+        # Current angle - arc (lime), radius (black), endpoint (black)
+        calling center.draw_circle_sector_lines with radius * 0.7, -angle, 0.0, 36, colors.LIME
+        calling center.draw_line_ex with point, 2.0, colors.BLACK
+        calling point.draw_circle with 4.0, colors.BLACK
+
+        # Draw GUI controls
+        calling raygui.GuiSetStyle with (raygui.LABEL to int), (raygui.TEXT_COLOR_NORMAL to int), calling raylib.ColorToInt with colors.GRAY
+
+        var toggle_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 70.0
+            set .width is 120.0
+            set .height is 20.0
+        let _tgl as int is calling rayguix.toggle with toggle_rec, "Pause", (sigil of pause)
+
+        calling raygui.GuiSetStyle with (raygui.LABEL to int), (raygui.TEXT_COLOR_NORMAL to int), calling raylib.ColorToInt with colors.LIME
+
+        var slider_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 40.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_ang as string is "{angle to int} deg"
+        let _sl as int is calling rayguix.slider_bar with slider_rec, "Angle", s_ang, (sigil of angle), 0.0, 360.0
+        banish s_ang
+
+        # Angle values panel
+        var grp_rec as raylib.Rectangle is with:
+            set .x is 620.0
+            set .y is 110.0
+            set .width is 140.0
+            set .height is 170.0
+        let _grp as int is calling rayguix.group_box with grp_rec, "Angle Values"
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing

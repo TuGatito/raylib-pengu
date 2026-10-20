@@ -1,0 +1,209 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - postprocessing
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to apply various full-screen post-processing
+## fragment shaders (such as grayscale, posterization, dream vision, scanlines,
+## fisheye, sobel edge detection, bloom, and blur) onto an offscreen render texture.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_postprocessing.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Total number of available post-processing shaders.
+const MAX_POSTPRO_SHADERS as int is 12
+
+# --- Helper Functions ---------------------------------------------------
+
+## Returns the shader display name for a given effect index.
+weave get_shader_name with index as int into string:
+    if index == 0:
+        return "GRAYSCALE"
+    if index == 1:
+        return "POSTERIZATION"
+    if index == 2:
+        return "DREAM_VISION"
+    if index == 3:
+        return "PIXELIZER"
+    if index == 4:
+        return "CROSS_HATCHING"
+    if index == 5:
+        return "CROSS_STITCHING"
+    if index == 6:
+        return "PREDATOR_VIEW"
+    if index == 7:
+        return "SCANLINES"
+    if index == 8:
+        return "FISHEYE"
+    if index == 9:
+        return "SOBEL"
+    if index == 10:
+        return "BLOOM"
+    return "BLUR"
+
+## Returns the shader source file path for a given effect index.
+weave get_shader_filename with index as int into string:
+    if index == 0:
+        return "examples/shaders/resources/shaders/glsl330/grayscale.fs"
+    if index == 1:
+        return "examples/shaders/resources/shaders/glsl330/posterization.fs"
+    if index == 2:
+        return "examples/shaders/resources/shaders/glsl330/dream_vision.fs"
+    if index == 3:
+        return "examples/shaders/resources/shaders/glsl330/pixelizer.fs"
+    if index == 4:
+        return "examples/shaders/resources/shaders/glsl330/cross_hatching.fs"
+    if index == 5:
+        return "examples/shaders/resources/shaders/glsl330/cross_stitching.fs"
+    if index == 6:
+        return "examples/shaders/resources/shaders/glsl330/predator.fs"
+    if index == 7:
+        return "examples/shaders/resources/shaders/glsl330/scanlines.fs"
+    if index == 8:
+        return "examples/shaders/resources/shaders/glsl330/fisheye.fs"
+    if index == 9:
+        return "examples/shaders/resources/shaders/glsl330/sobel.fs"
+    if index == 10:
+        return "examples/shaders/resources/shaders/glsl330/bloom.fs"
+    return "examples/shaders/resources/shaders/glsl330/blur.fs"
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32)
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - postprocessing"
+    defer calling raylib.CloseWindow
+
+    # Define camera
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 2.0, y is 3.0, z is 2.0)
+        set .target is (with x is 0.0, y is 1.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load 3D model
+    var model as raylib.Model is with meshCount is 0
+    if loaded_model as raylib.Model is calling models.load_model with "examples/shaders/resources/models/church.obj":
+        set model is loaded_model
+    else:
+        return 1
+    defer calling models.unload_model with model
+
+    # Load texture
+    var texture as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/models/church_diffuse.png":
+        set texture is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with texture
+
+    var mat as ref to raylib.Material is sigil of (model.materials at 0)
+    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+
+    # Load all 12 post-processing shaders
+    var shaders_list as list of raylib.Shader is []
+    defer banish shaders_list
+
+    for i from 0 to MAX_POSTPRO_SHADERS:
+        var s as raylib.Shader is with id is 0
+        if loaded as raylib.Shader is calling shaders.load_fragment_shader with (calling get_shader_filename with i):
+            set s is loaded
+        calling shaders_list.append with s
+
+    defer:
+        for i from 0 to MAX_POSTPRO_SHADERS:
+            calling shaders.unload_shader with (shaders_list at i)
+
+    var current_shader as int is 0
+
+    # Create render texture
+    var target as raylib.RenderTexture2D is with id is 0
+    if loaded_target as raylib.RenderTexture2D is calling textures.load_render_texture with SCREEN_WIDTH, SCREEN_HEIGHT:
+        set target is loaded_target
+    else:
+        return 1
+    defer calling textures.unload_render_texture with target
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        if calling input.is_key_pressed with raylib.KEY_RIGHT:
+            set current_shader is current_shader + 1
+        else if calling input.is_key_pressed with raylib.KEY_LEFT:
+            set current_shader is current_shader - 1
+
+        if current_shader >= MAX_POSTPRO_SHADERS:
+            set current_shader is 0
+        else if current_shader < 0:
+            set current_shader is MAX_POSTPRO_SHADERS - 1
+
+        # Draw scene into offscreen render texture
+        calling drawing.begin_texture_mode with target
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        calling model.draw with position, 0.1, raylib.WHITE
+        calling shapes3d.draw_grid with 10, 1.0
+        calling drawing.end_mode_3d
+        calling drawing.end_texture_mode
+
+        # Draw screen presentation using selected post-processing shader
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let active_shdr as raylib.Shader is shaders_list at current_shader
+        calling drawing.begin_shader_mode with active_shdr
+        var src_rec as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is target.texture.width to f32
+            set .height is (0.0 - (target.texture.height to f32))
+        calling target.texture.draw_rec with src_rec, (with x is 0.0, y is 0.0), raylib.WHITE
+        calling drawing.end_shader_mode
+
+        # Draw UI overlay
+        calling shapes.draw_rectangle with 0, 9, 580, 30, (calling colors.fade with raylib.LIGHTGRAY, 0.7)
+
+        calling txt.draw_text with "(c) Church 3D model by Alberto Cano", (SCREEN_WIDTH - 200), (SCREEN_HEIGHT - 20), 10, raylib.GRAY
+        calling txt.draw_text with "CURRENT POSTPRO SHADER:", 10, 15, 20, raylib.BLACK
+        calling txt.draw_text with (calling get_shader_name with current_shader), 330, 15, 20, raylib.RED
+        calling txt.draw_text with "< >", 540, 10, 30, raylib.DARKBLUE
+
+        calling txt.draw_fps with 700, 15
+        calling drawing.end_drawing
+
+    return 0

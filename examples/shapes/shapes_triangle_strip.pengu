@@ -1,0 +1,164 @@
+## raylib [shapes] example - triangle strip
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+## Example contributed by Jopestpe (@jopestpe)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Jopestpe (@jopestpe)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and rayguix controls.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_triangle_strip.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raygui as raygui
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raymathx as raymathx
+import pengu.rayguix as rayguix
+import std.fractio as fractio
+
+# --- Constants ---
+
+## Maximum number of points in the strip vertex buffer
+const MAX_STRIP_POINTS as int is 130
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - triangle strip"
+    defer calling raylib.CloseWindow
+
+    var points as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish points
+    for k from 0 to MAX_STRIP_POINTS - 1:
+        calling points.push with with:
+            set .x is 0.0
+            set .y is 0.0
+
+    let center as raylib.Vector2 is with:
+        set .x is (((screen_width to f32) / 2.0) - 125.0)
+        set .y is ((screen_height to f32) / 2.0)
+
+    var segments as f32 is 6.0
+    let inside_radius as f32 is 100.0
+    let outside_radius as f32 is 150.0
+    var outline as bool is true
+
+    let div_line_start as raylib.Vector2 is with:
+        set .x is 580.0
+        set .y is 0.0
+
+    let side_panel_rec as raylib.Rectangle is with:
+        set .x is 580.0
+        set .y is 0.0
+        set .width is (screen_width to f32) - 580.0
+        set .height is (screen_height to f32)
+
+    let line_col as raylib.Color is with:
+        set .r is (218 to byte)
+        set .g is (218 to byte)
+        set .b is (218 to byte)
+        set .a is (255 to byte)
+
+    let panel_col as raylib.Color is with:
+        set .r is (232 to byte)
+        set .g is (232 to byte)
+        set .b is (232 to byte)
+        set .a is (255 to byte)
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        let point_count as int is segments to int
+        let angle_step as f32 is (360.0 / (point_count to f32)) * raymathx.DEG2RAD
+
+        for i from 0 to point_count - 1:
+            let i2 as int is i * 2
+            let angle1 as f32 is (i to f32) * angle_step
+            let p1 as raylib.Vector2 is with:
+                set .x is center.x + ((calling angle1.get_cos) * inside_radius)
+                set .y is center.y + ((calling angle1.get_sin) * inside_radius)
+            set points at i2 is p1
+
+            let angle2 as f32 is angle1 + (angle_step / 2.0)
+            let p2 as raylib.Vector2 is with:
+                set .x is center.x + ((calling angle2.get_cos) * outside_radius)
+                set .y is center.y + ((calling angle2.get_sin) * outside_radius)
+            set points at (i2 + 1) is p2
+
+        set points at (point_count * 2) is points at 0
+        set points at (point_count * 2 + 1) is points at 1
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        for i from 0 to point_count - 1:
+            let a as raylib.Vector2 is points at (i * 2)
+            let b as raylib.Vector2 is points at (i * 2 + 1)
+            let c as raylib.Vector2 is points at (i * 2 + 2)
+            let d as raylib.Vector2 is points at (i * 2 + 3)
+
+            let angle1 as f32 is (i to f32) * angle_step
+            let col1 as raylib.Color is calling raylib.ColorFromHSV with (angle1 * raymathx.RAD2DEG), 1.0, 1.0
+            let col2 as raylib.Color is calling raylib.ColorFromHSV with ((angle1 + (angle_step / 2.0)) * raymathx.RAD2DEG), 1.0, 1.0
+
+            calling raylib.DrawTriangle with c, b, a, col1
+            calling raylib.DrawTriangle with d, b, c, col2
+
+            if outline:
+                calling raylib.DrawTriangleLines with a, b, c, raylib.BLACK
+                calling raylib.DrawTriangleLines with c, b, d, raylib.BLACK
+
+        let div_line_end as raylib.Vector2 is with:
+            set .x is 580.0
+            set .y is (calling raylib.GetScreenHeight to f32)
+        calling div_line_start.draw_line_ex with div_line_end, 1.0, line_col
+
+        calling side_panel_rec.draw with panel_col
+
+        # Draw GUI controls
+        let sl_seg_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 40.0
+            set .width is 120.0
+            set .height is 20.0
+        var s_seg as string is "{segments to int}"
+        calling rayguix.slider_bar with sl_seg_rec, "Segments", s_seg, (sigil of segments), 6.0, 60.0
+        banish s_seg
+
+        let cb_out_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 70.0
+            set .width is 20.0
+            set .height is 20.0
+        calling rayguix.check_box with cb_out_rec, "Outline", (sigil of outline)
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

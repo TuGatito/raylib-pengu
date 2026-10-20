@@ -1,0 +1,275 @@
+## ## raylib [shapes] example - easings testbed
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 2.5
+## Example contributed by Juan Miguel López (@flashback-fx) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2019-2025 Juan Miguel López (@flashback-fx) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and reasings module.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_easings_testbed.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.reasings as reasings
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+const FONT_SIZE as int is 20
+const D_STEP as f32 is 20.0
+const D_STEP_FINE as f32 is 2.0
+const D_MIN as f32 is 1.0
+const D_MAX as f32 is 10000.0
+const EASING_NONE as int is 28
+
+# --- Helpers ---
+
+## ## Returns name of the easing function
+weave get_easing_name with easing_type as int into string:
+    if easing_type == 0:
+        return "EaseLinearNone"
+    if easing_type == 1:
+        return "EaseLinearIn"
+    if easing_type == 2:
+        return "EaseLinearOut"
+    if easing_type == 3:
+        return "EaseLinearInOut"
+    if easing_type == 4:
+        return "EaseSineIn"
+    if easing_type == 5:
+        return "EaseSineOut"
+    if easing_type == 6:
+        return "EaseSineInOut"
+    if easing_type == 7:
+        return "EaseCircIn"
+    if easing_type == 8:
+        return "EaseCircOut"
+    if easing_type == 9:
+        return "EaseCircInOut"
+    if easing_type == 10:
+        return "EaseCubicIn"
+    if easing_type == 11:
+        return "EaseCubicOut"
+    if easing_type == 12:
+        return "EaseCubicInOut"
+    if easing_type == 13:
+        return "EaseQuadIn"
+    if easing_type == 14:
+        return "EaseQuadOut"
+    if easing_type == 15:
+        return "EaseQuadInOut"
+    if easing_type == 16:
+        return "EaseExpoIn"
+    if easing_type == 17:
+        return "EaseExpoOut"
+    if easing_type == 18:
+        return "EaseExpoInOut"
+    if easing_type == 19:
+        return "EaseBackIn"
+    if easing_type == 20:
+        return "EaseBackOut"
+    if easing_type == 21:
+        return "EaseBackInOut"
+    if easing_type == 22:
+        return "EaseBounceOut"
+    if easing_type == 23:
+        return "EaseBounceIn"
+    if easing_type == 24:
+        return "EaseBounceInOut"
+    if easing_type == 25:
+        return "EaseElasticIn"
+    if easing_type == 26:
+        return "EaseElasticOut"
+    if easing_type == 27:
+        return "EaseElasticInOut"
+    return "None"
+
+## ## Computes value for a given easing function
+weave compute_easing with easing_type as int, t as f32, b as f32, c as f32, d as f32 into f32:
+    if easing_type == 0:
+        return calling reasings.ease_linear_none with t, b, c, d
+    if easing_type == 1:
+        return calling reasings.ease_linear_in with t, b, c, d
+    if easing_type == 2:
+        return calling reasings.ease_linear_out with t, b, c, d
+    if easing_type == 3:
+        return calling reasings.ease_linear_in_out with t, b, c, d
+    if easing_type == 4:
+        return calling reasings.ease_sine_in with t, b, c, d
+    if easing_type == 5:
+        return calling reasings.ease_sine_out with t, b, c, d
+    if easing_type == 6:
+        return calling reasings.ease_sine_in_out with t, b, c, d
+    if easing_type == 7:
+        return calling reasings.ease_circ_in with t, b, c, d
+    if easing_type == 8:
+        return calling reasings.ease_circ_out with t, b, c, d
+    if easing_type == 9:
+        return calling reasings.ease_circ_in_out with t, b, c, d
+    if easing_type == 10:
+        return calling reasings.ease_cubic_in with t, b, c, d
+    if easing_type == 11:
+        return calling reasings.ease_cubic_out with t, b, c, d
+    if easing_type == 12:
+        return calling reasings.ease_cubic_in_out with t, b, c, d
+    if easing_type == 13:
+        return calling reasings.ease_quad_in with t, b, c, d
+    if easing_type == 14:
+        return calling reasings.ease_quad_out with t, b, c, d
+    if easing_type == 15:
+        return calling reasings.ease_quad_in_out with t, b, c, d
+    if easing_type == 16:
+        return calling reasings.ease_expo_in with t, b, c, d
+    if easing_type == 17:
+        return calling reasings.ease_expo_out with t, b, c, d
+    if easing_type == 18:
+        return calling reasings.ease_expo_in_out with t, b, c, d
+    if easing_type == 19:
+        return calling reasings.ease_back_in with t, b, c, d
+    if easing_type == 20:
+        return calling reasings.ease_back_out with t, b, c, d
+    if easing_type == 21:
+        return calling reasings.ease_back_in_out with t, b, c, d
+    if easing_type == 22:
+        return calling reasings.ease_bounce_out with t, b, c, d
+    if easing_type == 23:
+        return calling reasings.ease_bounce_in with t, b, c, d
+    if easing_type == 24:
+        return calling reasings.ease_bounce_in_out with t, b, c, d
+    if easing_type == 25:
+        return calling reasings.ease_elastic_in with t, b, c, d
+    if easing_type == 26:
+        return calling reasings.ease_elastic_out with t, b, c, d
+    if easing_type == 27:
+        return calling reasings.ease_elastic_in_out with t, b, c, d
+    # EASING_NONE
+    return b
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - easings testbed"
+    defer calling raylib.CloseWindow
+
+    var ball_pos as raylib.Vector2 is with:
+        set .x is 100.0
+        set .y is 100.0
+
+    var t as f32 is 0.0
+    var d as f32 is 300.0
+    var paused as bool is true
+    var bounded_t as bool is true
+
+    var easing_x as int is EASING_NONE
+    var easing_y as int is EASING_NONE
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling input.is_key_pressed with raylib.KEY_T:
+            set bounded_t is not bounded_t
+
+        # Choose easing for the X axis
+        if calling input.is_key_pressed with raylib.KEY_RIGHT:
+            set easing_x is easing_x + 1
+            if easing_x > EASING_NONE:
+                set easing_x is 0
+        else if calling input.is_key_pressed with raylib.KEY_LEFT:
+            if easing_x == 0:
+                set easing_x is EASING_NONE
+            else:
+                set easing_x is easing_x - 1
+
+        # Choose easing for the Y axis
+        if calling input.is_key_pressed with raylib.KEY_DOWN:
+            set easing_y is easing_y + 1
+            if easing_y > EASING_NONE:
+                set easing_y is 0
+        else if calling input.is_key_pressed with raylib.KEY_UP:
+            if easing_y == 0:
+                set easing_y is EASING_NONE
+            else:
+                set easing_y is easing_y - 1
+
+        # Change d (duration) value
+        if (calling input.is_key_pressed with raylib.KEY_W) and (d < (D_MAX - D_STEP)):
+            set d is d + D_STEP
+        else if (calling input.is_key_pressed with raylib.KEY_Q) and (d > (D_MIN + D_STEP)):
+            set d is d - D_STEP
+
+        if (calling input.is_key_down with raylib.KEY_S) and (d < (D_MAX - D_STEP_FINE)):
+            set d is d + D_STEP_FINE
+        else if (calling input.is_key_down with raylib.KEY_A) and (d > (D_MIN + D_STEP_FINE)):
+            set d is d - D_STEP_FINE
+
+        # Play, pause and restart controls
+        let t_restart as bool is (calling input.is_key_pressed with raylib.KEY_ENTER) and bounded_t and (t >= d)
+        let k1 as bool is (calling input.is_key_pressed with raylib.KEY_SPACE) or (calling input.is_key_pressed with raylib.KEY_T)
+        let k2 as bool is (calling input.is_key_pressed with raylib.KEY_RIGHT) or (calling input.is_key_pressed with raylib.KEY_LEFT)
+        let k3 as bool is (calling input.is_key_pressed with raylib.KEY_DOWN) or (calling input.is_key_pressed with raylib.KEY_UP)
+        let k4 as bool is (calling input.is_key_pressed with raylib.KEY_W) or (calling input.is_key_pressed with raylib.KEY_Q)
+        let k5 as bool is (calling input.is_key_down with raylib.KEY_S) or (calling input.is_key_down with raylib.KEY_A)
+        if k1 or k2 or k3 or k4 or k5 or t_restart:
+            set t is 0.0
+            set ball_pos.x is 100.0
+            set ball_pos.y is 100.0
+            set paused is true
+
+        if calling input.is_key_pressed with raylib.KEY_ENTER:
+            set paused is not paused
+
+        # Movement computation
+        let should_move as bool is (bounded_t and (t < d)) or (not bounded_t)
+        if (not paused) and should_move:
+            set ball_pos.x is calling compute_easing with easing_x, t, 100.0, 700.0 - 170.0, d
+            set ball_pos.y is calling compute_easing with easing_y, t, 100.0, 400.0 - 170.0, d
+            set t is t + 1.0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        # Draw information text
+        var name_x as string is calling get_easing_name with easing_x
+        var str_x as string is "Easing x: {name_x}"
+        calling txt.draw_text with str_x, 20, FONT_SIZE, FONT_SIZE, colors.LIGHTGRAY
+        banish str_x
+
+        var name_y as string is calling get_easing_name with easing_y
+        var str_y as string is "Easing y: {name_y}"
+        calling txt.draw_text with str_y, 20, FONT_SIZE * 2, FONT_SIZE, colors.LIGHTGRAY
+        banish str_y
+
+        let mode_char as string is if bounded_t then "b" else "u"
+        var str_td as string is "t ({mode_char}) = {t to int} d = {d to int}"
+        calling txt.draw_text with str_td, 20, FONT_SIZE * 3, FONT_SIZE, colors.LIGHTGRAY
+        banish str_td
+
+        # Draw instructions text
+        calling txt.draw_text with "Use ENTER to play or pause movement, use SPACE to restart", 20, SCREEN_HEIGHT - (FONT_SIZE * 2), FONT_SIZE, colors.LIGHTGRAY
+        calling txt.draw_text with "Use Q and W or A and S keys to change duration", 20, SCREEN_HEIGHT - (FONT_SIZE * 3), FONT_SIZE, colors.LIGHTGRAY
+        calling txt.draw_text with "Use LEFT or RIGHT keys to choose easing for the x axis", 20, SCREEN_HEIGHT - (FONT_SIZE * 4), FONT_SIZE, colors.LIGHTGRAY
+        calling txt.draw_text with "Use UP or DOWN keys to choose easing for the y axis", 20, SCREEN_HEIGHT - (FONT_SIZE * 5), FONT_SIZE, colors.LIGHTGRAY
+
+        # Draw ball
+        calling ball_pos.draw_circle with 16.0, colors.MAROON
+
+        calling drawing.end_drawing

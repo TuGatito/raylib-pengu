@@ -1,0 +1,187 @@
+## ## raylib [shapes] example - hilbert curve
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 5.6, last time updated with raylib 5.6
+## Example contributed by Hamza RAHAL (@hmz-rhl) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Hamza RAHAL (@hmz-rhl)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx and rayguix wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_hilbert_curve.pengu
+## ```
+
+import pengu.raygui as raygui
+import pengu.rayguix as rayguix
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+
+# --- Helpers ---
+
+## ## Computes Hilbert path U positions
+weave compute_hilbert_step with order as int, idx as int into raylib.Vector2:
+    let hilbert_index_base as int is idx & 3
+
+    var vect as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+
+    if hilbert_index_base == 0:
+        set vect.x is 0.0
+        set vect.y is 0.0
+    else if hilbert_index_base == 1:
+        set vect.x is 0.0
+        set vect.y is 1.0
+    else if hilbert_index_base == 2:
+        set vect.x is 1.0
+        set vect.y is 1.0
+    else:
+        set vect.x is 1.0
+        set vect.y is 0.0
+
+    var cur_idx as int is idx
+
+    for j from 1 to order - 1:
+        set cur_idx is cur_idx >> 2
+        let h_idx as int is cur_idx & 3
+        let step_len as int is 1 << j
+        let step_f as f32 is step_len to f32
+
+        if h_idx == 0:
+            let temp as f32 is vect.x
+            set vect.x is vect.y
+            set vect.y is temp
+        else if h_idx == 1:
+            set vect.y is vect.y + step_f
+        else if h_idx == 2:
+            set vect.x is vect.x + step_f
+            set vect.y is vect.y + step_f
+        else if h_idx == 3:
+            let temp as f32 is (step_f - 1.0) - vect.x
+            set vect.x is ((2.0 * step_f) - 1.0) - vect.y
+            set vect.y is temp
+
+    return vect
+
+## ## Generates the whole Hilbert path
+weave load_hilbert_path with order as int, size as f32 into list of raylib.Vector2:
+    let n as int is 1 << order
+    let total_strokes as int is n * n
+    let cell_len as f32 is size / (n to f32)
+    let half_len as f32 is cell_len / 2.0
+
+    var path as list of raylib.Vector2 is []
+    for i from 0 to total_strokes - 1:
+        var step_pos as raylib.Vector2 is calling compute_hilbert_step with order, i
+        set step_pos.x is (step_pos.x * cell_len) + half_len
+        set step_pos.y is (step_pos.y * cell_len) + half_len
+        calling path.append with step_pos
+
+    return path
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - hilbert curve"
+    defer calling raylib.CloseWindow
+
+    var order as int is 2
+    var size as f32 is SCREEN_HEIGHT to f32
+    var hilbert_path as list of raylib.Vector2 is calling load_hilbert_path with order, size
+
+    var prev_order as int is order
+    var prev_size as int is size to int
+    var counter as int is 0
+    var thick as f32 is 2.0
+    var animate as bool is true
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let cur_size_int as int is size to int
+        if (prev_order != order) or (prev_size != cur_size_int):
+            banish hilbert_path
+            set hilbert_path is calling load_hilbert_path with order, size
+
+            if animate:
+                set counter is 0
+            else:
+                set counter is hilbert_path.length to int
+
+            set prev_order is order
+            set prev_size is cur_size_int
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        let stroke_count as int is hilbert_path.length to int
+
+        if counter < stroke_count:
+            # Draw Hilbert path animation, one stroke every frame
+            for i from 1 to counter:
+                let p1 as raylib.Vector2 is hilbert_path at i
+                let p0 as raylib.Vector2 is hilbert_path at (i - 1)
+                let hue as f32 is ((i to f32) / (stroke_count to f32)) * 360.0
+                let col as raylib.Color is calling raylib.ColorFromHSV with hue, 1.0, 1.0
+                calling p1.draw_line_ex with p0, thick, col
+
+            set counter is counter + 1
+        else:
+            # Draw full Hilbert path
+            for i from 1 to stroke_count - 1:
+                let p1 as raylib.Vector2 is hilbert_path at i
+                let p0 as raylib.Vector2 is hilbert_path at (i - 1)
+                let hue as f32 is ((i to f32) / (stroke_count to f32)) * 360.0
+                let col as raylib.Color is calling raylib.ColorFromHSV with hue, 1.0, 1.0
+                calling p1.draw_line_ex with p0, thick, col
+
+        # Draw UI using raygui
+        var chk_rec as raylib.Rectangle is with:
+            set .x is 450.0
+            set .y is 50.0
+            set .width is 20.0
+            set .height is 20.0
+        let _c as int is calling rayguix.check_box with chk_rec, "ANIMATE GENERATION ON CHANGE", (sigil of animate)
+
+        var spn_rec as raylib.Rectangle is with:
+            set .x is 585.0
+            set .y is 100.0
+            set .width is 180.0
+            set .height is 30.0
+        let _s as int is calling rayguix.spinner with spn_rec, "HILBERT CURVE ORDER:  ", (sigil of order), 2, 8, false
+
+        var sld1_rec as raylib.Rectangle is with:
+            set .x is 524.0
+            set .y is 150.0
+            set .width is 240.0
+            set .height is 24.0
+        let _sl1 as int is calling rayguix.slider with sld1_rec, "THICKNESS:  ", "", (sigil of thick), 1.0, 10.0
+
+        var sld2_rec as raylib.Rectangle is with:
+            set .x is 524.0
+            set .y is 190.0
+            set .width is 240.0
+            set .height is 24.0
+        let _sl2 as int is calling rayguix.slider with sld2_rec, "TOTAL SIZE: ", "", (sigil of size), 10.0, (SCREEN_HEIGHT to f32) * 1.5
+
+        calling drawing.end_drawing
+
+    banish hilbert_path

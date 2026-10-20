@@ -1,0 +1,668 @@
+## raylib [shapes] example - outlines testbed
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 6.1, last time updated with raylib 6.1
+## Example contributed by Matthew Roush (@MatthewRoush) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2026 Matthew Roush (@MatthewRoush)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers, rcamerax, and rayguix.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_outlines_testbed.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raygui as raygui
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import pengu.rcamerax as rcamerax
+import pengu.raymathx as raymathx
+import pengu.rayguix as rayguix
+import std.fractio as fractio
+
+# --- Constants ---
+
+## Spacing between individual shapes in a row
+const SHAPE_SPACING as f32 is 14.0
+
+## Size of each bounding square per shape
+const SHAPE_SIZE as f32 is 46.0
+
+## Padding around the group box
+const BOX_SPACING as f32 is 10.0
+
+## Mouse wheel zoom sensitivity
+const MOUSE_CAMERA_ZOOM_SPEED as f32 is 0.3
+
+## Keyboard pan speed
+const KEYBOARD_CAMERA_MOVE_SPEED as f32 is 10.0
+
+## Keyboard zoom step
+const KEYBOARD_CAMERA_ZOOM_SPEED as f32 is 0.1
+
+## Minimum camera zoom allowed
+const CAMERA_ZOOM_MIN as f32 is 0.1
+
+## Maximum camera zoom allowed
+const CAMERA_ZOOM_MAX as f32 is 1000.0
+
+## Number of distinct shape types shown
+const COUNT_SHAPES as f32 is 8.0
+
+## Natural log of 2 for exp2 calculations
+const LN_2 as f32 is 0.69314718056
+
+# Shape order indices
+const ORDER_RECTANGLE as f32 is 0.0
+const ORDER_RECTANGLE_ROUNDED as f32 is 1.0
+const ORDER_CIRCLE as f32 is 2.0
+const ORDER_ELLIPSE as f32 is 3.0
+const ORDER_CIRCLE_SECTOR as f32 is 4.0
+const ORDER_RING as f32 is 5.0
+const ORDER_TRIANGLE as f32 is 6.0
+const ORDER_POLYGON as f32 is 7.0
+
+# Row order indices
+const ORDER_LINES as f32 is 0.0
+const ORDER_LINES_EX_WORLD as f32 is 1.0
+const ORDER_LINES_EX_SCREEN as f32 is 2.0
+
+# --- Helpers ---
+
+## Computes 2 raised to power of x (exp2f equivalent)
+##
+## ## Parameters
+## - `x`: exponent
+##
+## ## Returns
+## 2^x
+weave exp2_f32 with x as f32 into f32:
+    let p as f32 is x * LN_2
+    return calling p.get_exp
+
+## Formats a float to two decimal places
+##
+## ## Parameters
+## - `val`: float value to format
+##
+## ## Returns
+## Formatted string representation
+weave format_float_2 with val as f32 into string:
+    var sign as string is if val < 0.0 then "-" else ""
+    var abs_val as f32 is if val < 0.0 then -val else val
+    var int_part as int is abs_val to int
+    var frac_part as int is ((abs_val - (int_part to f32)) * 100.0) to int
+    var frac_str as string is if frac_part < 10 then "0{frac_part}" else "{frac_part}"
+    defer banish frac_str
+    return "{sign}{int_part}.{frac_str}"
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    let color_filled as raylib.Color is raylib.DARKBLUE
+    let color_outline_base as raylib.Color is raylib.YELLOW
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - outlines testbed"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera2D is with:
+        set .target is with:
+            set .x is 0.0
+            set .y is 0.0
+        set .offset is with:
+            set .x is 0.0
+            set .y is 0.0
+        set .rotation is 0.0
+        set .zoom is 1.0
+
+    # User configurable options while running the program
+    var line_opacity as f32 is 130.0
+    var line_thickness as f32 is 4.0
+    var rectangle_roundness as f32 is 0.4
+    var rectangle_segments as f32 is 9.0
+    var ellipse_radius_y as f32 is 0.5
+    var circle_start_angle as f32 is 20.0
+    var circle_end_angle as f32 is 270.0
+    var circle_segments as f32 is 36.0
+    var ring_inner_radius_scale as f32 is 0.3
+    var polygon_sides as f32 is 6.0
+
+    var disable_mouse_control as bool is false
+
+    let options_background as raylib.Rectangle is with:
+        set .x is 510.0
+        set .y is 0.0
+        set .width is 290.0
+        set .height is 450.0
+
+    let zoom_point as raylib.Vector2 is with:
+        set .x is ((screen_width to f32) - options_background.width) / 2.0
+        set .y is (screen_height to f32) / 2.0
+
+    let box_width as f32 is (SHAPE_SIZE * COUNT_SHAPES) + (SHAPE_SPACING * (COUNT_SHAPES - 1.0)) + (BOX_SPACING * 2.0)
+    let box_height as f32 is SHAPE_SIZE + (BOX_SPACING * 2.0)
+
+    calling raygui.GuiSetStyle with raygui.LABEL, raygui.TEXT_COLOR_NORMAL, (calling raylib.ColorToInt with raylib.WHITE)
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        let mouse_pos_screen as raylib.Vector2 is calling raylib.GetMousePosition
+        let mouse_wheel_vec as raylib.Vector2 is calling raylib.GetMouseWheelMoveV
+
+        if (calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT) and (calling options_background.contains_point with mouse_pos_screen):
+            set disable_mouse_control is true
+
+        if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+            set disable_mouse_control is false
+
+        if not disable_mouse_control:
+            if mouse_wheel_vec.y != 0.0:
+                let prev_world_zoom_point as raylib.Vector2 is calling camera.to_world with zoom_point
+
+                set camera.zoom is camera.zoom * (calling exp2_f32 with (MOUSE_CAMERA_ZOOM_SPEED * mouse_wheel_vec.y))
+                set camera.zoom is calling raymathx.clamp with camera.zoom, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX
+
+                let world_zoom_point as raylib.Vector2 is calling camera.to_world with zoom_point
+                let zoom_diff as raylib.Vector2 is calling prev_world_zoom_point.get_subtract with world_zoom_point
+                set camera.target is calling camera.target.get_add with zoom_diff
+
+            if calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT:
+                let mouse_delta as raylib.Vector2 is calling raylib.GetMouseDelta
+                set camera.target.x is camera.target.x - (mouse_delta.x / camera.zoom)
+                set camera.target.y is camera.target.y - (mouse_delta.y / camera.zoom)
+
+                let mouse_max_x as int is options_background.x to int
+                let mouse_max_y as int is screen_height
+
+                var new_x as int is mouse_pos_screen.x to int
+                var new_y as int is mouse_pos_screen.y to int
+
+                set new_x is (new_x % mouse_max_x + mouse_max_x) % mouse_max_x
+                set new_y is (new_y % mouse_max_y + mouse_max_y) % mouse_max_y
+
+                let cur_x as int is mouse_pos_screen.x to int
+                let cur_y as int is mouse_pos_screen.y to int
+
+                if (new_x != cur_x) or (new_y != cur_y):
+                    calling raylib.SetMousePosition with new_x, new_y
+
+        if calling input.is_key_down with raylib.KEY_A:
+            set camera.target.x is camera.target.x - (KEYBOARD_CAMERA_MOVE_SPEED / camera.zoom)
+        if calling input.is_key_down with raylib.KEY_D:
+            set camera.target.x is camera.target.x + (KEYBOARD_CAMERA_MOVE_SPEED / camera.zoom)
+        if calling input.is_key_down with raylib.KEY_W:
+            set camera.target.y is camera.target.y - (KEYBOARD_CAMERA_MOVE_SPEED / camera.zoom)
+        if calling input.is_key_down with raylib.KEY_S:
+            set camera.target.y is camera.target.y + (KEYBOARD_CAMERA_MOVE_SPEED / camera.zoom)
+
+        if calling input.is_key_down with raylib.KEY_UP:
+            let prev_world as raylib.Vector2 is calling camera.to_world with zoom_point
+            set camera.zoom is camera.zoom * (calling exp2_f32 with KEYBOARD_CAMERA_ZOOM_SPEED)
+            set camera.zoom is calling raymathx.clamp with camera.zoom, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX
+            let world_pt as raylib.Vector2 is calling camera.to_world with zoom_point
+            let diff as raylib.Vector2 is calling prev_world.get_subtract with world_pt
+            set camera.target is calling camera.target.get_add with diff
+
+        if calling input.is_key_down with raylib.KEY_DOWN:
+            let prev_world as raylib.Vector2 is calling camera.to_world with zoom_point
+            set camera.zoom is camera.zoom * (calling exp2_f32 with -KEYBOARD_CAMERA_ZOOM_SPEED)
+            set camera.zoom is calling raymathx.clamp with camera.zoom, CAMERA_ZOOM_MIN, CAMERA_ZOOM_MAX
+            let world_pt as raylib.Vector2 is calling camera.to_world with zoom_point
+            let diff as raylib.Vector2 is calling prev_world.get_subtract with world_pt
+            set camera.target is calling camera.target.get_add with diff
+
+        if calling input.is_key_pressed with raylib.KEY_Z:
+            let prev_world as raylib.Vector2 is calling camera.to_world with zoom_point
+            set camera.zoom is 1.0
+            let world_pt as raylib.Vector2 is calling camera.to_world with zoom_point
+            let diff as raylib.Vector2 is calling prev_world.get_subtract with world_pt
+            set camera.target is calling camera.target.get_add with diff
+
+        if calling input.is_key_pressed with raylib.KEY_C:
+            set camera.target.x is 0.0
+            set camera.target.y is 0.0
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        let bg_color as raylib.Color is with:
+            set .r is (50 to byte)
+            set .g is (50 to byte)
+            set .b is (55 to byte)
+            set .a is (255 to byte)
+        calling drawing.clear_background with bg_color
+
+        var color_outline as raylib.Color is color_outline_base
+        set color_outline.a is (line_opacity to int) to byte
+
+        calling drawing.begin_mode_2d with camera
+
+        let shape_offset as f32 is BOX_SPACING * 2.0
+        let shape_padding_x as f32 is SHAPE_SIZE + SHAPE_SPACING
+        let shape_padding_y as f32 is SHAPE_SIZE + SHAPE_SPACING + (BOX_SPACING * 2.0)
+
+        let radius_x as f32 is SHAPE_SIZE / 2.0
+        let radius_y as f32 is radius_x * ellipse_radius_y
+
+        let ring_outer_radius as f32 is SHAPE_SIZE / 2.0
+        let ring_inner_radius as f32 is ring_outer_radius * ring_inner_radius_scale
+
+        let tri_v0_offset as raylib.Vector2 is with:
+            set .x is 0.0
+            set .y is SHAPE_SIZE * 0.8
+        let tri_v1_offset as raylib.Vector2 is with:
+            set .x is SHAPE_SIZE * 0.6
+            set .y is SHAPE_SIZE
+        let tri_v2_offset as raylib.Vector2 is with:
+            set .x is SHAPE_SIZE
+            set .y is 0.0
+
+        # ------------------------------------------------------------------
+        # Group 1: Draw*Lines()
+        var pos_y as f32 is shape_offset + (shape_padding_y * ORDER_LINES)
+
+        # Rectangle
+        var pos_x as f32 is shape_offset + (shape_padding_x * ORDER_RECTANGLE)
+        let rec1 as raylib.Rectangle is with:
+            set .x is pos_x
+            set .y is pos_y
+            set .width is SHAPE_SIZE
+            set .height is SHAPE_SIZE
+        calling rec1.draw with color_filled
+        calling shapes.draw_rectangle_lines with (pos_x to int), (pos_y to int), (SHAPE_SIZE to int), (SHAPE_SIZE to int), color_outline
+
+        # Rectangle Rounded
+        set pos_x is shape_offset + (shape_padding_x * ORDER_RECTANGLE_ROUNDED)
+        let rec2 as raylib.Rectangle is with:
+            set .x is pos_x
+            set .y is pos_y
+            set .width is SHAPE_SIZE
+            set .height is SHAPE_SIZE
+        calling rec2.draw_rounded with rectangle_roundness, (rectangle_segments to int), color_filled
+        calling raylib.DrawRectangleRoundedLines with rec2, rectangle_roundness, (rectangle_segments to int), color_outline
+
+        # Circle
+        set pos_x is shape_offset + (shape_padding_x * ORDER_CIRCLE)
+        let circle_c1 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling circle_c1.draw_circle with radius_x, color_filled
+        calling circle_c1.draw_circle_lines with radius_x, color_outline
+
+        # Ellipse
+        set pos_x is shape_offset + (shape_padding_x * ORDER_ELLIPSE)
+        let ellipse_c1 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawEllipseV with ellipse_c1, radius_x, radius_y, color_filled
+        calling raylib.DrawEllipseLinesV with ellipse_c1, radius_x, radius_y, color_outline
+
+        # Circle Sector
+        set pos_x is shape_offset + (shape_padding_x * ORDER_CIRCLE_SECTOR)
+        let sector_c1 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawCircleSector with sector_c1, radius_x, circle_start_angle, circle_end_angle, (circle_segments to int), color_filled
+        calling raylib.DrawCircleSectorLines with sector_c1, radius_x, circle_start_angle, circle_end_angle, (circle_segments to int), color_outline
+
+        # Ring
+        set pos_x is shape_offset + (shape_padding_x * ORDER_RING)
+        let ring_c1 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawRing with ring_c1, ring_inner_radius, ring_outer_radius, circle_start_angle, circle_end_angle, (circle_segments to int), color_filled
+        calling raylib.DrawRingLines with ring_c1, ring_inner_radius, ring_outer_radius, circle_start_angle, circle_end_angle, (circle_segments to int), color_outline
+
+        # Triangle
+        set pos_x is shape_offset + (shape_padding_x * ORDER_TRIANGLE)
+        let t1_v0 as raylib.Vector2 is with:
+            set .x is pos_x + tri_v0_offset.x
+            set .y is pos_y + tri_v0_offset.y
+        let t1_v1 as raylib.Vector2 is with:
+            set .x is pos_x + tri_v1_offset.x
+            set .y is pos_y + tri_v1_offset.y
+        let t1_v2 as raylib.Vector2 is with:
+            set .x is pos_x + tri_v2_offset.x
+            set .y is pos_y + tri_v2_offset.y
+        calling raylib.DrawTriangle with t1_v0, t1_v1, t1_v2, color_filled
+        calling raylib.DrawTriangleLines with t1_v0, t1_v1, t1_v2, color_outline
+
+        # Polygon
+        set pos_x is shape_offset + (shape_padding_x * ORDER_POLYGON)
+        let poly_c1 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawPoly with poly_c1, (polygon_sides to int), radius_x, 0.0, color_filled
+        calling raylib.DrawPolyLines with poly_c1, (polygon_sides to int), radius_x, 0.0, color_outline
+
+        let group_box_rec1 as raylib.Rectangle is with:
+            set .x is shape_offset - BOX_SPACING
+            set .y is pos_y - BOX_SPACING
+            set .width is box_width
+            set .height is box_height
+        calling rayguix.group_box with group_box_rec1, "Draw*Lines()"
+
+        # ------------------------------------------------------------------
+        # Group 2: Draw*LinesEx() with world space pixel thickness
+        set pos_y is shape_offset + (shape_padding_y * ORDER_LINES_EX_WORLD)
+
+        # Rectangle
+        set pos_x is shape_offset + (shape_padding_x * ORDER_RECTANGLE)
+        let rec3 as raylib.Rectangle is with:
+            set .x is pos_x
+            set .y is pos_y
+            set .width is SHAPE_SIZE
+            set .height is SHAPE_SIZE
+        calling rec3.draw with color_filled
+        calling rec3.draw_outline with line_thickness, color_outline
+
+        # Rectangle Rounded
+        set pos_x is shape_offset + (shape_padding_x * ORDER_RECTANGLE_ROUNDED)
+        let rec4 as raylib.Rectangle is with:
+            set .x is pos_x
+            set .y is pos_y
+            set .width is SHAPE_SIZE
+            set .height is SHAPE_SIZE
+        calling rec4.draw_rounded with rectangle_roundness, (rectangle_segments to int), color_filled
+        calling rec4.draw_rounded_outline with rectangle_roundness, (rectangle_segments to int), line_thickness, color_outline
+
+        # Circle
+        set pos_x is shape_offset + (shape_padding_x * ORDER_CIRCLE)
+        let circle_c2 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling circle_c2.draw_circle with radius_x, color_filled
+        calling raylib.DrawCircleLinesEx with circle_c2, radius_x, line_thickness, color_outline
+
+        # Ellipse
+        set pos_x is shape_offset + (shape_padding_x * ORDER_ELLIPSE)
+        let ellipse_c2 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawEllipseV with ellipse_c2, radius_x, radius_y, color_filled
+        calling raylib.DrawEllipseLinesEx with ellipse_c2, radius_x, radius_y, line_thickness, color_outline
+
+        # Circle Sector
+        set pos_x is shape_offset + (shape_padding_x * ORDER_CIRCLE_SECTOR)
+        let sector_c2 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawCircleSector with sector_c2, radius_x, circle_start_angle, circle_end_angle, (circle_segments to int), color_filled
+        calling raylib.DrawCircleSectorLinesEx with sector_c2, radius_x, circle_start_angle, circle_end_angle, (circle_segments to int), line_thickness, color_outline
+
+        # Ring
+        set pos_x is shape_offset + (shape_padding_x * ORDER_RING)
+        let ring_c2 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawRing with ring_c2, ring_inner_radius, ring_outer_radius, circle_start_angle, circle_end_angle, (circle_segments to int), color_filled
+        calling raylib.DrawRingLinesEx with ring_c2, ring_inner_radius, ring_outer_radius, circle_start_angle, circle_end_angle, (circle_segments to int), line_thickness, color_outline
+
+        # Triangle
+        set pos_x is shape_offset + (shape_padding_x * ORDER_TRIANGLE)
+        let t2_v0 as raylib.Vector2 is with:
+            set .x is pos_x + tri_v0_offset.x
+            set .y is pos_y + tri_v0_offset.y
+        let t2_v1 as raylib.Vector2 is with:
+            set .x is pos_x + tri_v1_offset.x
+            set .y is pos_y + tri_v1_offset.y
+        let t2_v2 as raylib.Vector2 is with:
+            set .x is pos_x + tri_v2_offset.x
+            set .y is pos_y + tri_v2_offset.y
+        calling raylib.DrawTriangle with t2_v0, t2_v1, t2_v2, color_filled
+        calling raylib.DrawTriangleLinesEx with t2_v0, t2_v1, t2_v2, line_thickness, color_outline
+
+        # Polygon
+        set pos_x is shape_offset + (shape_padding_x * ORDER_POLYGON)
+        let poly_c2 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawPoly with poly_c2, (polygon_sides to int), radius_x, 0.0, color_filled
+        calling raylib.DrawPolyLinesEx with poly_c2, (polygon_sides to int), radius_x, 0.0, line_thickness, color_outline
+
+        let group_box_rec2 as raylib.Rectangle is with:
+            set .x is shape_offset - BOX_SPACING
+            set .y is pos_y - BOX_SPACING
+            set .width is box_width
+            set .height is box_height
+        calling rayguix.group_box with group_box_rec2, "Draw*LinesEx() with *world space* pixel thickness"
+
+        # ------------------------------------------------------------------
+        # Group 3: Draw*LinesEx() with screen space pixel thickness
+        set pos_y is shape_offset + (shape_padding_y * ORDER_LINES_EX_SCREEN)
+        let constant_thickness as f32 is line_thickness / camera.zoom
+
+        # Rectangle
+        set pos_x is shape_offset + (shape_padding_x * ORDER_RECTANGLE)
+        let rec5 as raylib.Rectangle is with:
+            set .x is pos_x
+            set .y is pos_y
+            set .width is SHAPE_SIZE
+            set .height is SHAPE_SIZE
+        calling rec5.draw with color_filled
+        calling rec5.draw_outline with constant_thickness, color_outline
+
+        # Rectangle Rounded
+        set pos_x is shape_offset + (shape_padding_x * ORDER_RECTANGLE_ROUNDED)
+        let rec6 as raylib.Rectangle is with:
+            set .x is pos_x
+            set .y is pos_y
+            set .width is SHAPE_SIZE
+            set .height is SHAPE_SIZE
+        calling rec6.draw_rounded with rectangle_roundness, (rectangle_segments to int), color_filled
+        calling rec6.draw_rounded_outline with rectangle_roundness, (rectangle_segments to int), constant_thickness, color_outline
+
+        # Circle
+        set pos_x is shape_offset + (shape_padding_x * ORDER_CIRCLE)
+        let circle_c3 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling circle_c3.draw_circle with radius_x, color_filled
+        calling raylib.DrawCircleLinesEx with circle_c3, radius_x, constant_thickness, color_outline
+
+        # Ellipse
+        set pos_x is shape_offset + (shape_padding_x * ORDER_ELLIPSE)
+        let ellipse_c3 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawEllipseV with ellipse_c3, radius_x, radius_y, color_filled
+        calling raylib.DrawEllipseLinesEx with ellipse_c3, radius_x, radius_y, constant_thickness, color_outline
+
+        # Circle Sector
+        set pos_x is shape_offset + (shape_padding_x * ORDER_CIRCLE_SECTOR)
+        let sector_c3 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawCircleSector with sector_c3, radius_x, circle_start_angle, circle_end_angle, (circle_segments to int), color_filled
+        calling raylib.DrawCircleSectorLinesEx with sector_c3, radius_x, circle_start_angle, circle_end_angle, (circle_segments to int), constant_thickness, color_outline
+
+        # Ring
+        set pos_x is shape_offset + (shape_padding_x * ORDER_RING)
+        let ring_c3 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawRing with ring_c3, ring_inner_radius, ring_outer_radius, circle_start_angle, circle_end_angle, (circle_segments to int), color_filled
+        calling raylib.DrawRingLinesEx with ring_c3, ring_inner_radius, ring_outer_radius, circle_start_angle, circle_end_angle, (circle_segments to int), constant_thickness, color_outline
+
+        # Triangle
+        set pos_x is shape_offset + (shape_padding_x * ORDER_TRIANGLE)
+        let t3_v0 as raylib.Vector2 is with:
+            set .x is pos_x + tri_v0_offset.x
+            set .y is pos_y + tri_v0_offset.y
+        let t3_v1 as raylib.Vector2 is with:
+            set .x is pos_x + tri_v1_offset.x
+            set .y is pos_y + tri_v1_offset.y
+        let t3_v2 as raylib.Vector2 is with:
+            set .x is pos_x + tri_v2_offset.x
+            set .y is pos_y + tri_v2_offset.y
+        calling raylib.DrawTriangle with t3_v0, t3_v1, t3_v2, color_filled
+        calling raylib.DrawTriangleLinesEx with t3_v0, t3_v1, t3_v2, constant_thickness, color_outline
+
+        # Polygon
+        set pos_x is shape_offset + (shape_padding_x * ORDER_POLYGON)
+        let poly_c3 as raylib.Vector2 is with:
+            set .x is pos_x + (SHAPE_SIZE / 2.0)
+            set .y is pos_y + (SHAPE_SIZE / 2.0)
+        calling raylib.DrawPoly with poly_c3, (polygon_sides to int), radius_x, 0.0, color_filled
+        calling raylib.DrawPolyLinesEx with poly_c3, (polygon_sides to int), radius_x, 0.0, constant_thickness, color_outline
+
+        let group_box_rec3 as raylib.Rectangle is with:
+            set .x is shape_offset - BOX_SPACING
+            set .y is pos_y - BOX_SPACING
+            set .width is box_width
+            set .height is box_height
+        calling rayguix.group_box with group_box_rec3, "Draw*LinesEx() with *screen space* pixel thickness"
+
+        calling drawing.end_mode_2d
+
+        # ------------------------------------------------------------------
+        # UI Overlay
+        calling options_background.draw with (calling colors.fade with raylib.DARKGRAY, 0.75)
+
+        let bottom_panel_rec as raylib.Rectangle is with:
+            set .x is options_background.x
+            set .y is 360.0
+            set .width is options_background.width
+            set .height is 90.0
+        calling bottom_panel_rec.draw with (calling colors.fade with raylib.BLACK, 0.4)
+
+        let h_line_start as raylib.Vector2 is with:
+            set .x is options_background.x
+            set .y is 360.0
+        let h_line_end as raylib.Vector2 is with:
+            set .x is options_background.x + options_background.width
+            set .y is 360.0
+        calling h_line_start.draw_line_ex with h_line_end, 1.0, raylib.BLACK
+
+        let text_base_x as int is (options_background.x to int) + 10
+        calling txt.draw_text with "Move with the mouse or WASD keys", text_base_x, 370, 10, raylib.ORANGE
+        calling txt.draw_text with "Zoom with the mouse or UP and DOWN keys", text_base_x, 390, 10, raylib.ORANGE
+        calling txt.draw_text with "Press C to reset position", text_base_x, 410, 10, raylib.ORANGE
+        calling txt.draw_text with "Press Z to reset zoom", text_base_x, 430, 10, raylib.ORANGE
+
+        let v_line_start as raylib.Vector2 is with:
+            set .x is options_background.x
+            set .y is options_background.y
+        let v_line_end as raylib.Vector2 is with:
+            set .x is options_background.x
+            set .y is options_background.y + options_background.height
+        calling v_line_start.draw_line_ex with v_line_end, 1.0, raylib.BLACK
+
+        # GUI Sliders
+        let slider_rec_opacity as raylib.Rectangle is with:
+            set .x is 605.0
+            set .y is 10.0
+            set .width is 150.0
+            set .height is 25.0
+        var s_opacity as string is "{line_opacity to int}"
+        calling rayguix.slider_bar with slider_rec_opacity, "Line Opacity", s_opacity, (sigil of line_opacity), 0.0, 255.0
+        banish s_opacity
+
+        let slider_rec_thick as raylib.Rectangle is with:
+            set .x is 605.0
+            set .y is 45.0
+            set .width is 150.0
+            set .height is 25.0
+        var s_thick as string is calling format_float_2 with line_thickness
+        calling rayguix.slider_bar with slider_rec_thick, "Thickness", s_thick, (sigil of line_thickness), -20.0, 40.0
+        banish s_thick
+
+        let slider_rec_round as raylib.Rectangle is with:
+            set .x is 605.0
+            set .y is 80.0
+            set .width is 150.0
+            set .height is 25.0
+        var s_round as string is calling format_float_2 with rectangle_roundness
+        calling rayguix.slider_bar with slider_rec_round, "Rect Roundness", s_round, (sigil of rectangle_roundness), -1.0, 2.0
+        banish s_round
+
+        let slider_rec_rec_seg as raylib.Rectangle is with:
+            set .x is 605.0
+            set .y is 115.0
+            set .width is 150.0
+            set .height is 25.0
+        var s_rec_seg as string is "{rectangle_segments to int}"
+        calling rayguix.slider_bar with slider_rec_rec_seg, "Rect Segments", s_rec_seg, (sigil of rectangle_segments), -1.0, 100.0
+        banish s_rec_seg
+
+        let slider_rec_ellip as raylib.Rectangle is with:
+            set .x is 605.0
+            set .y is 150.0
+            set .width is 150.0
+            set .height is 25.0
+        var s_ellip as string is calling format_float_2 with ellipse_radius_y
+        calling rayguix.slider_bar with slider_rec_ellip, "Ellipse Radius Y", s_ellip, (sigil of ellipse_radius_y), 0.0, 1.25
+        banish s_ellip
+
+        let slider_rec_start_angle as raylib.Rectangle is with:
+            set .x is 605.0
+            set .y is 185.0
+            set .width is 150.0
+            set .height is 25.0
+        var s_start_angle as string is calling format_float_2 with circle_start_angle
+        calling rayguix.slider_bar with slider_rec_start_angle, "Start Angle", s_start_angle, (sigil of circle_start_angle), -360.0, 360.0
+        banish s_start_angle
+
+        let slider_rec_end_angle as raylib.Rectangle is with:
+            set .x is 605.0
+            set .y is 220.0
+            set .width is 150.0
+            set .height is 25.0
+        var s_end_angle as string is calling format_float_2 with circle_end_angle
+        calling rayguix.slider_bar with slider_rec_end_angle, "End Angle", s_end_angle, (sigil of circle_end_angle), -360.0, 360.0
+        banish s_end_angle
+
+        let slider_rec_circle_seg as raylib.Rectangle is with:
+            set .x is 605.0
+            set .y is 255.0
+            set .width is 150.0
+            set .height is 25.0
+        var s_circle_seg as string is "{circle_segments to int}"
+        calling rayguix.slider_bar with slider_rec_circle_seg, "Circle Segments", s_circle_seg, (sigil of circle_segments), -1.0, 100.0
+        banish s_circle_seg
+
+        let slider_rec_ring_rad as raylib.Rectangle is with:
+            set .x is 605.0
+            set .y is 290.0
+            set .width is 150.0
+            set .height is 25.0
+        var s_ring_rad as string is calling format_float_2 with ring_inner_radius_scale
+        calling rayguix.slider_bar with slider_rec_ring_rad, "Ring Radius", s_ring_rad, (sigil of ring_inner_radius_scale), -1.0, 2.0
+        banish s_ring_rad
+
+        let slider_rec_poly as raylib.Rectangle is with:
+            set .x is 605.0
+            set .y is 325.0
+            set .width is 150.0
+            set .height is 25.0
+        var s_poly as string is "{polygon_sides to int}"
+        calling rayguix.slider_bar with slider_rec_poly, "Poly Sides", s_poly, (sigil of polygon_sides), -1.0, 100.0
+        banish s_poly
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

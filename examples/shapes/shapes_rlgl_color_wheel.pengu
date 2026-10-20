@@ -1,0 +1,320 @@
+## raylib [shapes] example - rlgl color wheel
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+## Example contributed by Robin (@RobinsAviary) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Robin (@RobinsAviary)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with rlgl and raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_rlgl_color_wheel.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.rlgl as rlgl
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import pengu.raylibx.window as window
+import pengu.raymathx as raymathx
+import pengu.rayguix as rayguix
+import std.fractio as fractio
+
+# --- Constants ---
+
+## Minimum points allowed in color wheel
+const POINTS_MIN as f32 is 3.0
+
+## Maximum points allowed in color wheel
+const POINTS_MAX as f32 is 256.0
+
+# --- Helpers ---
+
+## Converts a byte into a 2-character hexadecimal string
+##
+## ## Parameters
+## - `b`: byte value to convert
+##
+## ## Returns
+## Two-character uppercase hex string
+weave byte_to_hex2 with b as byte into string:
+    let hex_chars as string is "0123456789ABCDEF"
+    let raw as ref to frozen byte is bytes of hex_chars
+    let val as int is b to int
+    let high as int is val >> 4
+    let low as int is val & 15
+    let h1 as int is (raw at high) to int
+    let h2 as int is (raw at low) to int
+    var s1 as string is chr h1
+    var s2 as string is chr h2
+    defer banish s1
+    defer banish s2
+    return "{s1}{s2}"
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    var triangle_count as f32 is 64.0
+    var point_scale as f32 is 150.0
+    var value as f32 is 1.0
+
+    let center as raylib.Vector2 is with:
+        set .x is (screen_width to f32) / 2.0
+        set .y is (screen_height to f32) / 2.0
+
+    var circle_position as raylib.Vector2 is center
+
+    var color as raylib.Color is with:
+        set .r is (255 to byte)
+        set .g is (255 to byte)
+        set .b is (255 to byte)
+        set .a is (255 to byte)
+
+    var slider_clicked as bool is false
+    var setting_color as bool is false
+    var render_type as int is rlgl.RL_TRIANGLES to int
+
+    calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32)
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - rlgl color wheel"
+    defer calling raylib.CloseWindow
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        let wheel as f32 is calling raylib.GetMouseWheelMove
+        set triangle_count is calling raymathx.clamp with (triangle_count + wheel), POINTS_MIN, POINTS_MAX
+
+        let slider_rectangle as raylib.Rectangle is with:
+            set .x is 42.0
+            set .y is 16.0 + 64.0 + 45.0
+            set .width is 64.0
+            set .height is 16.0
+
+        let mouse_position as raylib.Vector2 is calling raylib.GetMousePosition
+        let slider_hover as bool is calling slider_rectangle.contains_point with mouse_position
+
+        # Copy color as hex
+        if (calling input.is_key_down with raylib.KEY_LEFT_CONTROL) and (calling input.is_key_down with raylib.KEY_C):
+            if calling input.is_key_pressed with raylib.KEY_C:
+                var hr as string is calling byte_to_hex2 with color.r
+                var hg as string is calling byte_to_hex2 with color.g
+                var hb as string is calling byte_to_hex2 with color.b
+                var hex_text as string is "#{hr}{hg}{hb}"
+                calling window.set_clipboard_text with hex_text
+                banish hex_text
+                banish hr
+                banish hg
+                banish hb
+
+        # Scale up the color wheel
+        if calling input.is_key_down with raylib.KEY_UP:
+            set point_scale is point_scale * 1.025
+            let max_scale as f32 is (screen_height to f32) / 2.0
+            if point_scale > max_scale:
+                set point_scale is max_scale
+            else:
+                let diff as raylib.Vector2 is calling circle_position.get_subtract with center
+                let scale_v as raylib.Vector2 is with:
+                    set .x is 1.025
+                    set .y is 1.025
+                let scaled as raylib.Vector2 is calling diff.get_multiply with scale_v
+                set circle_position is calling scaled.get_add with center
+
+        # Scale down the wheel
+        if calling input.is_key_down with raylib.KEY_DOWN:
+            set point_scale is point_scale * 0.975
+            if point_scale < 32.0:
+                set point_scale is 32.0
+            else:
+                let diff as raylib.Vector2 is calling circle_position.get_subtract with center
+                let scale_v as raylib.Vector2 is with:
+                    set .x is 0.975
+                    set .y is 0.975
+                let scaled as raylib.Vector2 is calling diff.get_multiply with scale_v
+                set circle_position is calling scaled.get_add with center
+
+            let distance as f32 is (calling center.distance_to with circle_position) / point_scale
+            let v_up as raylib.Vector2 is with:
+                set .x is 0.0
+                set .y is -point_scale
+            let d_center as raylib.Vector2 is calling center.get_subtract with circle_position
+            let ang_rad as f32 is calling v_up.angle_to with d_center
+            let angle as f32 is ((ang_rad / raymathx.PI) + 1.0) / 2.0
+
+            if distance > 1.0:
+                let a_tau as f32 is angle * (raymathx.PI * 2.0)
+                let c_offset as raylib.Vector2 is with:
+                    set .x is (calling a_tau.get_sin) * point_scale
+                    set .y is -(calling a_tau.get_cos) * point_scale
+                set circle_position is calling c_offset.get_add with center
+
+        # Checks if the user clicked on the color wheel
+        let mouse_dist as f32 is calling mouse_position.distance_to with center
+        if (calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT) and (mouse_dist <= (point_scale + 10.0)):
+            set setting_color is true
+
+        if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+            set setting_color is false
+
+        if slider_hover and (calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT):
+            set slider_clicked is true
+
+        if slider_clicked and (calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT):
+            set slider_clicked is false
+
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set render_type is rlgl.RL_LINES to int
+
+        if calling input.is_key_released with raylib.KEY_SPACE:
+            set render_type is rlgl.RL_TRIANGLES to int
+
+        # Update current color
+        if setting_color or slider_clicked:
+            if setting_color:
+                set circle_position is mouse_position
+
+            let distance as f32 is (calling center.distance_to with circle_position) / point_scale
+            let v_up as raylib.Vector2 is with:
+                set .x is 0.0
+                set .y is -point_scale
+            let d_center as raylib.Vector2 is calling center.get_subtract with circle_position
+            let ang_rad as f32 is calling v_up.angle_to with d_center
+            let angle as f32 is ((ang_rad / raymathx.PI) + 1.0) / 2.0
+
+            if setting_color and (distance > 1.0):
+                let a_tau as f32 is angle * (raymathx.PI * 2.0)
+                let c_offset as raylib.Vector2 is with:
+                    set .x is (calling a_tau.get_sin) * point_scale
+                    set .y is -(calling a_tau.get_cos) * point_scale
+                set circle_position is calling c_offset.get_add with center
+
+            let angle_360 as f32 is angle * 360.0
+            let value_actual as f32 is calling raymathx.clamp with distance, 0.0, 1.0
+            let grey_int as int is (value * 255.0) to int
+            let grey_col as raylib.Color is with:
+                set .r is grey_int to byte
+                set .g is grey_int to byte
+                set .b is grey_int to byte
+                set .a is 255 to byte
+            let hsv_col as raylib.Color is calling raylib.ColorFromHSV with angle_360, value_actual, 1.0
+            set color is calling raylib.ColorLerp with grey_col, hsv_col, value_actual
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Begin rendering color wheel
+        calling rlgl.rlBegin with render_type
+        let t_count as int is triangle_count to int
+        for i from 0 to t_count - 1:
+            let angle_offset as f32 is (raymathx.PI * 2.0) / (triangle_count to f32)
+            let a1 as f32 is angle_offset * (i to f32)
+            let a2 as f32 is ((i to f32) + 1.0) * angle_offset
+
+            let pos1 as raylib.Vector2 is with:
+                set .x is center.x + ((calling a1.get_sin) * point_scale)
+                set .y is center.y + (-(calling a1.get_cos) * point_scale)
+
+            let pos2 as raylib.Vector2 is with:
+                set .x is center.x + ((calling a2.get_sin) * point_scale)
+                set .y is center.y + (-(calling a2.get_cos) * point_scale)
+
+            let angle_non_rad as f32 is (a1 / (2.0 * raymathx.PI)) * 360.0
+            let angle_non_rad_offset as f32 is (angle_offset / (2.0 * raymathx.PI)) * 360.0
+
+            let cur_col as raylib.Color is calling raylib.ColorFromHSV with angle_non_rad, 1.0, 1.0
+            let off_col as raylib.Color is calling raylib.ColorFromHSV with (angle_non_rad + angle_non_rad_offset), 1.0, 1.0
+
+            if render_type == (rlgl.RL_TRIANGLES to int):
+                calling rlgl.rlColor4ub with cur_col.r, cur_col.g, cur_col.b, cur_col.a
+                calling rlgl.rlVertex2f with pos1.x, pos1.y
+                calling rlgl.rlColor4f with value, value, value, 1.0
+                calling rlgl.rlVertex2f with center.x, center.y
+                calling rlgl.rlColor4ub with off_col.r, off_col.g, off_col.b, off_col.a
+                calling rlgl.rlVertex2f with pos2.x, pos2.y
+            else if render_type == (rlgl.RL_LINES to int):
+                calling rlgl.rlColor4ub with cur_col.r, cur_col.g, cur_col.b, cur_col.a
+                calling rlgl.rlVertex2f with pos1.x, pos1.y
+                calling rlgl.rlColor4ub with raylib.WHITE.r, raylib.WHITE.g, raylib.WHITE.b, raylib.WHITE.a
+                calling rlgl.rlVertex2f with center.x, center.y
+
+                calling rlgl.rlVertex2f with center.x, center.y
+                calling rlgl.rlColor4ub with off_col.r, off_col.g, off_col.b, off_col.a
+                calling rlgl.rlVertex2f with pos2.x, pos2.y
+
+                calling rlgl.rlVertex2f with pos2.x, pos2.y
+                calling rlgl.rlColor4ub with cur_col.r, cur_col.g, cur_col.b, cur_col.a
+                calling rlgl.rlVertex2f with pos1.x, pos1.y
+
+        calling rlgl.rlEnd
+
+        var handle_color as raylib.Color is raylib.BLACK
+        let dist_from_c as f32 is (calling center.distance_to with circle_position) / point_scale
+        if (dist_from_c <= 0.5) and (value <= 0.5):
+            set handle_color is raylib.DARKGRAY
+
+        calling circle_position.draw_circle_lines with 4.0, handle_color
+
+        # Draw preview box
+        let preview_rec as raylib.Rectangle is with:
+            set .x is 8.0
+            set .y is 8.0
+            set .width is 64.0
+            set .height is 64.0
+        calling preview_rec.draw with color
+        let outline_col as raylib.Color is calling raylib.ColorLerp with color, raylib.BLACK, 0.5
+        calling preview_rec.draw_outline with 2.0, outline_col
+
+        # Draw color details
+        var hr as string is calling byte_to_hex2 with color.r
+        var hg as string is calling byte_to_hex2 with color.g
+        var hb as string is calling byte_to_hex2 with color.b
+        var hex_info as string is "#{hr}{hg}{hb}\n({color.r to int}, {color.g to int}, {color.b to int})"
+        calling txt.draw_text with hex_info, 8, 8 + 64 + 8, 20, raylib.DARKGRAY
+        banish hex_info
+        banish hr
+        banish hg
+        banish hb
+
+        var copy_color as raylib.Color is raylib.DARKGRAY
+        var y_offset as int is 0
+        if (calling input.is_key_down with raylib.KEY_LEFT_CONTROL) and (calling input.is_key_down with raylib.KEY_C):
+            set copy_color is raylib.DARKGREEN
+            set y_offset is 4
+
+        calling txt.draw_text with "press ctrl+c to copy!", 8, 425 - y_offset, 20, copy_color
+
+        var tri_msg as string is "triangle count: {t_count}"
+        calling txt.draw_text with tri_msg, 8, 395, 20, raylib.DARKGRAY
+        banish tri_msg
+
+        calling rayguix.slider_bar with slider_rectangle, "value: ", "", (sigil of value), 0.0, 1.0
+
+        calling txt.draw_fps with 64 + 16, 8
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

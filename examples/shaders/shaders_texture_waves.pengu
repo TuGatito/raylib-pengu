@@ -1,0 +1,105 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - texture waves
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Anata (@anatagawa) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to create dynamic wave/distortion post-effects on 2D textures
+## using a custom wave distortion fragment shader.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_texture_waves.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shaders as shaders
+import raylibx.textures as textures
+
+# --- Helpers ------------------------------------------------------------
+
+## Helper to get shader uniform location as an int (or -1 if missing).
+weave loc_of with shader as raylib.Shader, name as string into int:
+    if loc as int is calling shader.location with name:
+        return loc
+    return -1
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - texture waves"
+    defer calling raylib.CloseWindow
+
+    # Load space texture
+    var texture as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture with "examples/shaders/resources/space.png":
+        set texture is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with texture
+
+    # Load wave fragment shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/wave.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    let seconds_loc as int is calling loc_of with shader, "seconds"
+    let freq_x_loc as int is calling loc_of with shader, "freqX"
+    let freq_y_loc as int is calling loc_of with shader, "freqY"
+    let amp_x_loc as int is calling loc_of with shader, "ampX"
+    let amp_y_loc as int is calling loc_of with shader, "ampY"
+    let speed_x_loc as int is calling loc_of with shader, "speedX"
+    let speed_y_loc as int is calling loc_of with shader, "speedY"
+    let size_loc as int is calling loc_of with shader, "size"
+
+    var freq_x as f32 is 25.0
+    var freq_y as f32 is 25.0
+    var amp_x as f32 is 5.0
+    var amp_y as f32 is 5.0
+    var speed_x as f32 is 8.0
+    var speed_y as f32 is 8.0
+
+    var screen_size as raylib.Vector2 is with:
+        set .x is screen_width to f32
+        set .y is screen_height to f32
+
+    calling shader.set_vec2 with size_loc, screen_size
+    calling shader.set_float with freq_x_loc, freq_x
+    calling shader.set_float with freq_y_loc, freq_y
+    calling shader.set_float with amp_x_loc, amp_x
+    calling shader.set_float with amp_y_loc, amp_y
+    calling shader.set_float with speed_x_loc, speed_x
+    calling shader.set_float with speed_y_loc, speed_y
+
+    var seconds as f32 is 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set seconds is seconds + (calling raylib.GetFrameTime)
+        calling shader.set_float with seconds_loc, seconds
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_shader_mode with shader
+        calling texture.draw with 0, 0, raylib.WHITE
+        calling texture.draw with texture.width, 0, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling drawing.end_drawing
+
+    return 0

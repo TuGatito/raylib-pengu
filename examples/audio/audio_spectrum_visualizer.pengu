@@ -1,0 +1,390 @@
+## raylib [audio] example - spectrum visualizer
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Inspired by Inigo Quilez's https://www.shadertoy.com/
+## Resources/specification: https://gist.github.com/soulthreads/2efe50da4be1fb5f7ab60ff14ca434b8
+##
+## Example created by IANN (@meisei4) reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 IANN (@meisei4)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.audio`,
+## `raylibx.textures`, `raylibx.images`, `raylibx.shaders`, `raymathx`, `std.fractio`),
+## relative asset paths from project root, Cooley-Tukey FFT audio spectrum analysis,
+## dynamic GLSL visualizer shader, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/audio/audio_spectrum_visualizer.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.audio as audio
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.shaders as shaders
+import raylibx.textures as textures
+import raymath
+import raymathx
+import std.ffi
+import std.fractio
+
+# --- External Math Functions ---
+declare sqrtf with x as f32 into f32
+declare logf with x as f32 into f32
+declare floorf with x as f32 into f32
+declare ceilf with x as f32 into f32
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Audio channels (mono).
+const MONO as int is 1
+
+## Audio sampling rate in Hz.
+const SAMPLE_RATE as int is 44100
+
+## Audio sampling rate as float.
+const SAMPLE_RATE_F as f32 is 44100.0
+
+## Size of the FFT sample analysis window.
+const FFT_WINDOW_SIZE as int is 1024
+
+## Size of the frequency bin output buffer.
+const BUFFER_SIZE as int is 512
+
+## Audio bit depth per sample.
+const PER_SAMPLE_BIT_DEPTH as int is 16
+
+## Ring buffer size for streaming audio chunk updates.
+const AUDIO_STREAM_RING_BUFFER_SIZE as int is 2048
+
+## Effective sample rate for time calculations.
+const EFFECTIVE_SAMPLE_RATE as f32 is 22050.0
+
+## Analysis window duration in seconds.
+const WINDOW_TIME as f64 is 1024.0 / 22050.0
+
+## Historical smoothing duration in seconds.
+const FFT_HISTORICAL_SMOOTHING_DUR as f32 is 2.0
+
+## Minimum decibel threshold.
+const MIN_DECIBELS as f32 is -100.0
+
+## Maximum decibel threshold.
+const MAX_DECIBELS as f32 is -30.0
+
+## Reciprocal of the decibel range.
+const INVERSE_DECIBEL_RANGE as f32 is 1.0 / (MAX_DECIBELS - MIN_DECIBELS)
+
+## Scale factor converting log base e to decibels (20 / ln(10)).
+const DB_TO_LINEAR_SCALE as f32 is 20.0 / 2.302585092994046
+
+## Exponential moving average time constant.
+const SMOOTHING_TIME_CONSTANT as f32 is 0.8
+
+## Target height of the spectrum 1D data texture.
+const TEXTURE_HEIGHT as int is 1
+
+## Row index in the texture.
+const FFT_ROW as int is 0
+
+## Path to the visualizer fragment shader (relative to project root).
+const SHADER_PATH as string is "examples/audio/resources/shaders/glsl330/fft.fs"
+
+## Path to the MP3 music audio asset (relative to project root).
+const AUDIO_PATH as string is "examples/audio/resources/country.mp3"
+
+# --- Types ---
+
+## Represents a single-precision complex number for Fourier transforms.
+rune FFTComplex:
+    ## Real component.
+    real as f32
+    ## Imaginary component.
+    imaginary as f32
+
+## Holds memory buffers, history frames, and state for FFT spectrum analysis.
+rune FFTData:
+    ## Frequency spectrum complex buffer.
+    spectrum as ref to FFTComplex
+    ## In-place calculation scratch buffer.
+    workBuffer as ref to FFTComplex
+    ## Magnitude smoothing memory buffer.
+    prevMagnitudes as ref to f32
+    ## Flattened 2D history buffer storing smoothed spectra across frames.
+    fftHistory as ref to f32
+    ## Number of historical frames allocated.
+    fftHistoryLen as int
+    ## Ring buffer write position.
+    historyPos as int
+    ## Timestamp of the most recent transform.
+    lastFftTime as f64
+    ## Playback tap-back delay position.
+    tapbackPos as f32
+
+# --- Helpers ---
+
+## Computes an in-place radix-2 Cooley-Tukey decimation-in-time Fast Fourier Transform.
+##
+## ## Parameters
+## - `spectrum`: array of complex input samples transformed in place.
+## - `n`: number of complex samples (must be a power of two).
+weave cooley_tukey_fft_slow with spectrum as ref to FFTComplex, n as int into void:
+    var j as int is 0
+    var i as int is 1
+    while i < (n - 1):
+        var bit as int is n >> 1
+        while j >= bit:
+            set j is j - bit
+            set bit is bit >> 1
+        set j is j + bit
+        if i < j:
+            let temp as FFTComplex is spectrum at i
+            set spectrum at i is spectrum at j
+            set spectrum at j is temp
+        set i is i + 1
+
+    var len as int is 2
+    while len <= n:
+        let angle as f32 is (-2.0 * raylib.PI) / (len to f32)
+        let cos_a as f32 is calling angle.get_cos
+        let sin_a as f32 is calling angle.get_sin
+        var twiddle_unit as FFTComplex is with real is cos_a, imaginary is sin_a
+
+        var k as int is 0
+        while k < n:
+            var twiddle_current as FFTComplex is with real is 1.0, imaginary is 0.0
+            let half_len as int is len / 2
+            for m from 0 to half_len:
+                let even as FFTComplex is spectrum at (k + m)
+                let odd as FFTComplex is spectrum at (k + m + half_len)
+                let twiddled_odd as FFTComplex is with:
+                    set .real is (odd.real * twiddle_current.real) - (odd.imaginary * twiddle_current.imaginary)
+                    set .imaginary is (odd.real * twiddle_current.imaginary) + (odd.imaginary * twiddle_current.real)
+
+                set spectrum at (k + m) is (with real is (even.real + twiddled_odd.real), imaginary is (even.imaginary + twiddled_odd.imaginary))
+                set spectrum at (k + m + half_len) is (with real is (even.real - twiddled_odd.real), imaginary is (even.imaginary - twiddled_odd.imaginary))
+
+                let twiddle_real_next as f32 is (twiddle_current.real * twiddle_unit.real) - (twiddle_current.imaginary * twiddle_unit.imaginary)
+                set twiddle_current.imaginary is (twiddle_current.real * twiddle_unit.imaginary) + (twiddle_current.imaginary * twiddle_unit.real)
+                set twiddle_current.real is twiddle_real_next
+            set k is k + len
+        set len is len << 1
+
+## Windows incoming audio samples with a Blackman filter, executes the FFT, and stores smoothed dB magnitudes.
+##
+## ## Parameters
+## - `fft_data`: reference to the FFT state.
+## - `audio_samples`: array of normalized float audio samples.
+weave capture_frame with fft_data as ref to FFTData, audio_samples as ref to f32 into void:
+    var work_buf as ref to FFTComplex is fft_data->workBuffer
+    for i from 0 to FFT_WINDOW_SIZE:
+        let x as f32 is (2.0 * raylib.PI * (i to f32)) / ((FFT_WINDOW_SIZE - 1) to f32)
+        let cos_x as f32 is calling x.get_cos
+        let two_x as f32 is 2.0 * x
+        let cos_2x as f32 is calling two_x.get_cos
+        let blackman_weight as f32 is 0.42 - (0.5 * cos_x) + (0.08 * cos_2x)
+        set work_buf at i is (with real is ((audio_samples at i) * blackman_weight), imaginary is 0.0)
+
+    calling cooley_tukey_fft_slow with work_buf, FFT_WINDOW_SIZE
+
+    var spectrum as ref to FFTComplex is fft_data->spectrum
+    for i from 0 to FFT_WINDOW_SIZE:
+        set spectrum at i is work_buf at i
+
+    var prev_mags as ref to f32 is fft_data->prevMagnitudes
+    let hist_offset as int is fft_data->historyPos * BUFFER_SIZE
+    var history_buf as ref to f32 is fft_data->fftHistory
+
+    for bin from 0 to BUFFER_SIZE:
+        let re as f32 is (work_buf at bin).real
+        let im as f32 is (work_buf at bin).imaginary
+        let mag_sq as f32 is (re * re) + (im * im)
+        let linear_magnitude as f32 is (calling sqrtf with mag_sq) / (FFT_WINDOW_SIZE to f32)
+
+        let smoothed_magnitude as f32 is (SMOOTHING_TIME_CONSTANT * (prev_mags at bin)) + ((1.0 - SMOOTHING_TIME_CONSTANT) * linear_magnitude)
+        set prev_mags at bin is smoothed_magnitude
+
+        let clamped_mag as f32 is if smoothed_magnitude > 1e-40 then smoothed_magnitude else 1e-40
+        let db as f32 is (calling logf with clamped_mag) * DB_TO_LINEAR_SCALE
+        let normalized as f32 is (db - MIN_DECIBELS) * INVERSE_DECIBEL_RANGE
+        set history_buf at (hist_offset + bin) is calling raymath.Clamp with normalized, 0.0, 1.0
+
+    set fft_data->lastFftTime is calling raylib.GetTime
+    set fft_data->historyPos is (fft_data->historyPos + 1) % fft_data->fftHistoryLen
+
+## Writes historical frequency amplitudes into a 1D texture for shader rendering.
+##
+## ## Parameters
+## - `fft_data`: reference to the FFT state.
+## - `fft_image`: image buffer updated with amplitude pixels.
+weave render_frame with fft_data as ref to FFTData, fft_image as ref to raylib.Image into void:
+    let tapback_ratio as f32 is (fft_data->tapbackPos / (WINDOW_TIME to f32))
+    var frames_since_tapback as f32 is calling floorf with tapback_ratio
+    set frames_since_tapback is calling raymath.Clamp with frames_since_tapback, 0.0, ((fft_data->fftHistoryLen - 1) to f32)
+
+    var history_pos as int is (fft_data->historyPos - 1 - (frames_since_tapback to int)) % fft_data->fftHistoryLen
+    if history_pos < 0:
+        set history_pos is history_pos + fft_data->fftHistoryLen
+
+    let history_offset as int is history_pos * BUFFER_SIZE
+    var history_buf as ref to f32 is fft_data->fftHistory
+
+    for bin from 0 to BUFFER_SIZE:
+        let amp as f32 is history_buf at (history_offset + bin)
+        let col_v as raylib.Vector4 is with x is amp, y is 0.0, z is 0.0, w is 0.0
+        let col as raylib.Color is calling raylib.ColorFromNormalized with col_v
+        calling raylib.ImageDrawPixel with fft_image, bin, FFT_ROW, col
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Sets up the audio device, decodes PCM samples, processes real-time FFT spectrum analysis,
+## encodes amplitudes into a 1D GPU texture, and renders Shadertoy-style visualization.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if asset loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [audio] example - spectrum visualizer"
+    defer calling raylib.CloseWindow
+
+    var fft_image as raylib.Image is calling raylib.GenImageColor with BUFFER_SIZE, TEXTURE_HEIGHT, raylib.WHITE
+    defer calling raylib.UnloadImage with fft_image
+
+    var fft_texture as raylib.Texture2D is calling raylib.LoadTextureFromImage with fft_image
+    defer calling raylib.UnloadTexture with fft_texture
+
+    let buffer_a as raylib.RenderTexture2D is calling raylib.LoadRenderTexture with SCREEN_WIDTH, SCREEN_HEIGHT
+    defer calling raylib.UnloadRenderTexture with buffer_a
+
+    var i_resolution as raylib.Vector2 is with x is (SCREEN_WIDTH to f32), y is (SCREEN_HEIGHT to f32)
+
+    let c_fs as ref to frozen char is calling ffi.cstr_from_string with SHADER_PATH
+    defer calling ffi.cstr_free with (transmute c_fs to ref to char)
+    var shader as raylib.Shader is calling raylib.LoadShader with null, c_fs
+    defer calling raylib.UnloadShader with shader
+
+    let i_res_loc as int is calling raylib.GetShaderLocation with shader, "iResolution"
+    let i_chan0_loc as int is calling raylib.GetShaderLocation with shader, "iChannel0"
+    calling raylib.SetShaderValue with shader, i_res_loc, (transmute (sigil of i_resolution) to ref to frozen void), (raylib.SHADER_UNIFORM_VEC2 to int)
+    calling raylib.SetShaderValueTexture with shader, i_chan0_loc, fft_texture
+
+    calling raylib.InitAudioDevice
+    defer calling raylib.CloseAudioDevice
+
+    calling raylib.SetAudioStreamBufferSizeDefault with AUDIO_STREAM_RING_BUFFER_SIZE
+
+    let loaded_wave as maybe raylib.Wave is calling audio.load_wave with AUDIO_PATH
+    if wav as raylib.Wave is loaded_wave:
+        defer calling audio.unload_wave with wav
+        calling wav.to_format with SAMPLE_RATE, PER_SAMPLE_BIT_DEPTH, MONO
+
+        let loaded_stream as maybe raylib.AudioStream is calling audio.load_audio_stream with SAMPLE_RATE, PER_SAMPLE_BIT_DEPTH, MONO
+        if audio_stream as raylib.AudioStream is loaded_stream:
+            defer calling audio.unload_audio_stream with audio_stream
+            calling audio_stream.play
+
+            let dur_ratio as f32 is FFT_HISTORICAL_SMOOTHING_DUR / (WINDOW_TIME to f32)
+            let fft_history_len as int is ((calling ceilf with dur_ratio) to int) + 1
+
+            var fft_spectrum as ref to FFTComplex is transmute (calling raylib.MemAlloc with FFT_WINDOW_SIZE * 8) to ref to FFTComplex
+            var fft_work_buf as ref to FFTComplex is transmute (calling raylib.MemAlloc with FFT_WINDOW_SIZE * 8) to ref to FFTComplex
+            var fft_prev_mags as ref to f32 is transmute (calling raylib.MemAlloc with BUFFER_SIZE * 4) to ref to f32
+            var fft_hist as ref to f32 is transmute (calling raylib.MemAlloc with fft_history_len * BUFFER_SIZE * 4) to ref to f32
+
+            defer:
+                calling raylib.MemFree with (transmute fft_spectrum to ref to void)
+                calling raylib.MemFree with (transmute fft_work_buf to ref to void)
+                calling raylib.MemFree with (transmute fft_prev_mags to ref to void)
+                calling raylib.MemFree with (transmute fft_hist to ref to void)
+
+            for i from 0 to BUFFER_SIZE:
+                set fft_prev_mags at i is 0.0
+            for i from 0 to (fft_history_len * BUFFER_SIZE):
+                set fft_hist at i is 0.0
+
+            var fft as FFTData is with:
+                set .spectrum is fft_spectrum
+                set .workBuffer is fft_work_buf
+                set .prevMagnitudes is fft_prev_mags
+                set .fftHistory is fft_hist
+                set .fftHistoryLen is fft_history_len
+                set .historyPos is 0
+                set .lastFftTime is 0.0
+                set .tapbackPos is 0.01
+
+            var wav_cursor as int is 0
+            var wav_pcm16 as ref to i16 is transmute wav.data to ref to i16
+
+            var chunk_samples as ref to i16 is transmute (calling raylib.MemAlloc with AUDIO_STREAM_RING_BUFFER_SIZE * 2) to ref to i16
+            var audio_samples as ref to f32 is transmute (calling raylib.MemAlloc with FFT_WINDOW_SIZE * 4) to ref to f32
+            defer:
+                calling raylib.MemFree with (transmute chunk_samples to ref to void)
+                calling raylib.MemFree with (transmute audio_samples to ref to void)
+
+            calling raylib.SetTargetFPS with 60
+
+            # Main game loop
+            while not calling raylib.WindowShouldClose:
+                # Update
+                while calling audio_stream.is_processed:
+                    for i from 0 to AUDIO_STREAM_RING_BUFFER_SIZE:
+                        let left as int is if wav.channels == 2:
+                            (wav_pcm16 at ((wav_cursor * 2) + 0)) to int
+                        else:
+                            (wav_pcm16 at wav_cursor) to int
+
+                        let right as int is if wav.channels == 2:
+                            (wav_pcm16 at ((wav_cursor * 2) + 1)) to int
+                        else:
+                            left
+
+                        set chunk_samples at i is (((left + right) / 2) to i16)
+
+                        set wav_cursor is wav_cursor + 1
+                        if wav_cursor >= (wav.frameCount to int):
+                            set wav_cursor is 0
+
+                    let chunk_ptr as ref to frozen void is transmute chunk_samples to ref to frozen void
+                    calling raylib.UpdateAudioStream with audio_stream, chunk_ptr, AUDIO_STREAM_RING_BUFFER_SIZE
+
+                    for i from 0 to FFT_WINDOW_SIZE:
+                        let s0 as f32 is (chunk_samples at (i * 2)) to f32
+                        let s1 as f32 is (chunk_samples at ((i * 2) + 1)) to f32
+                        set audio_samples at i is ((s0 + s1) * 0.5) / 32767.0
+
+                calling capture_frame with (sigil of fft), audio_samples
+                calling render_frame with (sigil of fft), (sigil of fft_image)
+                calling raylib.UpdateTexture with fft_texture, fft_image.data
+
+                # Draw
+                calling drawing.begin_drawing
+                calling drawing.clear_background with raylib.RAYWHITE
+
+                calling drawing.begin_shader_mode with shader
+                calling raylib.SetShaderValueTexture with shader, i_chan0_loc, fft_texture
+                var src_rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is (SCREEN_WIDTH to f32), height is (-(SCREEN_HEIGHT to f32))
+                var dest_pos as raylib.Vector2 is with x is 0.0, y is 0.0
+                calling raylib.DrawTextureRec with buffer_a.texture, src_rec, dest_pos, raylib.WHITE
+                calling drawing.end_shader_mode
+
+                calling drawing.end_drawing
+
+            return 0
+
+    return 1

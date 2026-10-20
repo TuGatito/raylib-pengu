@@ -1,0 +1,143 @@
+## ## PenguScript Port
+## Translated from raylib [shapes] example - logo raylib anim
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates an animated raylib logo reveal using a state machine
+## and procedural 2D shape drawing (rectangles, text subtext, and fading).
+##
+## ## Example
+## ```bash
+## pengu run examples/shapes/shapes_logo_raylib_anim.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Types --------------------------------------------------------------
+## Animation progression states for the logo reveal.
+omen LogoAnimState:
+    STATE_BLINKING
+    STATE_GROW_TOP_LEFT
+    STATE_GROW_BOTTOM_RIGHT
+    STATE_LETTERS_APPEARING
+    STATE_RESET_REPLAY
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - logo raylib anim"
+    defer calling raylib.CloseWindow
+
+    let logo_pos_x as int is (screen_width / 2) - 128
+    let logo_pos_y as int is (screen_height / 2) - 128
+
+    var frames_counter as int is 0
+    var letters_count as int is 0
+
+    var top_rec_w as int is 16
+    var left_rec_h as int is 16
+    var bottom_rec_w as int is 16
+    var right_rec_h as int is 16
+
+    var state as LogoAnimState is LogoAnimState.STATE_BLINKING
+    var alpha as f32 is 1.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        judge state:
+            when LogoAnimState.STATE_BLINKING ->
+                set frames_counter is frames_counter + 1
+                if frames_counter == 120:
+                    set state is LogoAnimState.STATE_GROW_TOP_LEFT
+                    set frames_counter is 0
+
+            when LogoAnimState.STATE_GROW_TOP_LEFT ->
+                set top_rec_w is top_rec_w + 4
+                set left_rec_h is left_rec_h + 4
+                if top_rec_w == 256:
+                    set state is LogoAnimState.STATE_GROW_BOTTOM_RIGHT
+
+            when LogoAnimState.STATE_GROW_BOTTOM_RIGHT ->
+                set bottom_rec_w is bottom_rec_w + 4
+                set right_rec_h is right_rec_h + 4
+                if bottom_rec_w == 256:
+                    set state is LogoAnimState.STATE_LETTERS_APPEARING
+
+            when LogoAnimState.STATE_LETTERS_APPEARING ->
+                set frames_counter is frames_counter + 1
+                if (frames_counter / 12) > 0:
+                    set letters_count is letters_count + 1
+                    set frames_counter is 0
+
+                if letters_count >= 10:
+                    set alpha is alpha - 0.02
+                    if alpha <= 0.0:
+                        set alpha is 0.0
+                        set state is LogoAnimState.STATE_RESET_REPLAY
+
+            when LogoAnimState.STATE_RESET_REPLAY ->
+                if calling input.is_key_pressed with raylib.KEY_R:
+                    set frames_counter is 0
+                    set letters_count is 0
+                    set top_rec_w is 16
+                    set left_rec_h is 16
+                    set bottom_rec_w is 16
+                    set right_rec_h is 16
+                    set alpha is 1.0
+                    set state is LogoAnimState.STATE_BLINKING
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        judge state:
+            when LogoAnimState.STATE_BLINKING ->
+                if (((frames_counter / 15) % 2) != 0):
+                    calling shapes.draw_rectangle with logo_pos_x, logo_pos_y, 16, 16, raylib.BLACK
+
+            when LogoAnimState.STATE_GROW_TOP_LEFT ->
+                calling shapes.draw_rectangle with logo_pos_x, logo_pos_y, top_rec_w, 16, raylib.BLACK
+                calling shapes.draw_rectangle with logo_pos_x, logo_pos_y, 16, left_rec_h, raylib.BLACK
+
+            when LogoAnimState.STATE_GROW_BOTTOM_RIGHT ->
+                calling shapes.draw_rectangle with logo_pos_x, logo_pos_y, top_rec_w, 16, raylib.BLACK
+                calling shapes.draw_rectangle with logo_pos_x, logo_pos_y, 16, left_rec_h, raylib.BLACK
+                calling shapes.draw_rectangle with (logo_pos_x + 240), logo_pos_y, 16, right_rec_h, raylib.BLACK
+                calling shapes.draw_rectangle with logo_pos_x, (logo_pos_y + 240), bottom_rec_w, 16, raylib.BLACK
+
+            when LogoAnimState.STATE_LETTERS_APPEARING ->
+                let black_faded as raylib.Color is calling colors.fade with raylib.BLACK, alpha
+                let white_faded as raylib.Color is calling colors.fade with raylib.RAYWHITE, alpha
+
+                calling shapes.draw_rectangle with logo_pos_x, logo_pos_y, top_rec_w, 16, black_faded
+                calling shapes.draw_rectangle with logo_pos_x, (logo_pos_y + 16), 16, (left_rec_h - 32), black_faded
+                calling shapes.draw_rectangle with (logo_pos_x + 240), (logo_pos_y + 16), 16, (right_rec_h - 32), black_faded
+                calling shapes.draw_rectangle with logo_pos_x, (logo_pos_y + 240), bottom_rec_w, 16, black_faded
+
+                calling shapes.draw_rectangle with ((screen_width / 2) - 112), ((screen_height / 2) - 112), 224, 224, white_faded
+
+                var sub_text as string is calling txt.text_subtext with "raylib", 0, letters_count
+                calling txt.draw_text with sub_text, ((screen_width / 2) - 44), ((screen_height / 2) + 48), 50, black_faded
+                banish sub_text
+
+            when LogoAnimState.STATE_RESET_REPLAY ->
+                calling txt.draw_text with "[R] REPLAY", 340, 200, 20, raylib.GRAY
+
+        calling drawing.end_drawing
+
+    return 0

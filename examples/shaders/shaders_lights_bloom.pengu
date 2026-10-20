@@ -1,0 +1,189 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - lights bloom
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by PanicTitan (@PanicTitan) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates forward multi-point lighting (8 point lights with attenuation
+## and Blinn-Phong specular) combined with a threshold-based bloom pass and Reinhard tone
+## mapping, applied as a full-screen post-processing shader.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_lights_bloom.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- C Math Declarations ------------------------------------------------
+declare sinf with x as f32 into f32
+declare cosf with x as f32 into f32
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Maximum number of dynamic point lights.
+const MAX_LIGHTS as int is 8
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.SetConfigFlags with ((raylib.FLAG_MSAA_4X_HINT to u32) | (raylib.FLAG_VSYNC_HINT to u32))
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - lights bloom"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 0.0, y is 5.0, z is 9.0)
+        set .target is (with x is 0.0, y is 0.5, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var target as raylib.RenderTexture2D is with id is 0
+    if loaded_target as raylib.RenderTexture2D is calling textures.load_render_texture with SCREEN_WIDTH, SCREEN_HEIGHT:
+        set target is loaded_target
+    else:
+        return 1
+    defer calling textures.unload_render_texture with target
+
+    # Load forward multi-light and bloom post-process shaders
+    var light_shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_shader with "examples/shaders/resources/shaders/glsl330/lights_bloom.vs", "examples/shaders/resources/shaders/glsl330/lights_bloom.fs":
+        set light_shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with light_shader
+
+    var bloom_shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/lights_bloom_post.fs":
+        set bloom_shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with bloom_shader
+
+    # Load models
+    var cube_mesh as raylib.Mesh is calling raylib.GenMeshCube with 2.0, 2.0, 2.0
+    var cube as raylib.Model is calling raylib.LoadModelFromMesh with cube_mesh
+    defer calling models.unload_model with cube
+
+    var floor_mesh as raylib.Mesh is calling raylib.GenMeshPlane with 14.0, 14.0, 1, 1
+    var floor as raylib.Model is calling raylib.LoadModelFromMesh with floor_mesh
+    defer calling models.unload_model with floor
+
+    var cube_mat as ref to raylib.Material is sigil of (cube.materials at 0)
+    var floor_mat as ref to raylib.Material is sigil of (floor.materials at 0)
+    set cube_mat->shader is light_shader
+    set floor_mat->shader is light_shader
+
+    var light_pos_loc as int is 0
+    if loc as int is calling light_shader.location with "lightPositions":
+        set light_pos_loc is loc
+
+    var light_col_loc as int is 0
+    if loc as int is calling light_shader.location with "lightColors":
+        set light_col_loc is loc
+
+    var view_pos_loc as int is 0
+    if loc as int is calling light_shader.location with "viewPos":
+        set view_pos_loc is loc
+
+    var light_positions as list of raylib.Vector3 is []
+    defer banish light_positions
+    for i from 0 to MAX_LIGHTS:
+        calling light_positions.append with (with x is 0.0, y is 0.0, z is 0.0)
+
+    var light_colors as list of raylib.Vector3 is [
+        (with x is 1.0, y is 0.2, z is 0.2), # Red
+        (with x is 0.2, y is 1.0, z is 0.3), # Green
+        (with x is 0.2, y is 0.5, z is 1.0), # Blue
+        (with x is 1.0, y is 0.8, z is 0.1), # Yellow
+        (with x is 1.0, y is 0.1, z is 0.8), # Magenta
+        (with x is 0.1, y is 1.0, z is 1.0), # Cyan
+        (with x is 1.0, y is 0.4, z is 0.1), # Orange
+        (with x is 0.7, y is 0.2, z is 1.0)  # Purple
+    ]
+    defer banish light_colors
+
+    calling light_shader.set_vec3s with light_col_loc, (light_colors at 0 to (light_colors.length))
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        let time as f32 is (calling raylib.GetTime) to f32
+
+        # Update orbiting point light positions
+        for i from 0 to MAX_LIGHTS:
+            let angle as f32 is (((i to f32) / (MAX_LIGHTS to f32)) * 2.0 * raylib.PI) + (time * 0.6)
+            let radius as f32 is 4.2 + ((calling sinf with ((time * 1.2) + (i to f32))) * 0.4)
+            let height as f32 is 1.0 + ((calling sinf with ((time * 1.8) + (i to f32))) * 0.6)
+
+            var pos as raylib.Vector3 is with:
+                set .x is (calling sinf with angle) * radius
+                set .y is height
+                set .z is (calling cosf with angle) * radius
+            set light_positions at i is pos
+
+        calling light_shader.set_vec3s with light_pos_loc, (light_positions at 0 to (light_positions.length))
+        calling light_shader.set_vec3 with view_pos_loc, camera.position
+
+        # Draw lit scene to offscreen texture
+        calling drawing.begin_texture_mode with target
+        let bg_color as raylib.Color is with r is 12, g is 12, b is 18, a is 255
+        calling drawing.clear_background with bg_color
+
+        calling drawing.begin_mode_3d with camera
+        calling cube.draw with (with x is 0.0, y is 1.0, z is 0.0), 1.0, raylib.GRAY
+        calling floor.draw with (with x is 0.0, y is 0.0, z is 0.0), 1.0, raylib.DARKGRAY
+        calling shapes3d.draw_grid with 10, 1.0
+
+        # Draw glowing bulbs at light positions
+        for i from 0 to MAX_LIGHTS:
+            let col_v as raylib.Vector3 is light_colors at i
+            let bulb_color as raylib.Color is with:
+                set .r is ((col_v.x * 255.0) to int) to byte
+                set .g is ((col_v.y * 255.0) to int) to byte
+                set .b is ((col_v.z * 255.0) to int) to byte
+                set .a is 255
+            calling shapes3d.draw_sphere with (light_positions at i), 0.15, bulb_color
+
+        calling drawing.end_mode_3d
+        calling drawing.end_texture_mode
+
+        # Draw screen presentation with bloom post-process shader
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.BLACK
+
+        calling drawing.begin_shader_mode with bloom_shader
+        var src_rec as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is target.texture.width to f32
+            set .height is -target.texture.height to f32
+        calling target.texture.draw_rec with src_rec, (with x is 0.0, y is 0.0), raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling txt.draw_text with "BALANCED MULTI-LIGHT + REINHARD TONE MAPPED BLOOM", 20, 20, 20, raylib.GREEN
+
+        calling drawing.end_drawing
+
+    return 0

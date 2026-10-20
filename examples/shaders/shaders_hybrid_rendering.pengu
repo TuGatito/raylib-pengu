@@ -1,0 +1,201 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - hybrid rendering
+##
+## Original example complexity rating: [★★★★] 4/4
+## Contributed by Buğra Alptekin Sarı (@BugraAlptekinSari) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates combining raymarching and rasterization into the
+## same depth buffer, writing depth from both fragment shaders so geometries
+## intersect correctly.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_hybrid_rendering.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymathx
+import rlgl
+import std.ffi as ffi
+
+# --- C Math Declarations ------------------------------------------------
+declare tanf with x as f32 into f32
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Helper Functions ---------------------------------------------------
+
+## Loads a custom render texture with an attached depth texture buffer.
+##
+## ## Parameters
+## - `width`: Width of the render texture in pixels.
+## - `height`: Height of the render texture in pixels.
+##
+## ## Returns
+## The initialized `raylib.RenderTexture2D` containing both color and depth textures.
+weave load_render_texture_depth_tex with width as int, height as int into raylib.RenderTexture2D:
+    var target as raylib.RenderTexture2D is with:
+        set .id is calling rlgl.rlLoadFramebuffer
+
+    if target.id > 0:
+        calling rlgl.rlEnableFramebuffer with target.id
+
+        # Create color texture (default RGBA)
+        var color_tex as raylib.Texture2D is with:
+            set .id is calling rlgl.rlLoadTexture with (calling ffi.null_void), width, height, (raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 to int), 1
+            set .width is width
+            set .height is height
+            set .format is (raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 to int)
+            set .mipmaps is 1
+        set target.texture is color_tex
+
+        # Create depth texture buffer
+        var depth_tex as raylib.Texture2D is with:
+            set .id is calling rlgl.rlLoadTextureDepth with width, height, false
+            set .width is width
+            set .height is height
+            set .format is 19 # DEPTH_COMPONENT_24BIT
+            set .mipmaps is 1
+        set target.depth is depth_tex
+
+        # Attach color texture and depth texture to FBO
+        calling rlgl.rlFramebufferAttach with target.id, target.texture.id, (rlgl.RL_ATTACHMENT_COLOR_CHANNEL0 to int), (rlgl.RL_ATTACHMENT_TEXTURE2D to int), 0
+        calling rlgl.rlFramebufferAttach with target.id, target.depth.id, (rlgl.RL_ATTACHMENT_DEPTH to int), (rlgl.RL_ATTACHMENT_TEXTURE2D to int), 0
+
+        calling rlgl.rlDisableFramebuffer
+
+    return target
+
+## Unloads a custom depth render texture from GPU memory (VRAM).
+##
+## ## Parameters
+## - `target`: The render texture to unload.
+weave unload_render_texture_depth_tex with target as raylib.RenderTexture2D into void:
+    if target.id > 0:
+        calling rlgl.rlUnloadTexture with target.texture.id
+        calling rlgl.rlUnloadTexture with target.depth.id
+        calling rlgl.rlUnloadFramebuffer with target.id
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - hybrid rendering"
+    defer calling raylib.CloseWindow
+
+    # Load raymarch and raster shaders
+    var shdr_raymarch as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/hybrid_raymarch.fs":
+        set shdr_raymarch is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shdr_raymarch
+
+    var shdr_raster as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/hybrid_raster.fs":
+        set shdr_raster is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shdr_raster
+
+    # Query raymarch shader locations
+    var cam_pos_loc as int is 0
+    if loc as int is calling shdr_raymarch.location with "camPos":
+        set cam_pos_loc is loc
+
+    var cam_dir_loc as int is 0
+    if loc as int is calling shdr_raymarch.location with "camDir":
+        set cam_dir_loc is loc
+
+    var screen_center_loc as int is 0
+    if loc as int is calling shdr_raymarch.location with "screenCenter":
+        set screen_center_loc is loc
+
+    let screen_center as raylib.Vector2 is with:
+        set .x is (SCREEN_WIDTH to f32) / 2.0
+        set .y is (SCREEN_HEIGHT to f32) / 2.0
+    calling shdr_raymarch.set_vec2 with screen_center_loc, screen_center
+
+    # Load custom render texture with writable depth buffer
+    var target as raylib.RenderTexture2D is calling load_render_texture_depth_tex with SCREEN_WIDTH, SCREEN_HEIGHT
+    defer calling unload_render_texture_depth_tex with target
+
+    # Define camera
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 0.5, y is 1.0, z is 1.5)
+        set .target is (with x is 0.0, y is 0.5, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    let cam_dist as f32 is 1.0 / (calling tanf with (camera.fovy * 0.5 * raylib.DEG2RAD))
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        calling shdr_raymarch.set_vec3 with cam_pos_loc, camera.position
+
+        var dir as raylib.Vector3 is calling camera.target.get_subtract with camera.position
+        set dir is calling dir.get_normalize
+        var cam_dir as raylib.Vector3 is calling dir.get_scale with cam_dist
+        calling shdr_raymarch.set_vec3 with cam_dir_loc, cam_dir
+
+        # Draw to custom render texture
+        calling drawing.begin_texture_mode with target
+        calling drawing.clear_background with raylib.WHITE
+
+        # Raymarch scene
+        calling rlgl.rlEnableDepthTest
+        calling drawing.begin_shader_mode with shdr_raymarch
+        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        # Rasterize scene
+        calling drawing.begin_mode_3d with camera
+        calling drawing.begin_shader_mode with shdr_raster
+
+        calling shapes3d.draw_cube_wires with (with x is 0.0, y is 0.5, z is 1.0), 1.0, 1.0, 1.0, raylib.RED
+        calling shapes3d.draw_cube with (with x is 0.0, y is 0.5, z is 1.0), 1.0, 1.0, 1.0, raylib.PURPLE
+        calling shapes3d.draw_cube_wires with (with x is 0.0, y is 0.5, z is -1.0), 1.0, 1.0, 1.0, raylib.DARKGREEN
+        calling shapes3d.draw_cube with (with x is 0.0, y is 0.5, z is -1.0), 1.0, 1.0, 1.0, raylib.YELLOW
+        calling shapes3d.draw_grid with 10, 1.0
+
+        calling drawing.end_shader_mode
+        calling drawing.end_mode_3d
+        calling drawing.end_texture_mode
+
+        # Draw render texture to screen
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        var src_rec as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is SCREEN_WIDTH to f32
+            set .height is -SCREEN_HEIGHT to f32
+        calling target.texture.draw_rec with src_rec, (with x is 0.0, y is 0.0), raylib.WHITE
+
+        calling txt.draw_fps with 10, 10
+        calling drawing.end_drawing
+
+    return 0

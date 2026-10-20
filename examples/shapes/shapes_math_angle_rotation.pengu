@@ -1,0 +1,96 @@
+## ## raylib [shapes] example - math angle rotation
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 5.6
+## Example contributed by Kris (@krispy-snacc) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Kris (@krispy-snacc)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_math_angle_rotation.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import std.fractio
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 720
+const SCREEN_HEIGHT as int is 400
+const DEG2RAD as f32 is 0.017453292519943295
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - math angle rotation"
+    defer calling raylib.CloseWindow
+    calling raylib.SetTargetFPS with 60
+
+    var center as raylib.Vector2 is with:
+        set .x is (SCREEN_WIDTH to f32) / 2.0
+        set .y is (SCREEN_HEIGHT to f32) / 2.0
+    let line_length as f32 is 150.0
+
+    var angles as list of int is [0, 30, 60, 90]
+    defer banish angles
+
+    var total_angle as f32 is 0.0
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set total_angle is total_angle + 1.0
+        if total_angle >= 360.0:
+            set total_angle is total_angle - 360.0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.WHITE
+
+        calling txt.draw_text with "Fixed angles + rotating line", 10, 10, 20, colors.LIGHTGRAY
+
+        # Draw fixed-angle lines with colorful gradient
+        for i from 0 to (angles.length to int) - 1:
+            let ang as int is angles at i
+            var rad as f32 is (ang to f32) * DEG2RAD
+
+            var end_pos as raylib.Vector2 is with:
+                set .x is center.x + ((calling rad.get_cos) * line_length)
+                set .y is center.y + ((calling rad.get_sin) * line_length)
+
+            let col as raylib.Color is if i == 0 then colors.GREEN else if i == 1 then colors.ORANGE else if i == 2 then colors.BLUE else colors.MAGENTA
+
+            calling center.draw_line_ex with end_pos, 5.0, col
+
+            # Draw angle label slightly offset along the line
+            var text_pos as raylib.Vector2 is with:
+                set .x is center.x + ((calling rad.get_cos) * (line_length + 20.0))
+                set .y is center.y + ((calling rad.get_sin) * (line_length + 20.0))
+
+            var label as string is "{ang} deg"
+            calling txt.draw_text with label, text_pos.x to int, text_pos.y to int, 20, col
+            banish label
+
+        # Draw animated rotating line with changing color
+        var anim_rad as f32 is total_angle * DEG2RAD
+        var anim_end as raylib.Vector2 is with:
+            set .x is center.x + ((calling anim_rad.get_cos) * line_length)
+            set .y is center.y + ((calling anim_rad.get_sin) * line_length)
+
+        let anim_col as raylib.Color is calling raylib.ColorFromHSV with total_angle, 0.8, 0.9
+        calling center.draw_line_ex with anim_end, 5.0, anim_col
+
+        calling drawing.end_drawing

@@ -1,0 +1,159 @@
+## examples/others/gl_scissor_shapes.pengu
+## raylib [others] example - scissor shapes
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 6.0
+##
+## Example contributed by David Buzatto (@davidbuzatto) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2026 David Buzatto (@davidbuzatto)
+##
+## ## PenguScript Port
+## Translated from `examples/others/gl_scissor_shapes.c` into idiomatic PenguScript.
+## While `BeginScissorMode()` only clips to an axis-aligned rectangle via `glScissor`,
+## clipping to an arbitrary shape requires the stencil buffer: the clip shape is
+## rasterized into the stencil buffer first without writing color, then subsequent
+## draws only pass through where the stencil was written.
+##
+## Low-level OpenGL stencil calls are defined via `antiquus` blocks and exposed
+## through idiomatic scissor-shape routines.
+##
+## ## Example
+## ```bash
+## pengu run examples/others/gl_scissor_shapes.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import rlgl
+import std.fractio as fractio
+
+include "GL/gl.h"
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for smooth rendering.
+const TARGET_FPS as int is 60
+
+# --- OpenGL Stencil FFI -------------------------------------------------
+## Low-level OpenGL stencil configuration for mask rasterization pass.
+##
+## Clears the stencil buffer, enables stencil testing, and sets up stencil
+## write operations.
+antiquus stencil_begin_mask into void:
+    r"""
+    glClear(GL_STENCIL_BUFFER_BIT);
+    glEnable(GL_STENCIL_TEST);
+    glStencilMask(0xFF);
+    glStencilFunc(GL_ALWAYS, 1, 0xFF);
+    glStencilOp(GL_REPLACE, GL_REPLACE, GL_REPLACE);
+    """
+
+## Low-level OpenGL stencil configuration for clipped draw pass.
+##
+## Configures stencil test to only allow drawing where the stencil buffer
+## equals 1, preserving existing stencil values.
+antiquus stencil_activate_mask into void:
+    r"""
+    glStencilFunc(GL_EQUAL, 1, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+    """
+
+## Disables stencil testing after drawing clipped contents.
+antiquus stencil_disable into void:
+    r"""
+    glDisable(GL_STENCIL_TEST);
+    """
+
+# --- Scissor Mode Shape Helpers -----------------------------------------
+## Begins rasterizing a mask shape into the stencil buffer.
+##
+## Flushes pending render commands, enables stencil testing, and disables
+## color buffer writes so that subsequent geometry only affects the stencil buffer.
+weave begin_scissor_mode_mask into void:
+    calling rlgl.rlDrawRenderBatchActive
+    calling stencil_begin_mask
+    calling rlgl.rlColorMask with false, false, false, false
+
+## Transitions from recording the mask to rendering clipped geometry.
+##
+## Flushes mask draw calls, restores color buffer writes, and configures
+## the stencil buffer to only pass fragments matching the recorded mask.
+weave begin_scissor_mode_content into void:
+    calling rlgl.rlDrawRenderBatchActive
+    calling rlgl.rlColorMask with true, true, true, true
+    calling stencil_activate_mask
+
+## Ends scissor shape clipping and restores default render state.
+weave end_scissor_mode_shape into void:
+    calling rlgl.rlDrawRenderBatchActive
+    calling stencil_disable
+
+# --- Entry Point --------------------------------------------------------
+## Program main entry point.
+##
+## Sets up the application window, runs the animation loop, and renders
+## full-screen colored rectangles clipped to a moving circle and a hexagon.
+##
+## ## Returns
+## Exit status code (`0` for success).
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [others] example - scissor shapes"
+    defer calling raylib.CloseWindow
+
+    var circle_center as raylib.Vector2 is with:
+        set .x is ((SCREEN_WIDTH to f32) / 2.0) - 120.0
+        set .y is (SCREEN_HEIGHT to f32) / 2.0
+
+    var hex_center as raylib.Vector2 is with:
+        set .x is ((SCREEN_WIDTH to f32) / 2.0) + 120.0
+        set .y is (SCREEN_HEIGHT to f32) / 2.0
+
+    let mask_radius as f32 is 100.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let time_sec as f32 is calling raylib.GetTime to f32
+        let sin_offset as f32 is calling time_sec.get_sin
+        set circle_center.y is ((SCREEN_HEIGHT to f32) / 2.0) + (sin_offset * 40.0)
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Circle-shaped clip: the full-screen rectangle only shows inside the circle
+        calling begin_scissor_mode_mask
+        calling circle_center.draw_circle with mask_radius, raylib.WHITE
+        calling begin_scissor_mode_content
+        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.BLUE
+        calling end_scissor_mode_shape
+
+        # Hexagon-shaped clip: same mechanism, a different mask shape
+        calling begin_scissor_mode_mask
+        calling hex_center.draw_poly with 6, mask_radius, 0.0, raylib.WHITE
+        calling begin_scissor_mode_content
+        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, raylib.ORANGE
+        calling end_scissor_mode_shape
+
+        calling txt.draw_text with "BeginScissorMode() only clips to a rectangle (glScissor)", 10, 10, 10, raylib.DARKGRAY
+        calling txt.draw_text with "This clips to arbitrary shapes instead, using the stencil buffer", 10, 25, 10, raylib.DARKGRAY
+
+        calling drawing.end_drawing
+
+    return 0

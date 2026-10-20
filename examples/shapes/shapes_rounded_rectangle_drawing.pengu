@@ -1,0 +1,194 @@
+## raylib [shapes] example - rounded rectangle drawing
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 2.5
+## Example contributed by Vlad Adrian (@demizdor) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2018-2025 Vlad Adrian (@demizdor) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and rayguix controls.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_rounded_rectangle_drawing.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raygui as raygui
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import pengu.rayguix as rayguix
+
+# --- Helpers ---
+
+## Formats a float to two decimal places
+##
+## ## Parameters
+## - `val`: float value to format
+##
+## ## Returns
+## Formatted string representation
+weave format_float_2 with val as f32 into string:
+    var sign as string is if val < 0.0 then "-" else ""
+    var abs_val as f32 is if val < 0.0 then -val else val
+    var int_part as int is abs_val to int
+    var frac_part as int is ((abs_val - (int_part to f32)) * 100.0) to int
+    var frac_str as string is if frac_part < 10 then "0{frac_part}" else "{frac_part}"
+    defer banish frac_str
+    return "{sign}{int_part}.{frac_str}"
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - rounded rectangle drawing"
+    defer calling raylib.CloseWindow
+
+    var roundness as f32 is 0.2
+    var width as f32 is 200.0
+    var height as f32 is 100.0
+    var segments as f32 is 0.0
+    var line_thick as f32 is 1.0
+
+    var draw_rect as bool is false
+    var draw_rounded_rect as bool is true
+    var draw_rounded_lines as bool is false
+
+    let div_line_start as raylib.Vector2 is with:
+        set .x is 560.0
+        set .y is 0.0
+
+    let side_panel_rec as raylib.Rectangle is with:
+        set .x is 560.0
+        set .y is 0.0
+        set .width is (screen_width to f32) - 500.0
+        set .height is (screen_height to f32)
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        let rec as raylib.Rectangle is with:
+            set .x is (((screen_width to f32) - width - 250.0) / 2.0)
+            set .y is (((screen_height to f32) - height) / 2.0)
+            set .width is width
+            set .height is height
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let div_line_end as raylib.Vector2 is with:
+            set .x is 560.0
+            set .y is (calling raylib.GetScreenHeight to f32)
+        calling div_line_start.draw_line_ex with div_line_end, 1.0, (calling colors.fade with raylib.LIGHTGRAY, 0.6)
+
+        calling side_panel_rec.draw with (calling colors.fade with raylib.LIGHTGRAY, 0.3)
+
+        if draw_rect:
+            calling rec.draw with (calling colors.fade with raylib.GOLD, 0.6)
+
+        if draw_rounded_rect:
+            calling rec.draw_rounded with roundness, (segments to int), (calling colors.fade with raylib.MAROON, 0.2)
+
+        if draw_rounded_lines:
+            calling rec.draw_rounded_outline with roundness, (segments to int), line_thick, (calling colors.fade with raylib.MAROON, 0.4)
+
+        # Draw GUI controls
+        let max_w as f32 is ((calling raylib.GetScreenWidth to f32) - 300.0)
+        let sl_w_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 40.0
+            set .width is 105.0
+            set .height is 20.0
+        var s_w as string is calling format_float_2 with width
+        calling rayguix.slider_bar with sl_w_rec, "Width", s_w, (sigil of width), 0.0, max_w
+        banish s_w
+
+        let max_h as f32 is ((calling raylib.GetScreenHeight to f32) - 50.0)
+        let sl_h_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 70.0
+            set .width is 105.0
+            set .height is 20.0
+        var s_h as string is calling format_float_2 with height
+        calling rayguix.slider_bar with sl_h_rec, "Height", s_h, (sigil of height), 0.0, max_h
+        banish s_h
+
+        let sl_r_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 140.0
+            set .width is 105.0
+            set .height is 20.0
+        var s_r as string is calling format_float_2 with roundness
+        calling rayguix.slider_bar with sl_r_rec, "Roundness", s_r, (sigil of roundness), 0.0, 1.0
+        banish s_r
+
+        let sl_t_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 170.0
+            set .width is 105.0
+            set .height is 20.0
+        var s_t as string is calling format_float_2 with line_thick
+        calling rayguix.slider_bar with sl_t_rec, "Thickness", s_t, (sigil of line_thick), 0.0, 20.0
+        banish s_t
+
+        let sl_s_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 240.0
+            set .width is 105.0
+            set .height is 20.0
+        var s_s as string is calling format_float_2 with segments
+        calling rayguix.slider_bar with sl_s_rec, "Segments", s_s, (sigil of segments), 0.0, 60.0
+        banish s_s
+
+        let cb_drr_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 320.0
+            set .width is 20.0
+            set .height is 20.0
+        calling rayguix.check_box with cb_drr_rec, "DrawRoundedRect", (sigil of draw_rounded_rect)
+
+        let cb_drl_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 350.0
+            set .width is 20.0
+            set .height is 20.0
+        calling rayguix.check_box with cb_drl_rec, "DrawRoundedLines", (sigil of draw_rounded_lines)
+
+        let cb_dr_rec as raylib.Rectangle is with:
+            set .x is 640.0
+            set .y is 380.0
+            set .width is 20.0
+            set .height is 20.0
+        calling rayguix.check_box with cb_dr_rec, "DrawRect", (sigil of draw_rect)
+
+        let is_manual as bool is segments >= 4.0
+        var mode_msg as string is if is_manual then "MODE: MANUAL" else "MODE: AUTO"
+        let mode_color as raylib.Color is if is_manual then raylib.MAROON else raylib.DARKGRAY
+        calling txt.draw_text with mode_msg, 640, 280, 10, mode_color
+        banish mode_msg
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

@@ -1,0 +1,246 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - rounded rectangle
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Anstro Pleuton (@anstropleuton) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to render rounded rectangles with configurable
+## corner radii, drop shadows, and inner borders via a signed distance field (SDF) shader.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_rounded_rectangle.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shaders as shaders
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Types --------------------------------------------------------------
+## Configuration and shader locations for a signed-distance-field rounded rectangle.
+rune RoundedRectangle:
+    cornerRadius as raylib.Vector4
+    shadowRadius as f32
+    shadowOffset as raylib.Vector2
+    shadowScale as f32
+    borderThickness as f32
+    rectangleLoc as int
+    radiusLoc as int
+    colorLoc as int
+    shadowRadiusLoc as int
+    shadowOffsetLoc as int
+    shadowScaleLoc as int
+    shadowColorLoc as int
+    borderThicknessLoc as int
+    borderColorLoc as int
+
+# --- Functions ----------------------------------------------------------
+
+## Updates rounded rectangle shape uniforms on the given shader.
+weave update_rounded_rectangle with rec as RoundedRectangle, shader as raylib.Shader into void:
+    calling shader.set_vec4 with rec.radiusLoc, rec.cornerRadius
+    calling shader.set_float with rec.shadowRadiusLoc, rec.shadowRadius
+    calling shader.set_vec2 with rec.shadowOffsetLoc, rec.shadowOffset
+    calling shader.set_float with rec.shadowScaleLoc, rec.shadowScale
+    calling shader.set_float with rec.borderThicknessLoc, rec.borderThickness
+
+## Helper to get shader uniform location as an int (or -1 if missing).
+weave loc_of with shader as raylib.Shader, name as string into int:
+    if loc as int is calling shader.location with name:
+        return loc
+    return -1
+
+## Creates a rounded rectangle helper and queries its uniform locations.
+weave create_rounded_rectangle with corner_radius as raylib.Vector4, shadow_radius as f32, shadow_offset as raylib.Vector2, shadow_scale as f32, border_thickness as f32, shader as raylib.Shader into RoundedRectangle:
+    var rec as RoundedRectangle is with:
+        set .cornerRadius is corner_radius
+        set .shadowRadius is shadow_radius
+        set .shadowOffset is shadow_offset
+        set .shadowScale is shadow_scale
+        set .borderThickness is border_thickness
+        set .rectangleLoc is calling loc_of with shader, "rectangle"
+        set .radiusLoc is calling loc_of with shader, "radius"
+        set .colorLoc is calling loc_of with shader, "color"
+        set .shadowRadiusLoc is calling loc_of with shader, "shadowRadius"
+        set .shadowOffsetLoc is calling loc_of with shader, "shadowOffset"
+        set .shadowScaleLoc is calling loc_of with shader, "shadowScale"
+        set .shadowColorLoc is calling loc_of with shader, "shadowColor"
+        set .borderThicknessLoc is calling loc_of with shader, "borderThickness"
+        set .borderColorLoc is calling loc_of with shader, "borderColor"
+
+    calling update_rounded_rectangle with rec, shader
+    return rec
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - rounded rectangle"
+    defer calling raylib.CloseWindow
+
+    # Load shader
+    var shader as raylib.Shader is with id is 0
+    if loaded as raylib.Shader is calling shaders.load_shader with "examples/shaders/resources/shaders/glsl330/base.vs", "examples/shaders/resources/shaders/glsl330/rounded_rectangle.fs":
+        set shader is loaded
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    # Create rounded rectangle
+    var corner_radius as raylib.Vector4 is with:
+        set .x is 5.0
+        set .y is 10.0
+        set .z is 15.0
+        set .w is 20.0
+
+    var shadow_offset as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is -5.0
+
+    var rounded_rec as RoundedRectangle is calling create_rounded_rectangle with corner_radius, 20.0, shadow_offset, 0.95, 5.0, shader
+
+    let rect_color_vec as raylib.Vector4 is with:
+        set .x is (raylib.BLUE.r to f32) / 255.0
+        set .y is (raylib.BLUE.g to f32) / 255.0
+        set .z is (raylib.BLUE.b to f32) / 255.0
+        set .w is (raylib.BLUE.a to f32) / 255.0
+
+    let shadow_color_vec as raylib.Vector4 is with:
+        set .x is (raylib.DARKBLUE.r to f32) / 255.0
+        set .y is (raylib.DARKBLUE.g to f32) / 255.0
+        set .z is (raylib.DARKBLUE.b to f32) / 255.0
+        set .w is (raylib.DARKBLUE.a to f32) / 255.0
+
+    let border_color_vec as raylib.Vector4 is with:
+        set .x is (raylib.SKYBLUE.r to f32) / 255.0
+        set .y is (raylib.SKYBLUE.g to f32) / 255.0
+        set .z is (raylib.SKYBLUE.b to f32) / 255.0
+        set .w is (raylib.SKYBLUE.a to f32) / 255.0
+
+    let zero_color_vec as raylib.Vector4 is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .z is 0.0
+        set .w is 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Draw rectangle box with rounded corners using shader
+        var rec1 as raylib.Rectangle is with:
+            set .x is 50.0
+            set .y is 70.0
+            set .width is 110.0
+            set .height is 60.0
+
+        calling shapes.draw_rectangle_lines with ((rec1.x to int) - 20), ((rec1.y to int) - 20), ((rec1.width to int) + 40), ((rec1.height to int) + 40), raylib.DARKGRAY
+        calling txt.draw_text with "Rounded rectangle", ((rec1.x to int) - 20), ((rec1.y to int) - 35), 10, raylib.DARKGRAY
+
+        # Flip Y axis to match shader coordinate system
+        var shader_rec1 as raylib.Vector4 is with:
+            set .x is rec1.x
+            set .y is (screen_height to f32) - rec1.y - rec1.height
+            set .z is rec1.width
+            set .w is rec1.height
+
+        calling shader.set_vec4 with rounded_rec.rectangleLoc, shader_rec1
+        calling shader.set_vec4 with rounded_rec.colorLoc, rect_color_vec
+        calling shader.set_vec4 with rounded_rec.shadowColorLoc, zero_color_vec
+        calling shader.set_vec4 with rounded_rec.borderColorLoc, zero_color_vec
+
+        calling drawing.begin_shader_mode with shader
+        calling shapes.draw_rectangle with 0, 0, screen_width, screen_height, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        # Draw rectangle shadow using shader
+        var rec2 as raylib.Rectangle is with:
+            set .x is 50.0
+            set .y is 200.0
+            set .width is 110.0
+            set .height is 60.0
+
+        calling shapes.draw_rectangle_lines with ((rec2.x to int) - 20), ((rec2.y to int) - 20), ((rec2.width to int) + 40), ((rec2.height to int) + 40), raylib.DARKGRAY
+        calling txt.draw_text with "Rounded rectangle shadow", ((rec2.x to int) - 20), ((rec2.y to int) - 35), 10, raylib.DARKGRAY
+
+        var shader_rec2 as raylib.Vector4 is with:
+            set .x is rec2.x
+            set .y is (screen_height to f32) - rec2.y - rec2.height
+            set .z is rec2.width
+            set .w is rec2.height
+
+        calling shader.set_vec4 with rounded_rec.rectangleLoc, shader_rec2
+        calling shader.set_vec4 with rounded_rec.colorLoc, zero_color_vec
+        calling shader.set_vec4 with rounded_rec.shadowColorLoc, shadow_color_vec
+        calling shader.set_vec4 with rounded_rec.borderColorLoc, zero_color_vec
+
+        calling drawing.begin_shader_mode with shader
+        calling shapes.draw_rectangle with 0, 0, screen_width, screen_height, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        # Draw rectangle border using shader
+        var rec3 as raylib.Rectangle is with:
+            set .x is 50.0
+            set .y is 330.0
+            set .width is 110.0
+            set .height is 60.0
+
+        calling shapes.draw_rectangle_lines with ((rec3.x to int) - 20), ((rec3.y to int) - 20), ((rec3.width to int) + 40), ((rec3.height to int) + 40), raylib.DARKGRAY
+        calling txt.draw_text with "Rounded rectangle border", ((rec3.x to int) - 20), ((rec3.y to int) - 35), 10, raylib.DARKGRAY
+
+        var shader_rec3 as raylib.Vector4 is with:
+            set .x is rec3.x
+            set .y is (screen_height to f32) - rec3.y - rec3.height
+            set .z is rec3.width
+            set .w is rec3.height
+
+        calling shader.set_vec4 with rounded_rec.rectangleLoc, shader_rec3
+        calling shader.set_vec4 with rounded_rec.colorLoc, zero_color_vec
+        calling shader.set_vec4 with rounded_rec.shadowColorLoc, zero_color_vec
+        calling shader.set_vec4 with rounded_rec.borderColorLoc, border_color_vec
+
+        calling drawing.begin_shader_mode with shader
+        calling shapes.draw_rectangle with 0, 0, screen_width, screen_height, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        # Draw combined rectangle
+        var rec4 as raylib.Rectangle is with:
+            set .x is 240.0
+            set .y is 80.0
+            set .width is 500.0
+            set .height is 300.0
+
+        calling shapes.draw_rectangle_lines with ((rec4.x to int) - 30), ((rec4.y to int) - 30), ((rec4.width to int) + 60), ((rec4.height to int) + 60), raylib.DARKGRAY
+        calling txt.draw_text with "Rectangle with all three combined", ((rec4.x to int) - 30), ((rec4.y to int) - 45), 10, raylib.DARKGRAY
+
+        var shader_rec4 as raylib.Vector4 is with:
+            set .x is rec4.x
+            set .y is (screen_height to f32) - rec4.y - rec4.height
+            set .z is rec4.width
+            set .w is rec4.height
+
+        calling shader.set_vec4 with rounded_rec.rectangleLoc, shader_rec4
+        calling shader.set_vec4 with rounded_rec.colorLoc, rect_color_vec
+        calling shader.set_vec4 with rounded_rec.shadowColorLoc, shadow_color_vec
+        calling shader.set_vec4 with rounded_rec.borderColorLoc, border_color_vec
+
+        calling drawing.begin_shader_mode with shader
+        calling shapes.draw_rectangle with 0, 0, screen_width, screen_height, raylib.WHITE
+        calling drawing.end_shader_mode
+
+        calling txt.draw_text with "(c) Rounded rectangle SDF by Inigo Quilez. MIT License.", (screen_width - 300), (screen_height - 20), 10, raylib.BLACK
+
+        calling drawing.end_drawing
+
+    return 0

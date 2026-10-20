@@ -1,0 +1,133 @@
+## raylib [others] example - embedded files loading
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 3.0, last time updated with raylib 3.5
+##
+## Example contributed by Kristian Holmgren (@defutura) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2020-2025 Kristian Holmgren (@defutura) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.input`,
+## `raylibx.text`, `raylibx.audio`, `raylibx.textures`), compile-time embedded assets
+## via C header arrays, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/others/embedded_files_loading.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.audio as audio
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Embedded Assets Glue ---
+
+## Constructs a `Wave` from raw audio byte data embedded in `audio_data.h`.
+##
+## ## Returns
+## The initialized `Wave` struct pointing to embedded executable data.
+antiquus get_embedded_wave into raylib.Wave:
+    r"""
+    #include "../examples/others/resources/audio_data.h"
+    Wave wave = {
+        .data = AUDIO_DATA,
+        .frameCount = AUDIO_FRAME_COUNT,
+        .sampleRate = AUDIO_SAMPLE_RATE,
+        .sampleSize = AUDIO_SAMPLE_SIZE,
+        .channels = AUDIO_CHANNELS
+    };
+    return wave;
+    """
+
+## Constructs an `Image` from raw pixel byte data embedded in `image_data.h`.
+##
+## ## Returns
+## The initialized `Image` struct pointing to embedded executable data.
+antiquus get_embedded_image into raylib.Image:
+    r"""
+    #include "../examples/others/resources/image_data.h"
+    Image image = {
+        .data = IMAGE_DATA,
+        .width = IMAGE_WIDTH,
+        .height = IMAGE_HEIGHT,
+        .format = IMAGE_FORMAT,
+        .mipmaps = 1
+    };
+    return image;
+    """
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Loads sound and texture data directly from embedded C header byte arrays,
+## renders the embedded raylib logo, and plays the sound when SPACE is pressed.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if asset conversion fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [others] example - embedded files loading"
+    defer calling raylib.CloseWindow
+
+    calling raylib.InitAudioDevice # Initialize audio device
+    defer calling raylib.CloseAudioDevice
+
+    # Loaded in CPU memory (RAM) from embedded header file
+    var wave as raylib.Wave is calling get_embedded_wave
+
+    # Wave converted to Sound to be played
+    let loaded_sound as maybe raylib.Sound is calling audio.load_sound_from_wave with wave
+    if sound as raylib.Sound is loaded_sound:
+        defer calling audio.unload_sound with sound
+
+        # Loaded in CPU memory (RAM) from embedded header file
+        var image as raylib.Image is calling get_embedded_image
+
+        # Image converted to Texture (VRAM) to be drawn
+        let loaded_texture as maybe raylib.Texture2D is calling textures.load_texture_from_image with image
+        if texture as raylib.Texture2D is loaded_texture:
+            defer calling textures.unload_texture with texture
+
+            calling raylib.SetTargetFPS with TARGET_FPS # Set our game to run at 60 frames-per-second
+
+            # Main game loop
+            while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+                # Update
+                if calling input.is_key_pressed with raylib.KEY_SPACE:
+                    calling sound.play # Play sound
+
+                # Draw
+                calling drawing.begin_drawing
+                calling drawing.clear_background with raylib.RAYWHITE
+
+                let tex_x as int is (SCREEN_WIDTH / 2) - (texture.width / 2)
+                calling texture.draw with tex_x, 40, raylib.WHITE
+
+                calling txt.draw_text with "raylib logo and sound loaded from header files", 150, 320, 20, raylib.LIGHTGRAY
+                calling txt.draw_text with "Press SPACE to PLAY the sound!", 220, 370, 20, raylib.LIGHTGRAY
+
+                calling drawing.end_drawing
+
+            return 0
+
+    return 1

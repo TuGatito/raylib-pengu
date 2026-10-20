@@ -1,0 +1,88 @@
+## ## raylib [shapes] example - Draw a mouse trail (position history)
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 5.6, last time updated with raylib 6.0
+## Example contributed by Balamurugan R (@Bala050814) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Balamurugan R (@Bala050814)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_mouse_trail.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+const MAX_TRAIL_LENGTH as int is 30
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - mouse trail"
+    defer calling raylib.CloseWindow
+
+    # Array to store the history of mouse positions
+    var trail_positions as list of raylib.Vector2 is []
+    defer banish trail_positions
+
+    for _i from 0 to MAX_TRAIL_LENGTH - 1:
+        var zv as raylib.Vector2 is with:
+            set .x is 0.0
+            set .y is 0.0
+        calling trail_positions.append with zv
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+
+        # Shift all existing positions backward by one slot in the list
+        var idx as int is MAX_TRAIL_LENGTH - 1
+        while idx > 0:
+            set trail_positions at idx is trail_positions at (idx - 1)
+            set idx is idx - 1
+
+        # Store the new, current mouse position at the start of the list
+        set trail_positions at 0 is mouse_pos
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.BLACK
+
+        # Draw the trail by looping through the history list
+        for i from 0 to MAX_TRAIL_LENGTH - 1:
+            let pos as raylib.Vector2 is trail_positions at i
+            if (pos.x != 0.0) or (pos.y != 0.0):
+                # Calculate relative trail strength
+                let ratio as f32 is ((MAX_TRAIL_LENGTH - i) to f32) / (MAX_TRAIL_LENGTH to f32)
+
+                # Fade effect
+                let trail_color as raylib.Color is calling colors.fade with colors.SKYBLUE, (ratio * 0.5) + 0.5
+                let trail_radius as f32 is 15.0 * ratio
+
+                calling pos.draw_circle with trail_radius, trail_color
+
+        # Draw a distinct white circle for current mouse position
+        calling mouse_pos.draw_circle with 15.0, colors.WHITE
+
+        calling txt.draw_text with "Move the mouse to see the trail effect!", 10, SCREEN_HEIGHT - 30, 20, colors.LIGHTGRAY
+
+        calling drawing.end_drawing

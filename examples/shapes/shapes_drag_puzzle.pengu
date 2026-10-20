@@ -1,0 +1,230 @@
+## ## raylib [shapes] example - drag puzzle
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+## Example contributed by Gabriel Piangers (@gabriel-piangers) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2026 Gabriel Piangers (@gabriel-piangers)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_drag_puzzle.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raymathx as raymathx
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+
+# --- Types ---
+
+## ## Circle shape definition
+rune Circle:
+    center as raylib.Vector2
+    radius as f32
+
+## ## Triangle shape definition
+rune Triangle:
+    v1 as raylib.Vector2
+    v2 as raylib.Vector2
+    v3 as raylib.Vector2
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - drag puzzle"
+    defer calling raylib.CloseWindow
+
+    let center_x as f32 is (SCREEN_WIDTH to f32) / 2.0
+    let center_y as f32 is (SCREEN_HEIGHT to f32) / 2.0
+
+    # Rectangle
+    var rec as raylib.Rectangle is with:
+        set .x is center_x - 250.0
+        set .y is center_y + 50.0
+        set .width is 100.0
+        set .height is 100.0
+    var rec_area as raylib.Rectangle is with:
+        set .x is center_x - 60.0
+        set .y is center_y - 110.0
+        set .width is 110.0
+        set .height is 110.0
+    var rec_picked_up as bool is false
+
+    # Circle
+    var circ_center as raylib.Vector2 is with:
+        set .x is center_x
+        set .y is center_y + 100.0
+    var circ as Circle is with:
+        set .center is circ_center
+        set .radius is 50.0
+
+    var circ_area_center as raylib.Vector2 is with:
+        set .x is center_x - 195.0
+        set .y is center_y - 55.0
+    var circ_area as Circle is with:
+        set .center is circ_area_center
+        set .radius is 55.0
+    var circ_picked_up as bool is false
+
+    # Triangle
+    var tri_v1 as raylib.Vector2 is with:
+        set .x is 600.0
+        set .y is 282.0
+    var tri_v2 as raylib.Vector2 is with:
+        set .x is 550.0
+        set .y is 369.0
+    var tri_v3 as raylib.Vector2 is with:
+        set .x is 650.0
+        set .y is 369.0
+    var tri as Triangle is with:
+        set .v1 is tri_v1
+        set .v2 is tri_v2
+        set .v3 is tri_v3
+
+    var tri_area_v1 as raylib.Vector2 is with:
+        set .x is 600.0
+        set .y is 115.0
+    var tri_area_v2 as raylib.Vector2 is with:
+        set .x is 540.0
+        set .y is 222.0
+    var tri_area_v3 as raylib.Vector2 is with:
+        set .x is 660.0
+        set .y is 222.0
+    var tri_area as Triangle is with:
+        set .v1 is tri_area_v1
+        set .v2 is tri_area_v2
+        set .v3 is tri_area_v3
+    var tri_picked_up as bool is false
+
+    # Stores the offset of the mouse relative to the object's pivot point
+    var mouse_offset as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        var mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+        var rec_placed as bool is false
+        var circ_placed as bool is false
+        var tri_placed as bool is false
+
+        # Detect object pickup input
+        if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT:
+            if calling rec.contains_point with mouse_pos:
+                set rec_picked_up is true
+                set mouse_offset is with:
+                    set .x is rec.x - mouse_pos.x
+                    set .y is rec.y - mouse_pos.y
+            else if calling shapes.collision_point_circle with mouse_pos, circ.center, circ.radius:
+                set circ_picked_up is true
+                set mouse_offset is with:
+                    set .x is circ.center.x - mouse_pos.x
+                    set .y is circ.center.y - mouse_pos.y
+            else if calling shapes.collision_point_triangle with mouse_pos, tri.v1, tri.v2, tri.v3:
+                set tri_picked_up is true
+                set mouse_offset is with:
+                    set .x is tri.v1.x - mouse_pos.x
+                    set .y is tri.v1.y - mouse_pos.y
+
+        # Detect object drop input
+        if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+            if rec_picked_up:
+                set rec_picked_up is false
+            else if circ_picked_up:
+                set circ_picked_up is false
+            else if tri_picked_up:
+                set tri_picked_up is false
+
+        # Rectangle update
+        if rec_picked_up:
+            set rec.x is mouse_pos.x + mouse_offset.x
+            set rec.y is mouse_pos.y + mouse_offset.y
+
+        var rec_col as raylib.Rectangle is calling shapes.collision_rectangle with rec_area, rec
+        if (rec_col.width == rec.width) and (rec_col.height == rec.height):
+            set rec_placed is true
+
+        # Circle update
+        if circ_picked_up:
+            set circ.center.x is mouse_pos.x + mouse_offset.x
+            set circ.center.y is mouse_pos.y + mouse_offset.y
+
+        if (calling circ.center.distance_to with circ_area.center) < (circ_area.radius - circ.radius):
+            set circ_placed is true
+
+        # Triangle update
+        if tri_picked_up:
+            var v2_offset as raylib.Vector2 is with:
+                set .x is tri.v2.x - tri.v1.x
+                set .y is tri.v2.y - tri.v1.y
+            var v3_offset as raylib.Vector2 is with:
+                set .x is tri.v3.x - tri.v1.x
+                set .y is tri.v3.y - tri.v1.y
+
+            set tri.v1 is with:
+                set .x is mouse_pos.x + mouse_offset.x
+                set .y is mouse_pos.y + mouse_offset.y
+            set tri.v2 is with:
+                set .x is tri.v1.x + v2_offset.x
+                set .y is tri.v1.y + v2_offset.y
+            set tri.v3 is with:
+                set .x is tri.v1.x + v3_offset.x
+                set .y is tri.v1.y + v3_offset.y
+
+        let c1 as bool is calling shapes.collision_point_triangle with tri.v1, tri_area.v1, tri_area.v2, tri_area.v3
+        let c2 as bool is calling shapes.collision_point_triangle with tri.v2, tri_area.v1, tri_area.v2, tri_area.v3
+        let c3 as bool is calling shapes.collision_point_triangle with tri.v3, tri_area.v1, tri_area.v2, tri_area.v3
+        if c1 and c2 and c3:
+            set tri_placed is true
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        var rec_outline_color as raylib.Color is if rec_placed then colors.GREEN else colors.RED
+        var circ_outline_color as raylib.Color is if circ_placed then colors.GREEN else colors.RED
+        var tri_outline_color as raylib.Color is if tri_placed then colors.GREEN else colors.RED
+
+        calling rec_area.draw_outline with 2.0, rec_outline_color
+        calling raylib.DrawCircleLinesEx with circ_area.center, circ_area.radius, 2.0, circ_outline_color
+        calling raylib.DrawTriangleLinesEx with tri_area.v1, tri_area.v2, tri_area.v3, 2.0, tri_outline_color
+
+        # Draws objects that are not picked up first
+        if not tri_picked_up:
+            calling tri.v1.draw_triangle with tri.v2, tri.v3, colors.VIOLET
+        if not circ_picked_up:
+            calling circ.center.draw_circle with circ.radius, colors.BLUE
+        if not rec_picked_up:
+            calling rec.draw with colors.ORANGE
+
+        # Draws the object that is being dragged on top of others
+        if tri_picked_up:
+            calling tri.v1.draw_triangle with tri.v2, tri.v3, colors.VIOLET
+        if circ_picked_up:
+            calling circ.center.draw_circle with circ.radius, colors.BLUE
+        if rec_picked_up:
+            calling rec.draw with colors.ORANGE
+
+        calling txt.draw_text with "Use mouse to drag and drop the objects into the right spot!", 10, 10, 20, colors.GRAY
+
+        calling drawing.end_drawing

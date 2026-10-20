@@ -1,0 +1,124 @@
+## ## raylib [shapes] example - easings box
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 2.5
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and reasings module.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_easings_box.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.reasings as reasings
+
+# --- Constants ---
+
+const SCREEN_WIDTH as int is 800
+const SCREEN_HEIGHT as int is 450
+
+# --- Entry point ---
+
+weave entry into void:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shapes] example - easings box"
+    defer calling raylib.CloseWindow
+
+    # Box variables to be animated with easings
+    var rec as raylib.Rectangle is with:
+        set .x is (SCREEN_WIDTH to f32) / 2.0
+        set .y is -100.0
+        set .width is 100.0
+        set .height is 100.0
+
+    var rotation as f32 is 0.0
+    var alpha as f32 is 1.0
+
+    var state as int is 0
+    var frames_counter as int is 0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if state == 0:
+            # Move box down to center of screen
+            set frames_counter is frames_counter + 1
+            set rec.y is calling reasings.ease_elastic_out with frames_counter to f32, -100.0, ((SCREEN_HEIGHT to f32) / 2.0) + 100.0, 120.0
+
+            if frames_counter >= 120:
+                set frames_counter is 0
+                set state is 1
+        else if state == 1:
+            # Scale box to a horizontal bar
+            set frames_counter is frames_counter + 1
+            set rec.height is calling reasings.ease_bounce_out with frames_counter to f32, 100.0, -90.0, 120.0
+            set rec.width is calling reasings.ease_bounce_out with frames_counter to f32, 100.0, SCREEN_WIDTH to f32, 120.0
+
+            if frames_counter >= 120:
+                set frames_counter is 0
+                set state is 2
+        else if state == 2:
+            # Rotate horizontal bar rectangle
+            set frames_counter is frames_counter + 1
+            set rotation is calling reasings.ease_quad_out with frames_counter to f32, 0.0, 270.0, 240.0
+
+            if frames_counter >= 240:
+                set frames_counter is 0
+                set state is 3
+        else if state == 3:
+            # Increase bar size to fill all screen
+            set frames_counter is frames_counter + 1
+            set rec.height is calling reasings.ease_circ_out with frames_counter to f32, 10.0, SCREEN_WIDTH to f32, 120.0
+
+            if frames_counter >= 120:
+                set frames_counter is 0
+                set state is 4
+        else if state == 4:
+            # Fade out animation
+            set frames_counter is frames_counter + 1
+            set alpha is calling reasings.ease_sine_out with frames_counter to f32, 1.0, -1.0, 160.0
+
+            if frames_counter >= 160:
+                set frames_counter is 0
+                set state is 5
+
+        # Reset animation at any moment
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set rec is with:
+                set .x is (SCREEN_WIDTH to f32) / 2.0
+                set .y is -100.0
+                set .width is 100.0
+                set .height is 100.0
+            set rotation is 0.0
+            set alpha is 1.0
+            set state is 0
+            set frames_counter is 0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with colors.RAYWHITE
+
+        var origin as raylib.Vector2 is with:
+            set .x is rec.width / 2.0
+            set .y is rec.height / 2.0
+
+        let box_color as raylib.Color is calling colors.fade with colors.BLACK, alpha
+        calling rec.draw_pro with origin, rotation, box_color
+
+        calling txt.draw_text with "PRESS [SPACE] TO RESET BOX ANIMATION!", 10, SCREEN_HEIGHT - 25, 20, colors.LIGHTGRAY
+
+        calling drawing.end_drawing

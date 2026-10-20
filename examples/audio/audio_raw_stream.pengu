@@ -1,0 +1,170 @@
+## raylib [audio] example - raw stream
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 1.6, last time updated with raylib 6.0
+##
+## Example created by Ramon Santamaria (@raysan5) and reviewed by James Hofmann (@triplefox)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2015-2026 Ramon Santamaria (@raysan5) and James Hofmann (@triplefox)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.input`,
+## `raylibx.shapes`, `raylibx.text`, `raylibx.audio`, `std.fractio`),
+## dynamically synthesized audio stream, waveform visualization, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/audio/audio_raw_stream.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.audio as audio
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import std.fractio
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Audio buffer frame capacity.
+const BUFFER_SIZE as int is 4096
+
+## Stream audio sample rate in Hz.
+const SAMPLE_RATE as int is 44100
+
+## Target frames per second.
+const TARGET_FPS as int is 30
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Initializes an audio stream output buffer, synthesizes real-time sine wave samples,
+## pushes them to the audio hardware, and renders the synthesized audio waveform.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if stream creation fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [audio] example - raw stream"
+    defer calling raylib.CloseWindow
+
+    calling raylib.InitAudioDevice
+    defer calling raylib.CloseAudioDevice
+
+    # Set the number of samples the stream will keep in memory at a time to BUFFER_SIZE
+    calling raylib.SetAudioStreamBufferSizeDefault with BUFFER_SIZE
+
+    var buffer as list of f32 is list of f32
+    defer banish buffer
+    for i from 0 to BUFFER_SIZE:
+        calling buffer.push with 0.0
+
+    # Init raw audio stream (sample rate: 44100, sample size: 32bit-float, channels: 1-mono)
+    let loaded_stream as maybe raylib.AudioStream is calling audio.load_audio_stream with SAMPLE_RATE, 32, 1
+    if stream as raylib.AudioStream is loaded_stream:
+        defer calling audio.unload_audio_stream with stream
+
+        var pan as f32 is 0.0
+        calling stream.set_pan with pan
+        calling stream.play
+
+        var sine_frequency as int is 440
+        var new_sine_frequency as int is 440
+        var sine_index as int is 0
+        var sine_start_time as f64 is 0.0
+
+        calling raylib.SetTargetFPS with TARGET_FPS
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            if calling input.is_key_down with raylib.KEY_UP:
+                set new_sine_frequency is new_sine_frequency + 10
+                if new_sine_frequency > 12500:
+                    set new_sine_frequency is 12500
+
+            if calling input.is_key_down with raylib.KEY_DOWN:
+                set new_sine_frequency is new_sine_frequency - 10
+                if new_sine_frequency < 20:
+                    set new_sine_frequency is 20
+
+            if calling input.is_key_down with raylib.KEY_LEFT:
+                set pan is pan - 0.01
+                if pan < -1.0:
+                    set pan is -1.0
+                calling stream.set_pan with pan
+
+            if calling input.is_key_down with raylib.KEY_RIGHT:
+                set pan is pan + 0.01
+                if pan > 1.0:
+                    set pan is 1.0
+                calling stream.set_pan with pan
+
+            if calling stream.is_processed:
+                for i from 0 to BUFFER_SIZE:
+                    let wavelength as int is SAMPLE_RATE / sine_frequency
+                    let angle as f32 is (2.0 * raylib.PI * (sine_index to f32)) / (wavelength to f32)
+                    let sample as f32 is calling angle.get_sin
+                    set buffer at i is sample
+                    set sine_index is sine_index + 1
+
+                    if sine_index >= wavelength:
+                        set sine_frequency is new_sine_frequency
+                        set sine_index is 0
+                        set sine_start_time is calling raylib.GetTime
+
+                let buf_ptr as ref to frozen void is transmute (sigil of (buffer at 0)) to ref to frozen void
+                calling raylib.UpdateAudioStream with stream, buf_ptr, BUFFER_SIZE
+
+            # Draw
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            let freq_txt as string is "sine frequency: {sine_frequency}"
+            calling txt.draw_text with freq_txt, SCREEN_WIDTH - 220, 10, 20, raylib.RED
+            banish freq_txt
+
+            let pan_txt as string is "pan: {pan}"
+            calling txt.draw_text with pan_txt, SCREEN_WIDTH - 220, 30, 20, raylib.RED
+            banish pan_txt
+
+            calling txt.draw_text with "Up/down to change frequency", 10, 10, 20, raylib.DARKGRAY
+            calling txt.draw_text with "Left/right to pan", 10, 30, 20, raylib.DARKGRAY
+
+            let cur_time as f64 is calling raylib.GetTime
+            let window_start as int is ((cur_time - sine_start_time) * (SAMPLE_RATE to f64)) to int
+            let window_size as int is SAMPLE_RATE / 10
+            let wavelength as int is SAMPLE_RATE / sine_frequency
+
+            # Draw a sine wave with the same frequency as the one being sent to the audio stream
+            for i from 0 to SCREEN_WIDTH:
+                let t0 as int is window_start + ((i * window_size) / SCREEN_WIDTH)
+                let t1 as int is window_start + (((i + 1) * window_size) / SCREEN_WIDTH)
+
+                let angle0 as f32 is (2.0 * raylib.PI * (t0 to f32)) / (wavelength to f32)
+                let s0 as f32 is calling angle0.get_sin
+
+                let angle1 as f32 is (2.0 * raylib.PI * (t1 to f32)) / (wavelength to f32)
+                let s1 as f32 is calling angle1.get_sin
+
+                var start_pos as raylib.Vector2 is with x is (i to f32), y is 250.0 + (50.0 * s0)
+                let end_pos as raylib.Vector2 is with x is ((i + 1) to f32), y is 250.0 + (50.0 * s1)
+                calling start_pos.draw_line_to with end_pos, raylib.RED
+
+            calling drawing.end_drawing
+
+        return 0
+
+    return 1

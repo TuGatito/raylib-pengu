@@ -364,6 +364,17 @@ enchanting raylib.Shader:
             let ptr as ref to frozen void is transmute (sigil of (values at 0)) to (ref to frozen void)
             calling raylib.SetShaderValueV with (essence of self), loc, ptr, (raylib.SHADER_UNIFORM_INT to int), (values.length)
 
+    ## Uploads an array of `raylib.Vector3` as a uniform array.
+    ##
+    ## ## Parameters
+    ## - `loc`: the location from `location`.
+    ## - `values`: the Vector3 elements to upload.
+    weave set_vec3s with loc as int, values as slice of raylib.Vector3 into void:
+            if (values.length) == 0:
+                return
+            let ptr as ref to frozen void is transmute (sigil of (values at 0)) to (ref to frozen void)
+            calling raylib.SetShaderValueV with (essence of self), loc, ptr, (raylib.SHADER_UNIFORM_VEC3 to int), (values.length)
+
 
 ## Loads a shader program from a vertex and a fragment source file.
 ##
@@ -388,16 +399,33 @@ enchanting raylib.Shader:
 ## ```
 
 weave load_shader with vs_path as string, fs_path as string into maybe raylib.Shader:
-        let c_vs as ref to frozen char is calling ffi.cstr_from_string with vs_path
         let c_fs as ref to frozen char is calling ffi.cstr_from_string with fs_path
-        if not (calling raylib.IsPathFile with c_vs):
-            return maybe none
         if not (calling raylib.IsPathFile with c_fs):
             return maybe none
-        var shader as raylib.Shader is calling raylib.LoadShader with c_vs, c_fs
-        if calling raylib.IsShaderValid with shader:
-            return some shader
-        return maybe none
+        if vs_path.length > 0:
+            let c_vs as ref to frozen char is calling ffi.cstr_from_string with vs_path
+            if not (calling raylib.IsPathFile with c_vs):
+                return maybe none
+            var shader as raylib.Shader is calling raylib.LoadShader with c_vs, c_fs
+            if calling raylib.IsShaderValid with shader:
+                return some shader
+            return maybe none
+        else:
+            let c_null as ref to frozen char is transmute (calling ffi.null_void) to ref to frozen char
+            var shader as raylib.Shader is calling raylib.LoadShader with c_null, c_fs
+            if calling raylib.IsShaderValid with shader:
+                return some shader
+            return maybe none
+
+## Loads a fragment-only shader program from a file, using raylib's default vertex shader.
+##
+## ## Parameters
+## - `fs_path`: path to the fragment shader file.
+##
+## ## Returns
+## `some` with the compiled shader, or `maybe none` when the file does not exist or fails to compile.
+weave load_fragment_shader with fs_path as string into maybe raylib.Shader:
+    return calling load_shader with "", fs_path
 
 ## Compiles a shader program from two strings of GLSL source.
 ##

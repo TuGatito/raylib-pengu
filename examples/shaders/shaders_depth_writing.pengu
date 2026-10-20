@@ -1,0 +1,154 @@
+## ## PenguScript Port
+## Translated from raylib [shaders] example - depth writing
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Buğra Alptekin Sarı (@BugraAlptekinSari) and reviewed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates custom depth buffer writing in a fragment shader,
+## showing how modifying `gl_FragDepth` inverts or alters depth testing.
+##
+## ## Example
+## ```bash
+## pengu run examples/shaders/shaders_depth_writing.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shaders as shaders
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+import rlgl
+import std.ffi as ffi
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Helper Functions ---------------------------------------------------
+
+## Loads a custom render texture with an attached depth texture buffer.
+##
+## ## Parameters
+## - `width`: Width of the render texture in pixels.
+## - `height`: Height of the render texture in pixels.
+##
+## ## Returns
+## The initialized `raylib.RenderTexture2D` containing both color and depth textures.
+weave load_render_texture_depth_tex with width as int, height as int into raylib.RenderTexture2D:
+    var target as raylib.RenderTexture2D is with:
+        set .id is calling rlgl.rlLoadFramebuffer
+
+    if target.id > 0:
+        calling rlgl.rlEnableFramebuffer with target.id
+
+        # Create color texture (default RGBA)
+        var color_tex as raylib.Texture2D is with:
+            set .id is calling rlgl.rlLoadTexture with (calling ffi.null_void), width, height, (raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 to int), 1
+            set .width is width
+            set .height is height
+            set .format is (raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 to int)
+            set .mipmaps is 1
+        set target.texture is color_tex
+
+        # Create depth texture buffer
+        var depth_tex as raylib.Texture2D is with:
+            set .id is calling rlgl.rlLoadTextureDepth with width, height, false
+            set .width is width
+            set .height is height
+            set .format is 19 # DEPTH_COMPONENT_24BIT
+            set .mipmaps is 1
+        set target.depth is depth_tex
+
+        # Attach color texture and depth texture to FBO
+        calling rlgl.rlFramebufferAttach with target.id, target.texture.id, (rlgl.RL_ATTACHMENT_COLOR_CHANNEL0 to int), (rlgl.RL_ATTACHMENT_TEXTURE2D to int), 0
+        calling rlgl.rlFramebufferAttach with target.id, target.depth.id, (rlgl.RL_ATTACHMENT_DEPTH to int), (rlgl.RL_ATTACHMENT_TEXTURE2D to int), 0
+
+        calling rlgl.rlDisableFramebuffer
+
+    return target
+
+## Unloads a custom depth render texture from GPU memory (VRAM).
+##
+## ## Parameters
+## - `target`: The render texture to unload.
+weave unload_render_texture_depth_tex with target as raylib.RenderTexture2D into void:
+    if target.id > 0:
+        calling rlgl.rlUnloadTexture with target.texture.id
+        calling rlgl.rlUnloadTexture with target.depth.id
+        calling rlgl.rlUnloadFramebuffer with target.id
+
+# --- Entry Point --------------------------------------------------------
+
+## Main program function.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [shaders] example - depth writing"
+    defer calling raylib.CloseWindow
+
+    # Define camera
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 2.0, y is 2.0, z is 3.0)
+        set .target is (with x is 0.0, y is 0.5, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load custom render texture with writable depth texture buffer
+    var target as raylib.RenderTexture2D is calling load_render_texture_depth_tex with SCREEN_WIDTH, SCREEN_HEIGHT
+    defer calling unload_render_texture_depth_tex with target
+
+    # Load depth writing shader
+    var shader as raylib.Shader is with id is 0
+    if loaded_shader as raylib.Shader is calling shaders.load_fragment_shader with "examples/shaders/resources/shaders/glsl330/depth_write.fs":
+        set shader is loaded_shader
+    else:
+        return 1
+    defer calling shaders.unload_shader with shader
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        # Draw into custom render texture
+        calling drawing.begin_texture_mode with target
+        calling drawing.clear_background with raylib.WHITE
+
+        calling drawing.begin_mode_3d with camera
+        calling drawing.begin_shader_mode with shader
+
+        calling shapes3d.draw_cube_wires with (with x is 0.0, y is 0.5, z is 1.0), 1.0, 1.0, 1.0, raylib.RED
+        calling shapes3d.draw_cube with (with x is 0.0, y is 0.5, z is 1.0), 1.0, 1.0, 1.0, raylib.PURPLE
+        calling shapes3d.draw_cube_wires with (with x is 0.0, y is 0.5, z is -1.0), 1.0, 1.0, 1.0, raylib.DARKGREEN
+        calling shapes3d.draw_cube with (with x is 0.0, y is 0.5, z is -1.0), 1.0, 1.0, 1.0, raylib.YELLOW
+        calling shapes3d.draw_grid with 10, 1.0
+
+        calling drawing.end_shader_mode
+        calling drawing.end_mode_3d
+        calling drawing.end_texture_mode
+
+        # Draw render texture to screen
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        var src_rec as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is SCREEN_WIDTH to f32
+            set .height is -SCREEN_HEIGHT to f32
+        calling target.texture.draw_rec with src_rec, (with x is 0.0, y is 0.0), raylib.WHITE
+
+        calling txt.draw_fps with 10, 10
+        calling drawing.end_drawing
+
+    return 0

@@ -1,0 +1,151 @@
+## raylib [shapes] example - vector angle
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 1.0, last time updated with raylib 5.0
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2023-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx and raymathx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/shapes/shapes_vector_angle.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import pengu.raymathx as raymathx
+
+# --- Helpers ---
+
+## Formats a float to two decimal places
+##
+## ## Parameters
+## - `val`: float value to format
+##
+## ## Returns
+## Formatted string representation
+weave format_float_2 with val as f32 into string:
+    var sign as string is if val < 0.0 then "-" else ""
+    var abs_val as f32 is if val < 0.0 then -val else val
+    var int_part as int is abs_val to int
+    var frac_part as int is ((abs_val - (int_part to f32)) * 100.0) to int
+    var frac_str as string is if frac_part < 10 then "0{frac_part}" else "{frac_part}"
+    defer banish frac_str
+    return "{sign}{int_part}.{frac_str}"
+
+# --- Entry point ---
+
+## Application main entry point
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - vector angle"
+    defer calling raylib.CloseWindow
+
+    let v0 as raylib.Vector2 is with:
+        set .x is (screen_width to f32) / 2.0
+        set .y is (screen_height to f32) / 2.0
+
+    let offset_v1 as raylib.Vector2 is with:
+        set .x is 100.0
+        set .y is 80.0
+    var v1 as raylib.Vector2 is calling v0.get_add with offset_v1
+
+    var v2 as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+
+    var angle as f32 is 0.0
+    var angle_mode as int is 0
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        var start_angle as f32 is 0.0
+
+        if angle_mode == 0:
+            set start_angle is -(calling v0.angle_line_to with v1) * raymathx.RAD2DEG
+        if angle_mode == 1:
+            set start_angle is 0.0
+
+        set v2 is calling raylib.GetMousePosition
+
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set angle_mode is if angle_mode == 0 then 1 else 0
+
+        if (angle_mode == 0) and (calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_RIGHT):
+            set v1 is calling raylib.GetMousePosition
+
+        if angle_mode == 0:
+            let d1 as raylib.Vector2 is calling v1.get_subtract with v0
+            let d2 as raylib.Vector2 is calling v2.get_subtract with v0
+            let v1_normal as raylib.Vector2 is calling d1.get_normalize
+            let v2_normal as raylib.Vector2 is calling d2.get_normalize
+            set angle is (calling v1_normal.angle_to with v2_normal) * raymathx.RAD2DEG
+        else if angle_mode == 1:
+            set angle is (calling v0.angle_line_to with v2) * raymathx.RAD2DEG
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        if angle_mode == 0:
+            calling txt.draw_text with "MODE 0: Angle between V1 and V2", 10, 10, 20, raylib.BLACK
+            calling txt.draw_text with "Right Click to Move V2", 10, 30, 20, raylib.DARKGRAY
+
+            calling v0.draw_line_ex with v1, 2.0, raylib.BLACK
+            calling v0.draw_line_ex with v2, 2.0, raylib.RED
+
+            calling raylib.DrawCircleSector with v0, 40.0, start_angle, (start_angle + angle), 32, (calling colors.fade with raylib.GREEN, 0.6)
+        else if angle_mode == 1:
+            calling txt.draw_text with "MODE 1: Angle formed by line V1 to V2", 10, 10, 20, raylib.BLACK
+
+            calling shapes.draw_line with 0, screen_height / 2, screen_width, screen_height / 2, raylib.LIGHTGRAY
+            calling v0.draw_line_ex with v2, 2.0, raylib.RED
+
+            calling raylib.DrawCircleSector with v0, 40.0, start_angle, (start_angle - angle), 32, (calling colors.fade with raylib.GREEN, 0.6)
+
+        calling txt.draw_text with "v0", (v0.x to int), (v0.y to int), 10, raylib.DARKGRAY
+
+        if angle_mode == 0:
+            let diff_y as f32 is v0.y - v1.y
+            if diff_y > 0.0:
+                calling txt.draw_text with "v1", (v1.x to int), ((v1.y to int) - 10), 10, raylib.DARKGRAY
+            else if diff_y < 0.0:
+                calling txt.draw_text with "v1", (v1.x to int), (v1.y to int), 10, raylib.DARKGRAY
+
+        if angle_mode == 1:
+            calling txt.draw_text with "v1", ((v0.x to int) + 40), (v0.y to int), 10, raylib.DARKGRAY
+
+        calling txt.draw_text with "v2", ((v2.x to int) - 10), ((v2.y to int) - 10), 10, raylib.DARKGRAY
+
+        calling txt.draw_text with "Press SPACE to change MODE", 460, 10, 20, raylib.DARKGRAY
+
+        var ang_val_str as string is calling format_float_2 with angle
+        var ang_msg as string is "ANGLE: {ang_val_str}"
+        calling txt.draw_text with ang_msg, 10, 70, 20, raylib.LIME
+        banish ang_msg
+        banish ang_val_str
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0
