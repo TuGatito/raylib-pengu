@@ -9,9 +9,8 @@ __pycache__/
 *.dll
 *.exe
 tools/
-build.py
-# lib/ is where build.py places compiled artifacts. Committing them makes
+# lib/ is where build.pengu places compiled artifacts. Committing them makes
 # `pengu add` work without a C toolchain; leaving them out keeps the repo
-# small. If you leave them out, `pengu add --trust` runs build.py to produce
-# them.
+# small. If you leave them out, `pengu add --trust` runs build.pengu to
+# produce them. `build.py` is only a compatibility shim for pengu < 2.16.
 # lib/

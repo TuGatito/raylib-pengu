@@ -41,7 +41,9 @@ From any PenguScript project:
 pengu add <this-repo-url> --trust
 ```
 
-`--trust` is required the first time because `build.py` builds the native part.
+`--trust` is required the first time because `build.pengu` builds the native part.
+On PenguScript 2.16+ this is automatic; `build.py` remains only as a
+compatibility shim for older toolchains.
 Then import what you need:
 
 ```pengu
@@ -79,14 +81,14 @@ Notes that trip people up:
 
 `link "raylib"` in [`pengu/raylib.d.pengu`](pengu/raylib.d.pengu) propagates to
 the consumer's link line, so a raylib installed system-wide (`-lraylib`) is
-enough. Otherwise `build.py` provides one:
+enough. Otherwise `build.pengu` provides one:
 
 ```bash
-python3 build.py                 # build vendor/raylib (cloned) into lib/libraylib.a
-RAYLIB_SRC=/path/to/raylib python3 build.py --force
+pengu run build.pengu                 # build vendor/raylib (cloned) into lib/libraylib.a
+RAYLIB_SRC=/path/to/raylib pengu run build.pengu -- --force
 ```
 
-`build.py` looks for a source tree in `$RAYLIB_SRC`, `vendor/raylib` and
+`build.pengu` looks for a source tree in `$RAYLIB_SRC`, `vendor/raylib` and
 `extern/raylib-*`, clones `raysan5/raylib` if there is none, builds with
 `make PLATFORM=PLATFORM_DESKTOP`, and installs `lib/libraylib.a`. It never
 overwrites the committed `include/*.h` (the bindings were generated from those)
@@ -200,7 +202,7 @@ Current status: `OK: 6 bindings cover every visible constant, type and function`
 ```
 raylib-pengu/
 ├── pengu.toml                  # entry = pengu/raylib.d.pengu, src_dir = "pengu"
-├── build.py                    # builds raylib into lib/
+├── build.pengu                 # builds raylib into lib/ (build.py = shim for pengu < 2.16)
 ├── pengu/
 │   ├── raylib.d.pengu          # raylib.h        (+ colors, links)
 │   ├── raymath.d.pengu         # raymath.h       (146 prototype-only declares)
@@ -232,7 +234,7 @@ raylib-pengu/
 ├── include/                    # the real C headers the bindings were made from
 ├── c/
 │   └── raygui_impl.c           # RAYGUI_IMPLEMENTATION, compiled into the consumer's bundle
-├── lib/                        # libraylib.a produced by build.py
+├── lib/                        # libraylib.a produced by build.pengu
 ├── tools/
 │   ├── check_bindings.py       # completeness audit
 │   ├── gen_docs.py             # regenerates docs/bindings + docs/wrappers

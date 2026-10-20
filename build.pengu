@@ -1,0 +1,206 @@
+## build.pengu -- Construye la parte nativa del binding `raylib-pengu`.
+##
+## Se ejecuta automaticamente con `pengu add <repo> --trust` y
+## `pengu update --trust` (pengu >= 2.16).
+##
+## Manualmente:
+##     pengu run build.pengu
+##     pengu run build.pengu -- --force
+##
+## Origen del arbol de raylib (el primero que exista gana):
+##     $RAYLIB_SRC          checkout existente
+##     vendor/raylib        checkout dejado por una ejecucion previa
+##     extern/raylib-*      arbol vendorizado (p. ej. el del compilador)
+##     (ninguno)            clona RAYLIB_REF en vendor/raylib
+##
+## Si nada es posible (sin git, sin red, sin make), sale con 0 tras explicar
+## las alternativas: un libraylib del sistema basta porque el binding enlaza
+## con `-lraylib`.
+##
+## Los `include/*.h` commiteados son autoritativos: `pengu bind` genero
+## pengu/raylib.d.pengu a partir de ELLOS, asi que este script nunca los
+## sobrescribe. Si el arbol de fuentes trae headers distintos, se avisa.
+
+import std.archivum
+import std.compass
+import std.invoke
+import std.rites
+import std.scrolls
+import std.spark
+
+const RAYLIB_REPO as string is "https://github.com/raysan5/raylib.git"
+const DEFAULT_REF as string is "master"
+const RAYLIB_LIB as string is "libraylib.a"
+
+## Imprime una linea "[cbind] ...".
+## (`log` choca con `log()` de math.h en el C generado.)
+weave cbind_log with message as string into void:
+    calling spark.println with "[cbind] {message}"
+
+## Headers commiteados que el binding declara. Solo se rellenan si faltan.
+weave raylib_headers into list of string:
+    return ["raylib.h", "raymath.h", "rlgl.h", "rcamera.h", "rgestures.h", "raygui.h"]
+
+weave raylib_ref into string:
+    return calling rites.getenv_or with "RAYLIB_REF", DEFAULT_REF
+
+weave raylib_is_file with path as string into bool:
+    return calling archivum.is_file with path
+
+weave raylib_join2 with a as string, b as string into string:
+    let parts as list of string is [a, b]
+    return calling compass.join with parts
+
+weave raylib_join3 with a as string, b as string, c as string into string:
+    let parts as list of string is [a, b, c]
+    return calling compass.join with parts
+
+## True si `a` y `b` tienen exactamente los mismos bytes.
+weave raylib_same_file with a as string, b as string into bool:
+    let ra as maybe string is calling archivum.read_bytes with a
+    if ra is not present:
+        return false
+    let rb as maybe string is calling archivum.read_bytes with b
+    if rb is not present:
+        return false
+    return (calling scrolls.compare with ra.value, rb.value) == 0
+
+weave raylib_find_source_tree into maybe string:
+    let env_src as string is calling rites.getenv_or with "RAYLIB_SRC", ""
+    if env_src != "":
+        let env_make as string is calling raylib_join3 with env_src, "src", "Makefile"
+        if calling raylib_is_file with env_make:
+            return some env_src
+
+    let vendor as string is calling raylib_join2 with "vendor", "raylib"
+    let vendor_make as string is calling raylib_join3 with vendor, "src", "Makefile"
+    if calling raylib_is_file with vendor_make:
+        return some vendor
+
+    let hits as list of string is calling archivum.find_dirs with "extern", false
+    for hit in hits:
+        let base as string is calling compass.basename with hit
+        if calling scrolls.starts_with with base, "raylib-":
+            let hit_make as string is calling raylib_join3 with hit, "src", "Makefile"
+            if calling raylib_is_file with hit_make:
+                return some hit
+    return maybe none
+
+weave raylib_clone_source_tree into maybe string:
+    let git as maybe string is calling rites.which with "git"
+    if git is not present:
+        calling cbind_log with "git no disponible; no se puede traer raylib"
+        return maybe none
+    let target as string is calling raylib_join2 with "vendor", "raylib"
+    var _vendor as bool is calling archivum.create_dir with "vendor"
+    # Un `vendor/raylib` sin src/Makefile es un clon interrumpido: se reemplaza.
+    if calling archivum.is_dir with target:
+        var _removed as bool is calling archivum.remove_dir with target, true
+    let ref as string is calling raylib_ref
+    let repo_q as string is calling rites.shell_escape with RAYLIB_REPO
+    let ref_q as string is calling rites.shell_escape with ref
+    let target_q as string is calling rites.shell_escape with target
+    calling cbind_log with "clonando {RAYLIB_REPO} ({ref}) en vendor/raylib"
+    let cmd as string is "git clone --depth 1 --branch {ref_q} {repo_q} {target_q}"
+    let rc as int is calling rites.run_shell with cmd
+    if rc != 0:
+        calling cbind_log with "git clone fallo (sin red?)"
+        return maybe none
+    return some target
+
+weave raylib_check_headers with source_tree as string into void:
+    let headers as list of string is calling raylib_headers
+    for header in headers:
+        let local as string is calling raylib_join2 with "include", header
+        let upstream as string is calling raylib_join3 with source_tree, "src", header
+        if not (calling raylib_is_file with local):
+            calling cbind_log with "falta include/{header}"
+        else:
+            if calling raylib_is_file with upstream:
+                if not (calling raylib_same_file with local, upstream):
+                    calling cbind_log with "AVISO: include/{header} difiere de {upstream}; pengu/*.d.pengu se genero con el header commiteado"
+
+weave raylib_build with source_tree as string into maybe string:
+    let src as string is calling raylib_join2 with source_tree, "src"
+    let src_q as string is calling rites.shell_escape with src
+    calling cbind_log with "compilando raylib en {src} (make PLATFORM=PLATFORM_DESKTOP)"
+    let cmd as string is "make -C {src_q} PLATFORM=PLATFORM_DESKTOP -j"
+    let rc as int is calling rites.run_shell with cmd
+    if rc != 0:
+        calling cbind_log with "la compilacion de raylib fallo"
+        return maybe none
+    let archive as string is calling raylib_join2 with src, RAYLIB_LIB
+    if not (calling raylib_is_file with archive):
+        calling cbind_log with "no se encontro {archive}"
+        return maybe none
+    return some archive
+
+weave raylib_system_available into bool:
+    let pkg_config as maybe string is calling rites.which with "pkg-config"
+    if pkg_config is present:
+        let rc as int is calling rites.run_shell with "pkg-config --exists raylib"
+        if rc == 0:
+            return true
+    let candidates as list of string is [
+        "/usr/lib/libraylib.so", "/usr/local/lib/libraylib.so",
+        "/usr/lib/libraylib.a", "/usr/local/lib/libraylib.a"
+    ]
+    for candidate in candidates:
+        if calling raylib_is_file with candidate:
+            return true
+    return false
+
+weave main into int:
+    var parser as invoke.Parser is calling invoke.new_parser with "build", "Construye la parte nativa de raylib-pengu"
+    calling parser.add_flag with "force", "f", "Recompilar aunque lib/libraylib.a ya exista", false
+    let argv as list of string is calling rites.get_args
+    let res as invoke.ParseResult is calling parser.parse with argv
+    let force as bool is calling res.get_bool_or with "force", false
+
+    var _d1 as bool is calling archivum.create_dir with "lib"
+    var _d2 as bool is calling archivum.create_dir with "include"
+
+    let archive as string is calling raylib_join2 with "lib", RAYLIB_LIB
+    if (calling raylib_is_file with archive) and not force:
+        calling cbind_log with "libraylib.a ya presente en lib (usa --force para recompilar)"
+        return 0
+
+    let tree as maybe string is calling raylib_find_source_tree
+    var source_tree as string is ""
+    if tree is present:
+        set source_tree is tree.value
+    else:
+        let cloned as maybe string is calling raylib_clone_source_tree
+        if cloned is present:
+            set source_tree is cloned.value
+
+    if source_tree == "":
+        if calling raylib_system_available:
+            calling cbind_log with "sin arbol de fuentes; se usara un libraylib del sistema via -lraylib"
+            return 0
+        calling cbind_log with "sin arbol de fuentes y sin libraylib del sistema"
+        calling cbind_log with "exporta RAYLIB_SRC=/ruta/a/raylib, instala raylib, o permite git clone"
+        return 1
+
+    calling raylib_check_headers with source_tree
+
+    let built as maybe string is calling raylib_build with source_tree
+    if built is not present:
+        return 1
+
+    let ok as bool is calling archivum.copy_file with built.value, archive, true
+    if not ok:
+        calling cbind_log with "no se pudo copiar {built.value} a {archive}"
+        return 1
+    calling cbind_log with "instalado {archive}"
+
+    let headers as list of string is calling raylib_headers
+    for header in headers:
+        let local as string is calling raylib_join2 with "include", header
+        let upstream as string is calling raylib_join3 with source_tree, "src", header
+        if (not (calling raylib_is_file with local)) and (calling raylib_is_file with upstream):
+            let _c as bool is calling archivum.copy_file with upstream, local, true
+            calling cbind_log with "header faltante copiado: include/{header}"
+
+    calling cbind_log with "listo -- artefactos en lib"
+    return 0
