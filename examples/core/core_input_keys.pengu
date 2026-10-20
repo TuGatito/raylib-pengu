@@ -1,0 +1,91 @@
+## examples/core/core_input_keys.pengu
+## raylib [core] example - input keys
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.0, last time updated with raylib 1.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 port of `examples/core/core_input_keys.c` built on top of the `raylibx`
+## wrapper layer. Arrow key queries go through `raylibx.input.is_key_down` (which
+## accepts `raylib.KeyboardKey` directly without an `int` cast), and the ball is
+## drawn with the `Vector2.draw_circle` method from `raylibx.shapes`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_input_keys.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Movement speed of the ball, in pixels per frame.
+const BALL_SPEED as f32 is 2.0
+
+## Radius of the ball, in pixels.
+const BALL_RADIUS as f32 is 50.0
+
+# --- Entry point --------------------------------------------------------
+## Opens a window and moves a maroon ball with the arrow keys until the window closes.
+##
+## ## Returns
+## Process exit code: `0` on normal window closure.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - input keys"
+    defer calling raylib.CloseWindow
+
+    var ball_position as raylib.Vector2 is with:
+        set .x is (SCREEN_WIDTH to f32) / 2.0
+        set .y is (SCREEN_HEIGHT to f32) / 2.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling input.is_key_down with raylib.KEY_RIGHT:
+            set ball_position.x += BALL_SPEED
+        if calling input.is_key_down with raylib.KEY_LEFT:
+            set ball_position.x -= BALL_SPEED
+        if calling input.is_key_down with raylib.KEY_UP:
+            set ball_position.y -= BALL_SPEED
+        if calling input.is_key_down with raylib.KEY_DOWN:
+            set ball_position.y += BALL_SPEED
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "move the ball with arrow keys", 10, 10, 20, raylib.DARKGRAY
+
+        calling ball_position.draw_circle with BALL_RADIUS, raylib.MAROON
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

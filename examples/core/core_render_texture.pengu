@@ -1,0 +1,139 @@
+## examples/core/core_render_texture.pengu
+## raylib [core] example - render texture
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_render_texture.c` built on top of the
+## `raylibx` wrapper layer. `load_render_texture` returns `maybe raylib.RenderTexture`,
+## unpacked via `if target as raylib.RenderTexture is ...` and cleaned up with
+## `defer calling textures.unload_render_texture with target`. `DrawCircleV` and
+## `DrawTexturePro` become methods on `Vector2` (`ball_position.draw_circle`) and
+## `Texture` (`target.texture.draw_pro`).
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_render_texture.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymathx
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Off-screen render texture width in pixels.
+const RENDER_TEXTURE_WIDTH as int is 300
+
+## Off-screen render texture height in pixels.
+const RENDER_TEXTURE_HEIGHT as int is 300
+
+## Radius of the bouncing ball in pixels.
+const BALL_RADIUS as int is 20
+
+# --- Entry point --------------------------------------------------------
+## Renders a bouncing ball into an off-screen `RenderTexture` and draws the
+## rotating render texture centered in the main window.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally, or `1` if the GPU
+## cannot create the render texture.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - render texture"
+    defer calling raylib.CloseWindow
+
+    let maybe_target as maybe raylib.RenderTexture is calling textures.load_render_texture with RENDER_TEXTURE_WIDTH, RENDER_TEXTURE_HEIGHT
+    if target as raylib.RenderTexture is maybe_target:
+        defer calling textures.unload_render_texture with target
+
+        var ball_position as raylib.Vector2 is with:
+            set .x is (RENDER_TEXTURE_WIDTH to f32) / 2.0
+            set .y is (RENDER_TEXTURE_HEIGHT to f32) / 2.0
+        var ball_speed as raylib.Vector2 is with x is 5.0, y is 4.0
+        var rotation as f32 is 0.0
+
+        let tex_w as f32 is target.texture.width to f32
+        let tex_h as f32 is target.texture.height to f32
+
+        # Note: Flip the texture vertically by setting a negative source rectangle height
+        let source_rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is tex_w, height is (-tex_h)
+        let dest_rec as raylib.Rectangle is with:
+            set .x is (SCREEN_WIDTH to f32) / 2.0
+            set .y is (SCREEN_HEIGHT to f32) / 2.0
+            set .width is tex_w
+            set .height is tex_h
+        let origin as raylib.Vector2 is with x is (tex_w / 2.0), y is (tex_h / 2.0)
+
+        calling raylib.SetTargetFPS with TARGET_FPS
+        # -----------------------------------------------------------------
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            # -------------------------------------------------------------
+            # Ball movement logic
+            calling ball_position.add with ball_speed
+
+            # Check walls collision for bouncing
+            let min_bound as f32 is BALL_RADIUS to f32
+            let max_bound_x as f32 is (RENDER_TEXTURE_WIDTH - BALL_RADIUS) to f32
+            let max_bound_y as f32 is (RENDER_TEXTURE_HEIGHT - BALL_RADIUS) to f32
+
+            if (ball_position.x >= max_bound_x) or (ball_position.x <= min_bound):
+                set ball_speed.x *= -1.0
+            if (ball_position.y >= max_bound_y) or (ball_position.y <= min_bound):
+                set ball_speed.y *= -1.0
+
+            # Render texture rotation
+            set rotation += 0.5
+            # -------------------------------------------------------------
+
+            # Draw
+            # -------------------------------------------------------------
+            # Draw our scene to the render texture
+            calling drawing.begin_texture_mode with target
+
+            calling drawing.clear_background with raylib.SKYBLUE
+            calling shapes.draw_rectangle with 0, 0, 20, 20, raylib.RED
+            calling ball_position.draw_circle with (BALL_RADIUS to f32), raylib.MAROON
+
+            calling drawing.end_texture_mode
+
+            # Draw render texture to main framebuffer
+            calling drawing.begin_drawing
+
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            # Draw our render texture with rotation applied around its center
+            calling target.texture.draw_pro with source_rec, dest_rec, origin, rotation, raylib.WHITE
+
+            calling txt.draw_text with "DRAWING BOUNCING BALL INSIDE RENDER TEXTURE!", 10, SCREEN_HEIGHT - 40, 20, raylib.BLACK
+            calling txt.draw_fps with 10, 10
+
+            calling drawing.end_drawing
+            # -------------------------------------------------------------
+
+        return 0
+
+    return 1

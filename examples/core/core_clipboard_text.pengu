@@ -1,0 +1,213 @@
+## examples/core/core_clipboard_text.pengu
+## raylib [core] example - clipboard text
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example contributed by continuum (@continuum-stack) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 continuum (@continuum-stack)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_clipboard_text.c` using `raylibx`,
+## `raygui`, and `rayguix`. System clipboard operations go through
+## `raylibx.window.set_clipboard_text` and `raylibx.window.get_clipboard_text`
+## (`maybe string`), while the editable text box uses `rayguix.text_box`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_clipboard_text.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raygui
+import rayguix
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.random as random
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.window as window
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Maximum character capacity for the editable text box.
+const MAX_TEXT_BUFFER_LENGTH as int is 256
+
+# --- Helpers ------------------------------------------------------------
+## Reads the current system clipboard text, returning an empty string if the
+## clipboard is empty.
+##
+## ## Returns
+## Newly owned `string` containing the clipboard text (or `""`).
+##
+## ## Memory
+## Returns an owned `string` that the caller must eventually `banish`.
+weave read_clipboard_or_empty into string:
+    let maybe_clip as maybe string is calling window.get_clipboard_text
+    if maybe_clip is present:
+        return calling maybe_clip.unwrap
+    return ""
+
+## Builds a `raylib.Rectangle` from position and size components.
+##
+## ## Parameters
+## - `x`, `y`, `width`, `height`: rectangle bounds in pixels.
+##
+## ## Returns
+## A value-type `raylib.Rectangle`.
+weave make_rect with x as f32, y as f32, width as f32, height as f32 into raylib.Rectangle:
+    return with x is x, y is y, width is width, height is height
+
+# --- Entry point --------------------------------------------------------
+## Program entry point.
+##
+## Displays an interactive `raygui` text box with Cut, Copy, Paste, Clear, and
+## Random sample buttons as well as `Ctrl+X`, `Ctrl+C`, and `Ctrl+V` shortcuts.
+##
+## ## Returns
+## Exit code (`0` on clean exit).
+weave main into int:
+    # Initialization
+    #--------------------------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - clipboard text"
+    defer calling raylib.CloseWindow
+
+    # Define some random texts for testing quick copy-paste
+    var sample_texts as list of string is list of string
+    defer banish sample_texts
+    calling sample_texts.push with "Hello from raylib!"
+    calling sample_texts.push with "The quick brown fox jumps over the lazy dog"
+    calling sample_texts.push with "Clipboard operations are useful!"
+    calling sample_texts.push with "raylib is a simple and easy-to-use library"
+    calling sample_texts.push with "Copy and paste me!"
+
+    var input_buffer as string is "Hello from raylib!"
+    var clipboard_text as string is ""
+
+    # UI required variables
+    var text_box_edit_mode as bool is false
+    var btn_cut_pressed as bool is false
+    var btn_copy_pressed as bool is false
+    var btn_paste_pressed as bool is false
+    var btn_clear_pressed as bool is false
+    var btn_random_pressed as bool is false
+
+    # Set default style sizes
+    calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SIZE to int), 20
+    calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SPACING to int), 2
+    calling raygui.GuiSetIconScale with 2
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    #--------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+        # Update
+        #----------------------------------------------------------------------------------
+        let ctrl as bool is (calling input.is_key_down with raylib.KEY_LEFT_CONTROL) or (calling input.is_key_down with raylib.KEY_RIGHT_CONTROL)
+
+        # Handle keyboard shortcuts (Ctrl+C, Ctrl+V, Ctrl+X)
+        if ctrl and (calling input.is_key_pressed with raylib.KEY_X):
+            set btn_cut_pressed is true
+        if ctrl and (calling input.is_key_pressed with raylib.KEY_C):
+            set btn_copy_pressed is true
+        if ctrl and (calling input.is_key_pressed with raylib.KEY_V):
+            set btn_paste_pressed is true
+
+        # Checking the buttons actions
+        if btn_cut_pressed:
+            if (input_buffer length) > 0:
+                calling window.set_clipboard_text with input_buffer # Copy text to clipboard
+                set input_buffer is ""                              # Clear input buffer
+                set clipboard_text is calling read_clipboard_or_empty # Verify by getting it back
+
+        if btn_copy_pressed:
+            if (input_buffer length) > 0:
+                calling window.set_clipboard_text with input_buffer # Copy text to clipboard
+                set clipboard_text is calling read_clipboard_or_empty # Verify by getting it back
+
+        if btn_paste_pressed:
+            # Get text from clipboard
+            set clipboard_text is calling read_clipboard_or_empty
+            if (clipboard_text length) > 0:
+                # Copy clipboard text to input buffer
+                set input_buffer is clipboard_text
+
+        if btn_random_pressed:
+            # Get a random string from sample_texts
+            let index as int is calling random.between with 0, 4
+            set input_buffer is (sample_texts at index)
+
+        if btn_clear_pressed:
+            set input_buffer is ""
+        #----------------------------------------------------------------------------------
+
+        # Draw
+        #----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Check current clipboard content
+        set clipboard_text is calling read_clipboard_or_empty
+
+        # Main instructions
+        calling rayguix.label with (calling make_rect with 40.0, 30.0, 720.0, 30.0), "TEXT INPUT BOX (Click to edit):"
+
+        # Text box
+        if text_box_edit_mode:
+            calling raygui.GuiSetState with (raygui.STATE_FOCUSED to int)
+        let toggled as int is calling rayguix.text_box with (calling make_rect with 40.0, 60.0, 668.0, 40.0), (sigil of input_buffer), MAX_TEXT_BUFFER_LENGTH, text_box_edit_mode
+        if toggled != 0:
+            set text_box_edit_mode is not text_box_edit_mode
+        calling raygui.GuiSetState with (raygui.STATE_NORMAL to int)
+
+        # Random text button
+        set btn_random_pressed is ((calling rayguix.button with (calling make_rect with 720.0, 60.0, 40.0, 40.0), "#77#") != 0)
+
+        # Clipboard operations buttons
+        set btn_cut_pressed is ((calling rayguix.button with (calling make_rect with 40.0, 120.0, 171.0, 40.0), "#17#CUT") != 0)
+        set btn_copy_pressed is ((calling rayguix.button with (calling make_rect with 223.0, 120.0, 171.0, 40.0), "#16#COPY") != 0)
+        set btn_paste_pressed is ((calling rayguix.button with (calling make_rect with 406.0, 120.0, 171.0, 40.0), "#18#PASTE") != 0)
+        set btn_clear_pressed is ((calling rayguix.button with (calling make_rect with 589.0, 120.0, 171.0, 40.0), "#143#CLEAR") != 0)
+
+        # Display current clipboard content
+        calling rayguix.label with (calling make_rect with 40.0, 210.0, 720.0, 30.0), "CLIPBOARD CONTENT:"
+
+        let clip_rect as raylib.Rectangle is calling make_rect with 40.0, 240.0, 720.0, 80.0
+        calling clip_rect.draw with raylib.LIGHTGRAY
+        calling shapes.draw_rectangle_lines with 40, 240, 720, 80, raylib.GRAY
+
+        if (clipboard_text length) > 0:
+            calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_WRAP_MODE to int), (raygui.TEXT_WRAP_WORD to int)
+            calling rayguix.label with (calling make_rect with 50.0, 240.0, 700.0, 40.0), clipboard_text
+            calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_WRAP_MODE to int), (raygui.TEXT_WRAP_NONE to int)
+        else:
+            calling raygui.GuiSetState with (raygui.STATE_DISABLED to int)
+            calling rayguix.label with (calling make_rect with 50.0, 240.0, 700.0, 40.0), "<Clipboard is empty>"
+            calling raygui.GuiSetState with (raygui.STATE_NORMAL to int)
+
+        # Status bar / Shortcuts help
+        let bar_color as raylib.Color is with r is 235, g is 235, b is 235, a is 255
+        calling shapes.draw_rectangle with 0, (SCREEN_HEIGHT - 40), SCREEN_WIDTH, 40, bar_color
+        calling shapes.draw_line with 0, (SCREEN_HEIGHT - 40), SCREEN_WIDTH, (SCREEN_HEIGHT - 40), raylib.LIGHTGRAY
+        calling txt.draw_text with "SHORTCUTS: [Ctrl+X] Cut  |  [Ctrl+C] Copy  |  [Ctrl+V] Paste", 40, (SCREEN_HEIGHT - 28), 20, raylib.GRAY
+
+        calling drawing.end_drawing
+        #----------------------------------------------------------------------------------
+
+    return 0

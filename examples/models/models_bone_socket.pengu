@@ -1,0 +1,240 @@
+## raylib [models] example - bone socket
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 4.5, last time updated with raylib 4.5
+## Example contributed by iP (@ipzaur) and reviewed by Ramon Santamaria (@raysan5)
+## Example licensed under an unmodified zlib/libpng license.
+##
+## ## PenguScript Port
+## - Uses `raylibx.drawing` for frame and 3D mode blocks
+## - Uses `raylibx.models` for model loading, skeletal animation updates, and bone name inspection
+## - Uses `raylibx.shapes3d` for rendering grid geometry
+## - Uses `raylibx.text` for UI instructions and string comparisons
+## - Uses `raymathx` for quaternion and matrix transformations
+##
+## ## Example
+## ```pengu
+## pengu run examples/models/models_bone_socket.pengu
+## ```
+
+import raylib
+import raymath
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raymathx
+
+# --- Constants ---
+
+## Target window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Target window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Total number of equipment sockets attached to the character.
+const BONE_SOCKETS as int is 3
+
+## Hat socket index.
+const BONE_SOCKET_HAT as int is 0
+
+## Right-hand socket index (sword).
+const BONE_SOCKET_HAND_R as int is 1
+
+## Left-hand socket index (shield).
+const BONE_SOCKET_HAND_L as int is 2
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## ## Returns
+## Exit status code (0 for success).
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - bone socket"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D with:
+        set .position is (with x is 5.0, y is 5.0, z is 5.0)
+        set .target is (with x is 0.0, y is 2.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load character model
+    var character_model as raylib.Model is with meshCount is 0
+    if loaded_char as raylib.Model is calling models.load_model with "resources/models/gltf/greenman.glb":
+        set character_model is loaded_char
+    defer calling models.unload_model with character_model
+
+    # Load equipment models
+    var hat_model as raylib.Model is with meshCount is 0
+    if loaded_hat as raylib.Model is calling models.load_model with "resources/models/gltf/greenman_hat.glb":
+        set hat_model is loaded_hat
+    defer calling models.unload_model with hat_model
+
+    var sword_model as raylib.Model is with meshCount is 0
+    if loaded_sword as raylib.Model is calling models.load_model with "resources/models/gltf/greenman_sword.glb":
+        set sword_model is loaded_sword
+    defer calling models.unload_model with sword_model
+
+    var shield_model as raylib.Model is with meshCount is 0
+    if loaded_shield as raylib.Model is calling models.load_model with "resources/models/gltf/greenman_shield.glb":
+        set shield_model is loaded_shield
+    defer calling models.unload_model with shield_model
+
+    var show_hat as bool is true
+    var show_sword as bool is true
+    var show_shield as bool is true
+
+    # Load character animations
+    var anims_count as int is 0
+    var anim_holder as list of raylib.ModelAnimation is list of raylib.ModelAnimation
+    defer banish anim_holder
+    var raw_anims as slice of raylib.ModelAnimation is anim_holder at 0 to 0
+    if loaded_anims as slice of raylib.ModelAnimation is calling models.load_animations with "resources/models/gltf/greenman.glb":
+        set raw_anims is loaded_anims
+        set anims_count is raw_anims.length
+    defer calling models.unload_animations with raw_anims
+
+    var anim_index as int is 0
+    var anim_current_frame as int is 0
+
+    # Search bones for socket attachments
+    var socket_hat_idx as int is -1
+    var socket_hand_r_idx as int is -1
+    var socket_hand_l_idx as int is -1
+
+    if character_model.skeleton.boneCount > 0:
+        for i from 0 to character_model.skeleton.boneCount - 1:
+            var bone_item as raylib.BoneInfo is character_model.skeleton.bones at i
+            var b_name as string is calling bone_item.get_name
+            if calling txt.text_is_equal with b_name, "socket_hat":
+                set socket_hat_idx is i
+            else if calling txt.text_is_equal with b_name, "socket_hand_R":
+                set socket_hand_r_idx is i
+            else if calling txt.text_is_equal with b_name, "socket_hand_L":
+                set socket_hand_l_idx is i
+            banish b_name
+
+    let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    var angle as int is 0
+
+    calling raylib.DisableCursor
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_THIRD_PERSON to int)
+
+        # Rotate character
+        if calling input.is_key_down with raylib.KEY_F:
+            set angle is (angle + 1) % 360
+        else if calling input.is_key_down with raylib.KEY_H:
+            set angle is (360 + angle - 1) % 360
+
+        # Select current animation
+        if anims_count > 0:
+            if calling input.is_key_pressed with raylib.KEY_T:
+                set anim_index is (anim_index + 1) % anims_count
+            else if calling input.is_key_pressed with raylib.KEY_G:
+                set anim_index is (anim_index + anims_count - 1) % anims_count
+
+        # Toggle shown equipment
+        if calling input.is_key_pressed with raylib.KEY_ONE:
+            set show_hat is not show_hat
+        if calling input.is_key_pressed with raylib.KEY_TWO:
+            set show_sword is not show_sword
+        if calling input.is_key_pressed with raylib.KEY_THREE:
+            set show_shield is not show_shield
+
+        # Update model animation
+        if anims_count > 0:
+            var current_anim as raylib.ModelAnimation is raw_anims at anim_index
+            if current_anim.keyframeCount > 0:
+                set anim_current_frame is (anim_current_frame + 1) % current_anim.keyframeCount
+            calling character_model.update_animation with current_anim, (anim_current_frame to f32)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        # Rotate and position character model
+        let rad as f32 is (angle to f32) * raymathx.DEG2RAD
+        var char_rot as raylib.Quaternion is calling raymathx.quaternion_from_axis_angle with (with x is 0.0, y is 1.0, z is 0.0), rad
+        let rot_mat as raylib.Matrix is calling char_rot.to_matrix
+        let trans_mat as raylib.Matrix is calling raymath.MatrixTranslate with position.x, position.y, position.z
+        set character_model.transform is calling raymath.MatrixMultiply with rot_mat, trans_mat
+
+        if anims_count > 0:
+            var active_anim as raylib.ModelAnimation is raw_anims at anim_index
+            calling character_model.update_animation with active_anim, (anim_current_frame to f32)
+
+            if character_model.meshCount > 0:
+                calling raylib.DrawMesh with (character_model.meshes at 0), (character_model.materials at 1), character_model.transform
+
+            # Draw equipments (hat, sword, shield) attached to bone sockets
+            var poses as ref to raylib.Transform is active_anim.keyframePoses at anim_current_frame
+
+            # Socket 1: Hat
+            if show_hat and (socket_hat_idx >= 0) and (hat_model.meshCount > 0):
+                var tf as raylib.Transform is poses at socket_hat_idx
+                let in_rot as raylib.Quaternion is (character_model.skeleton.bindPose at socket_hat_idx).rotation
+                let out_rot as raylib.Quaternion is tf.rotation
+                let rot as raylib.Quaternion is calling raymath.QuaternionMultiply with out_rot, (calling raymath.QuaternionInvert with in_rot)
+                var mat_tf as raylib.Matrix is calling raymath.QuaternionToMatrix with rot
+                let t_offset as raylib.Matrix is calling raymath.MatrixTranslate with tf.translation.x, tf.translation.y, tf.translation.z
+                set mat_tf is calling raymath.MatrixMultiply with mat_tf, t_offset
+                set mat_tf is calling raymath.MatrixMultiply with mat_tf, character_model.transform
+                calling raylib.DrawMesh with (hat_model.meshes at 0), (hat_model.materials at 1), mat_tf
+
+            # Socket 2: Sword
+            if show_sword and (socket_hand_r_idx >= 0) and (sword_model.meshCount > 0):
+                var tf as raylib.Transform is poses at socket_hand_r_idx
+                let in_rot as raylib.Quaternion is (character_model.skeleton.bindPose at socket_hand_r_idx).rotation
+                let out_rot as raylib.Quaternion is tf.rotation
+                let rot as raylib.Quaternion is calling raymath.QuaternionMultiply with out_rot, (calling raymath.QuaternionInvert with in_rot)
+                var mat_tf as raylib.Matrix is calling raymath.QuaternionToMatrix with rot
+                let t_offset as raylib.Matrix is calling raymath.MatrixTranslate with tf.translation.x, tf.translation.y, tf.translation.z
+                set mat_tf is calling raymath.MatrixMultiply with mat_tf, t_offset
+                set mat_tf is calling raymath.MatrixMultiply with mat_tf, character_model.transform
+                calling raylib.DrawMesh with (sword_model.meshes at 0), (sword_model.materials at 1), mat_tf
+
+            # Socket 3: Shield
+            if show_shield and (socket_hand_l_idx >= 0) and (shield_model.meshCount > 0):
+                var tf as raylib.Transform is poses at socket_hand_l_idx
+                let in_rot as raylib.Quaternion is (character_model.skeleton.bindPose at socket_hand_l_idx).rotation
+                let out_rot as raylib.Quaternion is tf.rotation
+                let rot as raylib.Quaternion is calling raymath.QuaternionMultiply with out_rot, (calling raymath.QuaternionInvert with in_rot)
+                var mat_tf as raylib.Matrix is calling raymath.QuaternionToMatrix with rot
+                let t_offset as raylib.Matrix is calling raymath.MatrixTranslate with tf.translation.x, tf.translation.y, tf.translation.z
+                set mat_tf is calling raymath.MatrixMultiply with mat_tf, t_offset
+                set mat_tf is calling raymath.MatrixMultiply with mat_tf, character_model.transform
+                calling raylib.DrawMesh with (shield_model.meshes at 0), (shield_model.materials at 1), mat_tf
+
+        calling shapes3d.draw_grid with 10, 1.0
+        calling drawing.end_mode_3d
+
+        calling txt.draw_text with "Use the T/G to switch animation", 10, 10, 20, raylib.GRAY
+        calling txt.draw_text with "Use the F/H to rotate character left/right", 10, 35, 20, raylib.GRAY
+        calling txt.draw_text with "Use the 1,2,3 to toggle shown of hat, sword and shield", 10, 60, 20, raylib.GRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

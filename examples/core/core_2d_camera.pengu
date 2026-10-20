@@ -10,16 +10,16 @@
 ##
 ## Copyright (c) 2016-2025 Ramon Santamaria (@raysan5)
 ##
-## ## Port a PenguScript
-## Traducción 1:1 de `examples/core/core_2d_camera.c` sobre la capa de wrappers
-## `raylibx`. Los arrays de C (`buildings`, `buildColors`) pasan a `list of T`
-## con `defer banish`, porque la longitud se conoce solo en runtime; los bucles
-## que dibujan se escriben con la forma indexada `for i, item in buildings` para
-## emparejar cada edificio con su color. El zoom usa el par puro de `std.fractio`
-## (`get_ln` / `get_exp`) y `raymathx.clamp`, que es exactamente la escala
-## logarítmica del original.
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_2d_camera.c` on top of the `raylibx`
+## wrapper layer. The C arrays (`buildings`, `buildColors`) become `list of T`
+## with `defer banish`, since their length is known only at runtime; the drawing
+## loops use the indexed form `for i, item in buildings` to pair each building
+## with its color. Zoom uses the pure pair from `std.fractio`
+## (`get_ln` / `get_exp`) and `raymathx.clamp`, matching the logarithmic scaling
+## of the original.
 ##
-## ## Ejemplo
+## ## Example
 ## ```bash
 ## pengu run examples/core/core_2d_camera.pengu
 ## ```
@@ -35,32 +35,32 @@ import raylibx.text as txt
 import raymathx
 import std.fractio
 
-# --- Constantes ---------------------------------------------------------
-## Ancho de la ventana, en píxeles.
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
 const SCREEN_WIDTH as int is 800
 
-## Alto de la ventana, en píxeles.
+## Window height, in pixels.
 const SCREEN_HEIGHT as int is 450
 
-## Fotogramas por segundo a los que corre el bucle principal.
+## Target frames per second for the main game loop.
 const TARGET_FPS as int is 60
 
-## Número de edificios que se generan en la ciudad.
+## Number of buildings generated in the city.
 const MAX_BUILDINGS as int is 100
 
-## Límites de rotación de la cámara, en grados.
+## Camera rotation bounds, in degrees.
 const MIN_ROTATION as f32 is -40.0
 const MAX_ROTATION as f32 is 40.0
 
-## Límites de zoom de la cámara.
+## Camera zoom bounds.
 const MIN_ZOOM as f32 is 0.1
 const MAX_ZOOM as f32 is 3.0
 
 # --- Helpers ------------------------------------------------------------
-## Genera un gris opaco aleatorio dentro del rango histórico del ejemplo.
+## Generates a random opaque gray within the original example's range.
 ##
-## ## Retorno
-## Un `raylib.Color` nuevo; no asigna memoria, no hay nada que liberar.
+## ## Returns
+## A new `raylib.Color`; allocates no memory, nothing to free.
 weave make_random_gray into raylib.Color:
     return with:
         set .r is ((calling random.between with 200, 240) to byte)
@@ -68,25 +68,25 @@ weave make_random_gray into raylib.Color:
         set .b is ((calling random.between with 200, 250) to byte)
         set .a is 255
 
-## Construye un edificio rectangular a partir de su posición y tamaño.
+## Builds a rectangular building from its position and size.
 ##
-## ## Parámetros
-## - `x`, `y`: esquina superior izquierda, en coordenadas de mundo.
-## - `width`, `height`: tamaño del edificio.
+## ## Parameters
+## - `x`, `y`: top-left corner, in world coordinates.
+## - `width`, `height`: building size.
 ##
-## ## Retorno
-## Un `raylib.Rectangle` nuevo; no asigna memoria.
+## ## Returns
+## A new `raylib.Rectangle`; allocates no memory.
 weave make_building_rect with x as f32, y as f32, width as f32, height as f32 into raylib.Rectangle:
     return with x is x, y is y, width is width, height is height
 
-# --- Punto de entrada ---------------------------------------------------
-## Muestra una ciudad generada aleatoriamente, un jugador que la recorre y una
-## cámara 2D libre hasta que el usuario cierre la ventana.
+# --- Entry point --------------------------------------------------------
+## Displays a randomly generated city, a player moving through it, and a free
+## 2D camera until the user closes the window.
 ##
-## ## Retorno
-## Código de salida del proceso: `0` cuando la ventana se cierra con normalidad.
+## ## Returns
+## Process exit code: `0` when the window closes normally.
 weave main into int:
-    # Inicialización
+    # Initialization
     # ---------------------------------------------------------------------
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - 2d camera"
     defer calling raylib.CloseWindow
@@ -120,38 +120,38 @@ weave main into int:
     calling raylib.SetTargetFPS with TARGET_FPS
     # ---------------------------------------------------------------------
 
-    # Bucle principal
+    # Main game loop
     while not calling raylib.WindowShouldClose:
-        # Actualización
+        # Update
         # -----------------------------------------------------------------
-        # Movimiento del jugador
+        # Player movement
         if calling input.is_key_down with raylib.KEY_RIGHT:
             set player.x += 2.0
         else if calling input.is_key_down with raylib.KEY_LEFT:
             set player.x -= 2.0
 
-        # La cámara sigue al jugador
+        # Camera target follows player
         set camera.target is with x is (player.x + 20.0), y is (player.y + 20.0)
 
-        # Rotación de la cámara
+        # Camera rotation controls
         if calling input.is_key_down with raylib.KEY_A:
             set camera.rotation is (calling raymathx.clamp with (camera.rotation - 1.0), MIN_ROTATION, MAX_ROTATION)
         else if calling input.is_key_down with raylib.KEY_S:
             set camera.rotation is (calling raymathx.clamp with (camera.rotation + 1.0), MIN_ROTATION, MAX_ROTATION)
 
-        # Zoom con escala logarítmica, para que la velocidad sea constante
+        # Camera zoom controls (logarithmic scaling for consistent zoom speed)
         let wheel as f32 is calling raylib.GetMouseWheelMove
         let log_zoom as f32 is calling camera.zoom.get_ln
         let grown_zoom as f32 is log_zoom + (wheel * 0.1)
         set camera.zoom is (calling raymathx.clamp with (calling grown_zoom.get_exp), MIN_ZOOM, MAX_ZOOM)
 
-        # Reinicio de zoom y rotación
+        # Camera reset (zoom and rotation)
         if calling input.is_key_pressed with raylib.KEY_R:
             set camera.zoom is 1.0
             set camera.rotation is 0.0
         # -----------------------------------------------------------------
 
-        # Dibujo
+        # Draw
         # -----------------------------------------------------------------
         calling drawing.begin_drawing
         calling drawing.clear_background with raylib.RAYWHITE

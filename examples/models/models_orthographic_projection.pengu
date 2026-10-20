@@ -1,0 +1,115 @@
+## raylib [models] example - orthographic projection
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 2.0, last time updated with raylib 3.7
+##
+## Example contributed by Max Danielsson (@autious) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2018-2025 Max Danielsson (@autious) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates toggling between perspective and orthographic camera projections in a 3D scene.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_orthographic_projection.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import rcamerax
+
+# --- Constants ---
+
+## Camera field of view for perspective mode.
+const FOVY_PERSPECTIVE as f32 is 45.0
+
+## Orthographic width for orthographic projection mode.
+const WIDTH_ORTHOGRAPHIC as f32 is 10.0
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - orthographic projection"
+    defer calling raylib.CloseWindow
+
+    # Define camera to look into our 3D world
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 0.0, y is 10.0, z is 10.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is FOVY_PERSPECTIVE
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling raylib.IsKeyPressed with raylib.KEY_SPACE:
+            if camera.projection == (raylib.CAMERA_PERSPECTIVE to int):
+                set camera.fovy is WIDTH_ORTHOGRAPHIC
+                set camera.projection is (raylib.CAMERA_ORTHOGRAPHIC to int)
+            else:
+                set camera.fovy is FOVY_PERSPECTIVE
+                set camera.projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        var c1 as raylib.Vector3 is with x is -4.0, y is 0.0, z is 2.0
+        calling shapes3d.draw_cube with c1, 2.0, 5.0, 2.0, raylib.RED
+        calling shapes3d.draw_cube_wires with c1, 2.0, 5.0, 2.0, raylib.GOLD
+
+        var c2 as raylib.Vector3 is with x is -4.0, y is 0.0, z is -2.0
+        calling shapes3d.draw_cube_wires with c2, 3.0, 6.0, 2.0, raylib.MAROON
+
+        var s1 as raylib.Vector3 is with x is -1.0, y is 0.0, z is -2.0
+        calling shapes3d.draw_sphere with s1, 1.0, raylib.GREEN
+
+        var s2 as raylib.Vector3 is with x is 1.0, y is 0.0, z is 2.0
+        calling shapes3d.draw_sphere_wires with s2, 2.0, 16, 16, raylib.LIME
+
+        var cyl1 as raylib.Vector3 is with x is 4.0, y is 0.0, z is -2.0
+        calling shapes3d.draw_cylinder with cyl1, 1.0, 2.0, 3.0, 4, raylib.SKYBLUE
+        calling shapes3d.draw_cylinder_wires with cyl1, 1.0, 2.0, 3.0, 4, raylib.DARKBLUE
+
+        var cyl2 as raylib.Vector3 is with x is 4.5, y is -1.0, z is 2.0
+        calling shapes3d.draw_cylinder_wires with cyl2, 1.0, 1.0, 2.0, 6, raylib.BROWN
+
+        var cyl3 as raylib.Vector3 is with x is 1.0, y is 0.0, z is -4.0
+        calling shapes3d.draw_cylinder with cyl3, 0.0, 1.5, 3.0, 8, raylib.GOLD
+        calling shapes3d.draw_cylinder_wires with cyl3, 0.0, 1.5, 3.0, 8, raylib.PINK
+
+        calling shapes3d.draw_grid with 10, 1.0
+
+        calling drawing.end_mode_3d
+
+        calling txt.draw_text with "Press Spacebar to switch camera type", 10, screen_height - 30, 20, raylib.DARKGRAY
+
+        if camera.projection == (raylib.CAMERA_ORTHOGRAPHIC to int):
+            calling txt.draw_text with "ORTHOGRAPHIC", 10, 40, 20, raylib.BLACK
+        else:
+            if camera.projection == (raylib.CAMERA_PERSPECTIVE to int):
+                calling txt.draw_text with "PERSPECTIVE", 10, 40, 20, raylib.BLACK
+
+        calling txt.draw_fps with 10, 10
+        calling drawing.end_drawing
+
+    return 0

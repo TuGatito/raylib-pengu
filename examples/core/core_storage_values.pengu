@@ -1,0 +1,271 @@
+## examples/core/core_storage_values.pengu
+## raylib [core] example - storage values
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 1.4, last time updated with raylib 4.2
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2015-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_storage_values.c` built on top of the
+## `raylibx` wrapper layer. Instead of manual `RL_MALLOC` / `RL_REALLOC` / `RL_FREE`
+## buffers, `save_storage_value` and `load_storage_value` read and write the
+## binary storage file through `files.file_bytes` (`maybe (list of byte)`) and
+## `files.save_file_bytes`, encoding and decoding 32-bit integers in little-endian
+## byte order. Storage slots are modeled as an `omen` (`StorageData`) and
+## dispatched with `judge`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_storage_values.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.files as files
+import raylibx.input as input
+import raylibx.random as random
+import raylibx.text as txt
+import std.ffi
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Binary file where storage values are persisted.
+const STORAGE_DATA_FILE as string is "storage.data"
+
+## Number of bytes occupied by each 32-bit integer slot in the storage file.
+const BYTES_PER_INT as int is 4
+
+# --- Types --------------------------------------------------------------
+## Storage slot positions (0-based, matching the binary file layout).
+omen StorageData:
+    Score is 0
+    HiScore is 1
+
+# --- Helpers ------------------------------------------------------------
+## Maps a `StorageData` slot to its 0-based integer index.
+##
+## ## Parameters
+## - `slot`: storage slot variant.
+##
+## ## Returns
+## The 0-based slot index.
+##
+## ## Memory
+## No allocation.
+weave storage_slot_index with slot as StorageData into int:
+    return judge slot:
+        when StorageData.Score -> 0
+        when StorageData.HiScore -> 1
+
+## Returns a new byte list of at least `(position + 1) * 4` bytes with `value`
+## encoded in little-endian order at `position * 4`, preserving all other bytes.
+##
+## ## Parameters
+## - `source`: existing byte list from disk (may be empty).
+## - `position`: 0-based 32-bit integer slot index.
+## - `value`: 32-bit integer to write at `position`.
+##
+## ## Returns
+## A newly allocated `list of byte` owned by the caller.
+##
+## ## Memory
+## Does not free `source`; the caller must `banish` the returned list.
+weave put_i32_le_at with source as list of byte, position as int, value as int into list of byte:
+    let byte_offset as int is position * BYTES_PER_INT
+    let required_size as int is (position + 1) * BYTES_PER_INT
+    let total_len as int is if (source.length) > required_size then (source.length) else required_size
+
+    let b0 as byte is (value & 255) to byte
+    let b1 as byte is ((value >> 8) & 255) to byte
+    let b2 as byte is ((value >> 16) & 255) to byte
+    let b3 as byte is ((value >> 24) & 255) to byte
+
+    var out as list of byte is list of byte
+    for i from 0 to total_len:
+        if i == byte_offset:
+            calling out.push with b0
+        else if i == (byte_offset + 1):
+            calling out.push with b1
+        else if i == (byte_offset + 2):
+            calling out.push with b2
+        else if i == (byte_offset + 3):
+            calling out.push with b3
+        else if i < (source.length):
+            calling out.push with (source at i)
+        else:
+            calling out.push with (0 to byte)
+    return out
+
+## Reads a 32-bit little-endian integer from `buffer` at `byte_offset`.
+##
+## ## Parameters
+## - `buffer`: byte list with at least `byte_offset + 4` elements.
+## - `byte_offset`: starting byte index in `buffer`.
+##
+## ## Returns
+## The decoded 32-bit integer.
+##
+## ## Memory
+## No allocation.
+weave read_i32_le with buffer as list of byte, byte_offset as int into int:
+    let b0 as int is (buffer at byte_offset) to int
+    let b1 as int is (buffer at (byte_offset + 1)) to int
+    let b2 as int is (buffer at (byte_offset + 2)) to int
+    let b3 as int is (buffer at (byte_offset + 3)) to int
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+
+## Saves an integer `value` to `STORAGE_DATA_FILE` at the given `slot`.
+##
+## ## Parameters
+## - `slot`: target storage position (`Score` or `HiScore`).
+## - `value`: integer value to persist.
+##
+## ## Returns
+## `true` when the storage file was written successfully, `false` otherwise.
+##
+## ## Memory
+## Any temporary `list of byte` or formatted log string is released before returning.
+weave save_storage_value with slot as StorageData, value as int into bool:
+    let position as int is calling storage_slot_index with slot
+
+    let maybe_existing as maybe (list of byte) is calling files.file_bytes with STORAGE_DATA_FILE
+    if file_data as list of byte is maybe_existing:
+        defer banish file_data
+
+        var updated_data as list of byte is calling put_i32_le_at with file_data, position, value
+        defer banish updated_data
+
+        let success as bool is calling files.save_file_bytes with STORAGE_DATA_FILE, (updated_data at 0 to (updated_data.length))
+
+        let saved_msg as string is "FILEIO: [{STORAGE_DATA_FILE}] Saved storage value: {value}"
+        calling raylib.TraceLog with (raylib.LOG_INFO to int), (calling ffi.cstr_from_string with saved_msg)
+        banish saved_msg
+
+        return success
+
+    let created_msg as string is "FILEIO: [{STORAGE_DATA_FILE}] File created successfully"
+    calling raylib.TraceLog with (raylib.LOG_INFO to int), (calling ffi.cstr_from_string with created_msg)
+    banish created_msg
+
+    var empty_data as list of byte is list of byte
+    defer banish empty_data
+    var new_file_data as list of byte is calling put_i32_le_at with empty_data, position, value
+    defer banish new_file_data
+
+    let success as bool is calling files.save_file_bytes with STORAGE_DATA_FILE, (new_file_data at 0 to (new_file_data.length))
+
+    let saved_msg as string is "FILEIO: [{STORAGE_DATA_FILE}] Saved storage value: {value}"
+    calling raylib.TraceLog with (raylib.LOG_INFO to int), (calling ffi.cstr_from_string with saved_msg)
+    banish saved_msg
+
+    return success
+
+## Loads an integer value from `STORAGE_DATA_FILE` at the given `slot`.
+##
+## ## Parameters
+## - `slot`: storage position to read (`Score` or `HiScore`).
+##
+## ## Returns
+## The stored integer value, or `0` if the file or slot does not exist.
+##
+## ## Memory
+## Releases the loaded `list of byte` buffer before returning.
+weave load_storage_value with slot as StorageData into int:
+    let position as int is calling storage_slot_index with slot
+    let byte_offset as int is position * BYTES_PER_INT
+    let required_size as int is (position + 1) * BYTES_PER_INT
+
+    var value as int is 0
+    let maybe_existing as maybe (list of byte) is calling files.file_bytes with STORAGE_DATA_FILE
+    if file_data as list of byte is maybe_existing:
+        defer banish file_data
+
+        if (file_data.length) < required_size:
+            let warn_msg as string is "FILEIO: [{STORAGE_DATA_FILE}] Failed to find storage position: {position}"
+            calling raylib.TraceLog with (raylib.LOG_WARNING to int), (calling ffi.cstr_from_string with warn_msg)
+            banish warn_msg
+        else:
+            set value is calling read_i32_le with file_data, byte_offset
+
+        let info_msg as string is "FILEIO: [{STORAGE_DATA_FILE}] Loaded storage value: {value}"
+        calling raylib.TraceLog with (raylib.LOG_INFO to int), (calling ffi.cstr_from_string with info_msg)
+        banish info_msg
+
+    return value
+
+# --- Entry point --------------------------------------------------------
+## Generates, saves, and loads `score` and `hiscore` values from `storage.data`.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - storage values"
+    defer calling raylib.CloseWindow
+
+    var score as int is 0
+    var hiscore as int is 0
+    var frames_counter as int is 0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling input.is_key_pressed with raylib.KEY_R:
+            set score is calling random.between with 1000, 2000
+            set hiscore is calling random.between with 2000, 4000
+
+        if calling input.is_key_pressed with raylib.KEY_ENTER:
+            let _saved_score as bool is calling save_storage_value with StorageData.Score, score
+            let _saved_hiscore as bool is calling save_storage_value with StorageData.HiScore, hiscore
+        else if calling input.is_key_pressed with raylib.KEY_SPACE:
+            # Note: If requested position could not be found, value 0 is returned
+            set score is calling load_storage_value with StorageData.Score
+            set hiscore is calling load_storage_value with StorageData.HiScore
+
+        set frames_counter += 1
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let score_label as string is "SCORE: {score}"
+        calling txt.draw_text with score_label, 280, 130, 40, raylib.MAROON
+        banish score_label
+
+        let hiscore_label as string is "HI-SCORE: {hiscore}"
+        calling txt.draw_text with hiscore_label, 210, 200, 50, raylib.BLACK
+        banish hiscore_label
+
+        let frames_label as string is "frames: {frames_counter}"
+        calling txt.draw_text with frames_label, 10, 10, 20, raylib.LIME
+        banish frames_label
+
+        calling txt.draw_text with "Press R to generate random numbers", 220, 40, 20, raylib.LIGHTGRAY
+        calling txt.draw_text with "Press ENTER to SAVE values", 250, 310, 20, raylib.LIGHTGRAY
+        calling txt.draw_text with "Press SPACE to LOAD values", 252, 350, 20, raylib.LIGHTGRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

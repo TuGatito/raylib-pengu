@@ -1,0 +1,161 @@
+## raylib [models] example - first person maze
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 3.5
+## Example licensed under an unmodified zlib/libpng license.
+##
+## ## PenguScript Port
+## - Uses `raylibx.drawing` for frame and 3D mode scopes
+## - Uses `raylibx.images` for loading cubicmap and extracting owned color pixel list
+## - Uses `raylibx.textures` for texture atlas and minimap texture management
+## - Uses `raylibx.models` for model generation from cubicmap mesh
+## - Uses `raylibx.shapes` for 2D circle-rectangle collision and minimap radar
+## - Uses `raylibx.text` for FPS counter
+##
+## ## Example
+## ```pengu
+## pengu run examples/models/models_first_person_maze.pengu
+## ```
+
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.models as models
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ---
+
+## Target window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Target window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## ## Returns
+## Exit status code (0 for success).
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - first person maze"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D with:
+        set .position is (with x is 0.2, y is 0.4, z is 0.2)
+        set .target is (with x is 0.185, y is 0.4, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var im_map as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_img as raylib.Image is calling images.load_image with "resources/cubicmap.png":
+        set im_map is loaded_img
+
+    var cubicmap as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture is calling textures.load_texture_from_image with im_map:
+        set cubicmap is loaded_tex
+    defer calling textures.unload_texture with cubicmap
+
+    let mesh_size as raylib.Vector3 is with x is 1.0, y is 1.0, z is 1.0
+    let mesh as raylib.Mesh is calling raylib.GenMeshCubicmap with im_map, mesh_size
+    var model as raylib.Model is calling models.load_model_from_mesh with mesh
+    defer calling models.unload_model with model
+
+    var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_atlas as raylib.Texture is calling textures.load_texture with "resources/cubicmap_atlas.png":
+        set texture is loaded_atlas
+    defer calling textures.unload_texture with texture
+
+    var mat0 as ref to raylib.Material is sigil of (model.materials at 0)
+    calling mat0.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    # Extract pixel colors for collision checking
+    var map_pixels as list of raylib.Color is list of raylib.Color
+    if loaded_colors as list of raylib.Color is calling im_map.colors:
+        set map_pixels is loaded_colors
+    defer banish map_pixels
+
+    calling images.unload_image with im_map
+
+    let map_pos as raylib.Vector3 is with x is -16.0, y is 0.0, z is -8.0
+
+    calling raylib.DisableCursor
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        let old_cam_pos as raylib.Vector3 is camera.position
+
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FIRST_PERSON to int)
+
+        # 2D circle collision detection against cubicmap walls
+        let player_pos as raylib.Vector2 is with x is camera.position.x, y is camera.position.z
+        const PLAYER_RADIUS as f32 is 0.1
+
+        var player_cell_x as int is (player_pos.x - map_pos.x + 0.5) to int
+        var player_cell_y as int is (player_pos.y - map_pos.z + 0.5) to int
+
+        if player_cell_x < 0:
+            set player_cell_x is 0
+        else if player_cell_x >= cubicmap.width:
+            set player_cell_x is cubicmap.width - 1
+
+        if player_cell_y < 0:
+            set player_cell_y is 0
+        else if player_cell_y >= cubicmap.height:
+            set player_cell_y is cubicmap.height - 1
+
+        # Check surrounding cells only
+        for cy from player_cell_y - 1 to player_cell_y + 1:
+            if (cy >= 0) and (cy < cubicmap.height):
+                for cx from player_cell_x - 1 to player_cell_x + 1:
+                    if (cx >= 0) and (cx < cubicmap.width):
+                        let pix_idx as int is cy * cubicmap.width + cx
+                        if pix_idx < map_pixels.length:
+                            let pixel_color as raylib.Color is map_pixels at pix_idx
+                            if pixel_color.r == 255:
+                                let cell_rec as raylib.Rectangle is with x is map_pos.x - 0.5 + (cx to f32), y is map_pos.z - 0.5 + (cy to f32), width is 1.0, height is 1.0
+                                if calling shapes.collision_circle_rec with player_pos, PLAYER_RADIUS, cell_rec:
+                                    set camera.position is old_cam_pos
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        calling model.draw with map_pos, 1.0, raylib.WHITE
+        calling drawing.end_mode_3d
+
+        # Minimap preview
+        let preview_x as f32 is (calling raylib.GetScreenWidth to f32) - (cubicmap.width to f32) * 4.0 - 20.0
+        let preview_pos as raylib.Vector2 is with x is preview_x, y is 20.0
+        calling cubicmap.draw_ex with preview_pos, 0.0, 4.0, raylib.WHITE
+
+        let rect_x as int is (calling raylib.GetScreenWidth) - cubicmap.width * 4 - 20
+        calling shapes.draw_rectangle_lines with rect_x, 20, cubicmap.width * 4, cubicmap.height * 4, raylib.GREEN
+
+        # Player radar blip
+        let blip_x as int is rect_x + player_cell_x * 4
+        let blip_y as int is 20 + player_cell_y * 4
+        calling shapes.draw_rectangle with blip_x, blip_y, 4, 4, raylib.RED
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

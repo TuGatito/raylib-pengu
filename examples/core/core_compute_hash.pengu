@@ -1,0 +1,223 @@
+## examples/core/core_compute_hash.pengu
+## raylib [core] example - compute hash
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.6, last time updated with raylib 5.6
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_compute_hash.c` using `raylibx.files`,
+## `raygui`, and `rayguix`. Hash and encoding functions (`crc32`, `md5`, `sha1`,
+## `sha256`, `encode_base64`) accept a `slice of byte` view of the input string
+## and return strongly typed words/strings formatted as uppercase hexadecimal.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_compute_hash.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raygui
+import rayguix
+import raylib
+import raylibx.drawing as drawing
+import raylibx.files as files
+import std.ffi as ffi
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Maximum character capacity for the data input text box.
+const MAX_DATA_LENGTH as int is 64
+
+# --- Helpers ------------------------------------------------------------
+## Builds a `raylib.Rectangle` from position and size components.
+##
+## ## Parameters
+## - `x`, `y`, `width`, `height`: rectangle bounds in pixels.
+##
+## ## Returns
+## A value-type `raylib.Rectangle`.
+weave make_rect with x as f32, y as f32, width as f32, height as f32 into raylib.Rectangle:
+    return with x is x, y is y, width is width, height is height
+
+## Formats a single 32-bit unsigned integer as an 8-digit uppercase hexadecimal
+## string (`00000000`..`FFFFFFFF`).
+##
+## ## Parameters
+## - `word`: 32-bit unsigned integer to format.
+##
+## ## Returns
+## 8-character uppercase hex `string`.
+weave format_hex_word with word as u32 into string:
+    var hex_digits as list of string is list of string
+    defer banish hex_digits
+    calling hex_digits.push with "0"
+    calling hex_digits.push with "1"
+    calling hex_digits.push with "2"
+    calling hex_digits.push with "3"
+    calling hex_digits.push with "4"
+    calling hex_digits.push with "5"
+    calling hex_digits.push with "6"
+    calling hex_digits.push with "7"
+    calling hex_digits.push with "8"
+    calling hex_digits.push with "9"
+    calling hex_digits.push with "A"
+    calling hex_digits.push with "B"
+    calling hex_digits.push with "C"
+    calling hex_digits.push with "D"
+    calling hex_digits.push with "E"
+    calling hex_digits.push with "F"
+
+    let d7 as string is (hex_digits at (((word >> (28 to u32)) & (15 to u32)) to int))
+    let d6 as string is (hex_digits at (((word >> (24 to u32)) & (15 to u32)) to int))
+    let d5 as string is (hex_digits at (((word >> (20 to u32)) & (15 to u32)) to int))
+    let d4 as string is (hex_digits at (((word >> (16 to u32)) & (15 to u32)) to int))
+    let d3 as string is (hex_digits at (((word >> (12 to u32)) & (15 to u32)) to int))
+    let d2 as string is (hex_digits at (((word >> (8 to u32)) & (15 to u32)) to int))
+    let d1 as string is (hex_digits at (((word >> (4 to u32)) & (15 to u32)) to int))
+    let d0 as string is (hex_digits at ((word & (15 to u32)) to int))
+    return "{d7}{d6}{d5}{d4}{d3}{d2}{d1}{d0}"
+
+## Concatenates a slice of 32-bit words into a contiguous uppercase hexadecimal
+## string (8 hex characters per word).
+##
+## ## Parameters
+## - `words`: Slice of `u32` words returned by `md5`, `sha1`, or `sha256`.
+## - `word_count`: Expected number of 32-bit words when `words` is empty.
+##
+## ## Returns
+## Uppercase hexadecimal representation of all words in `words`.
+weave words_to_hex with words as slice of u32, word_count as int into string:
+    var result as string is ""
+    if (words length) == 0:
+        for i from 0 to word_count:
+            let next_str as string is "{result}00000000"
+            banish result
+            set result is next_str
+        return result
+
+    for word in words:
+        let word_hex as string is calling format_hex_word with word
+        defer banish word_hex
+        let next_str as string is "{result}{word_hex}"
+        banish result
+        set result is next_str
+    return result
+
+# --- Entry point --------------------------------------------------------
+## Program entry point.
+##
+## Renders an editable input text box, a button that triggers hash computation,
+## and read-only text boxes displaying the resulting CRC32, MD5, SHA1, SHA256,
+## and Base64 values.
+##
+## ## Returns
+## Exit code (`0` on clean exit).
+weave main into int:
+    # Initialization
+    #--------------------------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - compute hash"
+    defer calling raylib.CloseWindow
+
+    # UI required variables
+    var text_input as string is "The quick brown fox jumps over the lazy dog."
+    var text_box_edit_mode as bool is false
+    var btn_compute_hashes as bool is false
+
+    # Data hashes values (as strings for standby display)
+    var crc32_text as string is "00000000"
+    var md5_text as string is "00000000000000000000000000000000"
+    var sha1_text as string is "0000000000000000000000000000000000000000"
+    var sha256_text as string is "0000000000000000000000000000000000000000000000000000000000000000"
+    var base64_text as string is ""
+
+    # Set default style sizes
+    calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SIZE to int), 20
+    calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SPACING to int), 2
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    #--------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+        # Update
+        #----------------------------------------------------------------------------------
+        if btn_compute_hashes:
+            let raw_cstr as ref to char is calling ffi.cstr_from_string with text_input
+            let data_bytes as slice of byte is calling ffi.slice_of_bytes_from_ptr with (transmute raw_cstr to ref to void), (text_input length)
+
+            let crc32_val as u32 is calling files.crc32 with data_bytes
+            set crc32_text is calling format_hex_word with crc32_val
+
+            let md5_words as slice of u32 is calling files.md5 with data_bytes
+            set md5_text is calling words_to_hex with md5_words, 4
+
+            let sha1_words as slice of u32 is calling files.sha1 with data_bytes
+            set sha1_text is calling words_to_hex with sha1_words, 5
+
+            let sha256_words as slice of u32 is calling files.sha256 with data_bytes
+            set sha256_text is calling words_to_hex with sha256_words, 8
+
+            # Base64 encoding of input data string
+            let maybe_b64 as maybe string is calling files.encode_base64 with data_bytes
+            if maybe_b64 is present:
+                set base64_text is calling maybe_b64.unwrap
+            else:
+                set base64_text is ""
+        #----------------------------------------------------------------------------------
+
+        # Draw
+        #----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling rayguix.label with (calling make_rect with 40.0, 24.0, 720.0, 32.0), "INPUT DATA (TEXT):"
+
+        if (calling rayguix.text_box with (calling make_rect with 40.0, 56.0, 720.0, 32.0), (sigil of text_input), MAX_DATA_LENGTH, text_box_edit_mode) != 0:
+            set text_box_edit_mode is not text_box_edit_mode
+
+        set btn_compute_hashes is ((calling rayguix.button with (calling make_rect with 40.0, 96.0, 720.0, 32.0), "COMPUTE INPUT DATA HASHES") != 0)
+
+        calling rayguix.label with (calling make_rect with 40.0, 140.0, 720.0, 32.0), "INPUT DATA HASH VALUES:"
+
+        calling raygui.GuiSetStyle with (raygui.TEXTBOX to int), (raygui.TEXT_READONLY to int), 1
+        calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SIZE to int), 10
+        calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SPACING to int), 1
+
+        calling rayguix.label with (calling make_rect with 40.0, ((160 + 24) to f32), 120.0, 32.0), "CRC32 [32 bit]:"
+        calling rayguix.text_box with (calling make_rect with ((40 + 120) to f32), ((160 + 24) to f32), ((720 - 120) to f32), 32.0), (sigil of crc32_text), 120, false
+
+        calling rayguix.label with (calling make_rect with 40.0, ((160 + 24 + 36) to f32), 120.0, 32.0), "MD5 [128 bit]:"
+        calling rayguix.text_box with (calling make_rect with ((40 + 120) to f32), ((160 + 24 + 36) to f32), ((720 - 120) to f32), 32.0), (sigil of md5_text), 120, false
+
+        calling rayguix.label with (calling make_rect with 40.0, ((160 + 24 + (36 * 2)) to f32), 120.0, 32.0), "SHA1 [160 bit]:"
+        calling rayguix.text_box with (calling make_rect with ((40 + 120) to f32), ((160 + 24 + (36 * 2)) to f32), ((720 - 120) to f32), 32.0), (sigil of sha1_text), 120, false
+
+        calling rayguix.label with (calling make_rect with 40.0, ((160 + 24 + (36 * 3)) to f32), 120.0, 32.0), "SHA256 [256 bit]:"
+        calling rayguix.text_box with (calling make_rect with ((40 + 120) to f32), ((160 + 24 + (36 * 3)) to f32), ((720 - 120) to f32), 32.0), (sigil of sha256_text), 120, false
+
+        calling rayguix.label with (calling make_rect with 40.0, ((160 + 24 + (36 * 5)) to f32), 120.0, 32.0), "BASE64 ENCODED:"
+        calling rayguix.text_box with (calling make_rect with ((40 + 120) to f32), ((160 + 24 + (36 * 5)) to f32), ((720 - 120) to f32), 32.0), (sigil of base64_text), 120, false
+
+        calling raygui.GuiSetStyle with (raygui.TEXTBOX to int), (raygui.TEXT_READONLY to int), 0
+        calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SIZE to int), 20
+        calling raygui.GuiSetStyle with (raygui.DEFAULT to int), (raygui.TEXT_SPACING to int), 2
+
+        calling drawing.end_drawing
+        #----------------------------------------------------------------------------------
+
+    return 0

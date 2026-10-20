@@ -1,0 +1,229 @@
+## examples/core/core_vr_simulator.pengu
+## raylib [core] example - vr simulator
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 4.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2017-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_vr_simulator.c` using `raylibx.drawing`,
+## `raylibx.shaders`, `raylibx.shapes3d`, `raylibx.text`, `raylibx.textures`, and
+## `raymathx`. Simulates an Oculus Rift CV1 stereo head-mounted display by
+## rendering the 3D scene into an off-screen stereo render texture and applying a
+## barrel-distortion and chromatic-aberration fragment shader pass.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_vr_simulator.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shaders as shaders
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymathx
+import std.ffi
+
+# --- Constants ----------------------------------------------------------
+## Desktop OpenGL shader language version (`330` on desktop, `100` on embedded/web).
+const GLSL_VERSION as int is 330
+
+## Window width, in pixels (matches the VR HMD aspect ratio).
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels (matches the VR HMD aspect ratio).
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Vertical field-of-view of the 3D camera, in degrees.
+const CAMERA_FOVY as f32 is 60.0
+
+# --- Helpers ------------------------------------------------------------
+## Sets a `vec2` shader uniform by name if the uniform location is present in `shader`.
+##
+## ## Parameters
+## - `shader`: target distortion shader.
+## - `name`: uniform variable name in GLSL.
+## - `value`: 2D vector value to upload.
+weave set_uniform_vec2 with shader as raylib.Shader, name as string, value as raylib.Vector2 into void:
+    let loc as maybe int is calling shader.location with name
+    if location as int is loc:
+        calling shader.set_vec2 with location, value
+
+## Sets a `vec4` shader uniform by name if the uniform location is present in `shader`.
+##
+## ## Parameters
+## - `shader`: target distortion shader.
+## - `name`: uniform variable name in GLSL.
+## - `value`: 4D vector value to upload.
+weave set_uniform_vec4 with shader as raylib.Shader, name as string, value as raylib.Vector4 into void:
+    let loc as maybe int is calling shader.location with name
+    if location as int is loc:
+        calling shader.set_vec4 with location, value
+
+## Populates the 4-element `lensDistortionValues` and `chromaAbCorrection` C arrays on `VrDeviceInfo`.
+##
+## ## Parameters
+## - `device`: pointer to the `VrDeviceInfo` struct to populate.
+## - `lens`: `[k0, k1, k2, k3]` lens distortion coefficients.
+## - `chroma`: `[r0, r1, b0, b1]` chromatic aberration coefficients.
+antiquus set_vr_device_arrays with device as ref to raylib.VrDeviceInfo, lens as raylib.Vector4, chroma as raylib.Vector4 into void:
+    r"""
+    device->lensDistortionValues[0] = lens.x;
+    device->lensDistortionValues[1] = lens.y;
+    device->lensDistortionValues[2] = lens.z;
+    device->lensDistortionValues[3] = lens.w;
+    device->chromaAbCorrection[0] = chroma.x;
+    device->chromaAbCorrection[1] = chroma.y;
+    device->chromaAbCorrection[2] = chroma.z;
+    device->chromaAbCorrection[3] = chroma.w;
+    """
+
+## Reads a 2-float C array field from `VrStereoConfig` by selector index (`0`..`5`) as a `Vector2`.
+##
+## ## Parameters
+## - `config`: pointer to the `VrStereoConfig` struct.
+## - `which`: `0` leftLensCenter, `1` rightLensCenter, `2` leftScreenCenter, `3` rightScreenCenter, `4` scale, `5` scaleIn.
+##
+## ## Returns
+## The corresponding 2D vector.
+antiquus vr_config_vec2 with config as ref to raylib.VrStereoConfig, which as int into raylib.Vector2:
+    r"""
+    const float *pair = config->leftLensCenter;
+    switch (which) {
+        case 0: pair = config->leftLensCenter; break;
+        case 1: pair = config->rightLensCenter; break;
+        case 2: pair = config->leftScreenCenter; break;
+        case 3: pair = config->rightScreenCenter; break;
+        case 4: pair = config->scale; break;
+        default: pair = config->scaleIn; break;
+    }
+    Vector2 out = { pair[0], pair[1] };
+    return out;
+    """
+
+# --- Entry point --------------------------------------------------------
+## Initializes the Oculus Rift CV1 stereo configuration, distortion shader, and
+## off-screen render target, then runs the first-person VR simulator loop.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally, or `1` if the render target fails.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    # NOTE: screenWidth/screenHeight should match VR device aspect ratio
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - vr simulator"
+    defer calling raylib.CloseWindow
+
+    # VR device parameters definition (Oculus Rift CV1 parameters for simulator)
+    var device as raylib.VrDeviceInfo with:
+        set .hResolution is 2160
+        set .vResolution is 1200
+        set .hScreenSize is 0.133793
+        set .vScreenSize is 0.0669
+        set .eyeToScreenDistance is 0.041
+        set .lensSeparationDistance is 0.07
+        set .interpupillaryDistance is 0.07
+
+    # NOTE: CV1 uses fresnel-hybrid-asymmetric lenses with specific compute shaders.
+    # Following parameters are just an approximation to CV1 distortion stereo rendering.
+    let lens_distortion as raylib.Vector4 is with x is 1.0, y is 0.22, z is 0.24, w is 0.0
+    let chroma_ab_correction as raylib.Vector4 is with x is 0.996, y is -0.004, z is 1.014, w is 0.0
+    calling set_vr_device_arrays with (sigil of device), lens_distortion, chroma_ab_correction
+
+    # Load VR stereo config for VR device parameters (Oculus Rift CV1 parameters)
+    var config as raylib.VrStereoConfig is calling raylib.LoadVrStereoConfig with device
+    defer calling raylib.UnloadVrStereoConfig with config
+
+    # Distortion shader (uses device lens distortion and chroma)
+    let fs_path as string is "resources/shaders/glsl{GLSL_VERSION}/distortion.fs"
+    defer banish fs_path
+    let c_fs_path as ref to frozen char is calling ffi.cstr_from_string with fs_path
+    let null_vs as ref to frozen char is calling ffi.null_char
+    let distortion as raylib.Shader is calling raylib.LoadShader with null_vs, c_fs_path
+    defer calling shaders.unload_shader with distortion
+
+    # Update distortion shader with lens and distortion-scale parameters
+    calling set_uniform_vec2 with distortion, "leftLensCenter", (calling vr_config_vec2 with (sigil of config), 0)
+    calling set_uniform_vec2 with distortion, "rightLensCenter", (calling vr_config_vec2 with (sigil of config), 1)
+    calling set_uniform_vec2 with distortion, "leftScreenCenter", (calling vr_config_vec2 with (sigil of config), 2)
+    calling set_uniform_vec2 with distortion, "rightScreenCenter", (calling vr_config_vec2 with (sigil of config), 3)
+
+    calling set_uniform_vec2 with distortion, "scale", (calling vr_config_vec2 with (sigil of config), 4)
+    calling set_uniform_vec2 with distortion, "scaleIn", (calling vr_config_vec2 with (sigil of config), 5)
+    calling set_uniform_vec4 with distortion, "deviceWarpParam", lens_distortion
+    calling set_uniform_vec4 with distortion, "chromaAbParam", chroma_ab_correction
+
+    # Initialize framebuffer for stereo rendering
+    # NOTE: Screen size should match HMD aspect ratio
+    let loaded_target as maybe raylib.RenderTexture is calling textures.load_render_texture with device.hResolution, device.vResolution
+    if target as raylib.RenderTexture is loaded_target:
+        defer calling textures.unload_render_texture with target
+
+        # The target's height is flipped (in the source Rectangle), due to OpenGL reasons
+        let source_rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is (target.texture.width to f32), height is (-(target.texture.height to f32))
+        let dest_rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is ((calling raylib.GetScreenWidth) to f32), height is ((calling raylib.GetScreenHeight) to f32)
+
+        # Define the camera to look into our 3d world
+        var camera as raylib.Camera3D with:
+            set .position is (with x is 5.0, y is 2.0, z is 5.0)
+            set .target is (with x is 0.0, y is 2.0, z is 0.0)
+            set .up is (with x is 0.0, y is 1.0, z is 0.0)
+            set .fovy is CAMERA_FOVY
+            set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+        let cube_position as raylib.Vector3 is calling Vector3.zero
+
+        calling raylib.DisableCursor
+        calling raylib.SetTargetFPS with TARGET_FPS
+        # ---------------------------------------------------------------------
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            # -----------------------------------------------------------------
+            calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FIRST_PERSON to int)
+            # -----------------------------------------------------------------
+
+            # Draw
+            # -----------------------------------------------------------------
+            calling drawing.begin_texture_mode with target
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            calling raylib.BeginVrStereoMode with config
+            calling drawing.begin_mode_3d with camera
+
+            calling shapes3d.draw_cube with cube_position, 2.0, 2.0, 2.0, raylib.RED
+            calling shapes3d.draw_cube_wires with cube_position, 2.0, 2.0, 2.0, raylib.MAROON
+            calling shapes3d.draw_grid with 40, 1.0
+
+            calling drawing.end_mode_3d
+            calling raylib.EndVrStereoMode
+
+            calling drawing.end_texture_mode
+
+            var target_tex as raylib.Texture is target.texture
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            calling drawing.begin_shader_mode with distortion
+            calling target_tex.draw_pro with source_rec, dest_rec, (calling Vector2.zero), 0.0, raylib.WHITE
+            calling drawing.end_shader_mode
+
+            calling txt.draw_fps with 10, 10
+            calling drawing.end_drawing
+            # -----------------------------------------------------------------
+
+        return 0
+
+    return 1

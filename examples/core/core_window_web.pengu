@@ -1,0 +1,90 @@
+## examples/core/core_window_web.pengu
+## raylib [core] example - window web
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.3, last time updated with raylib 5.5
+##
+## This example has been adapted to compile for PLATFORM_WEB and PLATFORM_DESKTOP
+## As you will notice, code structure is slightly different to the other examples
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2015-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_window_web.c` on top of the `raylibx`
+## wrapper layer and `std.web`. The per-frame callback `update_draw_frame` is
+## registered via `web.set_main_loop` under `when wasm:` and driven by a
+## standard `SetTargetFPS` + `WindowShouldClose` loop on desktop targets.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_window_web.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.text as txt
+import std.web
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for desktop targets.
+const TARGET_FPS as int is 60
+
+# --- Helpers ------------------------------------------------------------
+## Updates and draws a single frame.
+##
+## ## Notes
+## Passed as a callback to `web.set_main_loop` on WebAssembly builds, and
+## invoked directly inside the `WindowShouldClose` loop on desktop builds.
+##
+## ## Memory
+## No allocation and nothing to release.
+weave update_draw_frame into void:
+    # Update
+    # ---------------------------------------------------------------------
+    # Update variables here when extending this template
+    # ---------------------------------------------------------------------
+
+    # Draw
+    # ---------------------------------------------------------------------
+    calling drawing.begin_drawing
+    calling drawing.clear_background with raylib.RAYWHITE
+
+    calling txt.draw_text with "Welcome to raylib web structure!", 220, 200, 20, raylib.SKYBLUE
+
+    calling drawing.end_drawing
+    # ---------------------------------------------------------------------
+
+# --- Entry point --------------------------------------------------------
+## Opens the window and runs the main loop using `std.web` on WebAssembly or
+## the standard desktop loop otherwise.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - window web"
+    defer calling raylib.CloseWindow
+
+    when wasm:
+        calling web.set_main_loop with update_draw_frame, 0, true
+    else:
+        calling raylib.SetTargetFPS with TARGET_FPS
+        # -----------------------------------------------------------------
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            calling update_draw_frame
+
+    return 0

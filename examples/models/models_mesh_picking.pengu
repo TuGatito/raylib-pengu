@@ -1,0 +1,246 @@
+## raylib [models] example - mesh picking
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 1.7, last time updated with raylib 4.0
+##
+## Example contributed by Joel Davis (@joeld42) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2017-2025 Joel Davis (@joeld42) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates 3D ray picking against planes, triangles, spheres, bounding boxes, and complex model meshes.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_mesh_picking.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raymath
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.colors as colors
+import raylibx.models as models
+import raylibx.textures as textures
+import rcamerax
+
+# --- Constants ---
+
+## Large float representing infinity for initial ray collision distance.
+const FLT_MAX as f32 is 340282346638528859811704183484516925440.0
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - mesh picking"
+    defer calling raylib.CloseWindow
+
+    # Define camera to look into our 3D world
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 20.0, y is 20.0, z is 20.0)
+        set .target is (with x is 0.0, y is 8.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.6, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var ray as raylib.Ray is with:
+        set .position is (with x is 0.0, y is 0.0, z is 0.0)
+        set .direction is (with x is 0.0, y is 0.0, z is 0.0)
+
+    # Load OBJ model
+    var tower_opt as maybe raylib.Model is calling models.load_model with "resources/models/obj/turret.obj"
+    var tower as raylib.Model is with meshCount is 0
+    if loaded_m as raylib.Model is tower_opt:
+        set tower is loaded_m
+    defer calling models.unload_model with tower
+
+    # Load model texture
+    var texture_opt as maybe raylib.Texture2D is calling textures.load_texture with "resources/models/obj/turret_diffuse.png"
+    var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_t as raylib.Texture2D is texture_opt:
+        set texture is loaded_t
+    defer calling raylib.UnloadTexture with texture
+
+    var mat as ref to raylib.Material is sigil of (tower.materials at 0)
+    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    var tower_pos as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    var first_mesh as raylib.Mesh is tower.meshes at 0
+    var tower_bbox as raylib.BoundingBox is calling first_mesh.bounding_box
+
+    # Ground quad
+    var g0 as raylib.Vector3 is with x is -50.0, y is 0.0, z is -50.0
+    var g1 as raylib.Vector3 is with x is -50.0, y is 0.0, z is 50.0
+    var g2 as raylib.Vector3 is with x is 50.0, y is 0.0, z is 50.0
+    var g3 as raylib.Vector3 is with x is 50.0, y is 0.0, z is -50.0
+
+    # Test triangle
+    var ta as raylib.Vector3 is with x is -25.0, y is 0.5, z is 0.0
+    var tb as raylib.Vector3 is with x is -4.0, y is 2.5, z is 1.0
+    var tc as raylib.Vector3 is with x is -8.0, y is 6.5, z is 0.0
+
+    var bary as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+
+    # Test sphere
+    var sp as raylib.Vector3 is with x is -30.0, y is 5.0, z is 5.0
+    var sr as f32 is 4.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling raylib.IsCursorHidden:
+            calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FIRST_PERSON to int)
+
+        # Toggle camera controls
+        if calling raylib.IsMouseButtonPressed with raylib.MOUSE_BUTTON_RIGHT:
+            if calling raylib.IsCursorHidden:
+                calling raylib.EnableCursor
+            else:
+                calling raylib.DisableCursor
+
+        # Closest hit state
+        var collision as raylib.RayCollision is with:
+            set .hit is false
+            set .distance is FLT_MAX
+            set .point is (with x is 0.0, y is 0.0, z is 0.0)
+            set .normal is (with x is 0.0, y is 0.0, z is 0.0)
+
+        var hit_object_name as string is "None"
+        var cursor_color as raylib.Color is raylib.WHITE
+
+        # Get ray and test against objects
+        set ray is calling camera.to_world_ray with (calling raylib.GetMousePosition)
+
+        # Check ray collision against ground quad
+        var ground_hit as raylib.RayCollision is calling models.ray_quad_hit with ray, g0, g1, g2, g3
+        if ground_hit.hit and (ground_hit.distance < collision.distance):
+            set collision is ground_hit
+            set cursor_color is raylib.GREEN
+            set hit_object_name is "Ground"
+
+        # Check ray collision against test triangle
+        var tri_hit as raylib.RayCollision is calling models.ray_triangle_hit with ray, ta, tb, tc
+        if tri_hit.hit and (tri_hit.distance < collision.distance):
+            set collision is tri_hit
+            set cursor_color is raylib.PURPLE
+            set hit_object_name is "Triangle"
+            set bary is calling raymath.Vector3Barycenter with collision.point, ta, tb, tc
+
+        # Check ray collision against test sphere
+        var sphere_hit as raylib.RayCollision is calling models.ray_sphere_hit with ray, sp, sr
+        if sphere_hit.hit and (sphere_hit.distance < collision.distance):
+            set collision is sphere_hit
+            set cursor_color is raylib.ORANGE
+            set hit_object_name is "Sphere"
+
+        # Check ray collision against bounding box first, before checking model meshes
+        var box_hit as raylib.RayCollision is calling models.ray_box_hit with ray, tower_bbox
+        if box_hit.hit and (box_hit.distance < collision.distance):
+            set collision is box_hit
+            set cursor_color is raylib.ORANGE
+            set hit_object_name is "Box"
+
+            # Check ray collision against model meshes
+            var mesh_hit as raylib.RayCollision is with:
+                set .hit is false
+                set .distance is FLT_MAX
+                set .point is (with x is 0.0, y is 0.0, z is 0.0)
+                set .normal is (with x is 0.0, y is 0.0, z is 0.0)
+
+            for m from 0 to tower.meshCount:
+                var current_mesh as raylib.Mesh is tower.meshes at m
+                var hit_info as raylib.RayCollision is calling models.ray_mesh_hit with ray, current_mesh, tower.transform
+                if hit_info.hit:
+                    if (not collision.hit) or (collision.distance > hit_info.distance):
+                        set collision is hit_info
+                    set mesh_hit is hit_info
+                    break
+
+            if mesh_hit.hit:
+                set collision is mesh_hit
+                set cursor_color is raylib.ORANGE
+                set hit_object_name is "Mesh"
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        # Draw the tower
+        calling tower.draw with tower_pos, 1.0, raylib.WHITE
+
+        # Draw the test triangle
+        calling shapes3d.draw_line_3d with ta, tb, raylib.PURPLE
+        calling shapes3d.draw_line_3d with tb, tc, raylib.PURPLE
+        calling shapes3d.draw_line_3d with tc, ta, raylib.PURPLE
+
+        # Draw the test sphere
+        calling shapes3d.draw_sphere_wires with sp, sr, 8, 8, raylib.PURPLE
+
+        # Draw mesh bbox if hit
+        if box_hit.hit:
+            calling models.draw_bounding_box with tower_bbox, raylib.LIME
+
+        # If we hit something, draw cursor at hit point
+        if collision.hit:
+            calling shapes3d.draw_cube with collision.point, 0.3, 0.3, 0.3, cursor_color
+            calling shapes3d.draw_cube_wires with collision.point, 0.3, 0.3, 0.3, raylib.RED
+
+            var normal_end as raylib.Vector3 is with:
+                set .x is collision.point.x + collision.normal.x
+                set .y is collision.point.y + collision.normal.y
+                set .z is collision.point.z + collision.normal.z
+
+            calling shapes3d.draw_line_3d with collision.point, normal_end, raylib.RED
+
+        calling shapes3d.draw_ray with ray, raylib.MAROON
+        calling shapes3d.draw_grid with 10, 10.0
+        calling drawing.end_mode_3d
+
+        # Draw debug text
+        var hit_str as string is "Hit Object: {hit_object_name}"
+        calling txt.draw_text with hit_str, 10, 50, 10, raylib.BLACK
+        banish hit_str
+
+        if collision.hit:
+            var ypos as int is 70
+            var dist_str as string is "Distance: {collision.distance}"
+            calling txt.draw_text with dist_str, 10, ypos, 10, raylib.BLACK
+            banish dist_str
+
+            var pos_str as string is "Hit Pos: {collision.point.x} {collision.point.y} {collision.point.z}"
+            calling txt.draw_text with pos_str, 10, ypos + 15, 10, raylib.BLACK
+            banish pos_str
+
+            var norm_str as string is "Hit Norm: {collision.normal.x} {collision.normal.y} {collision.normal.z}"
+            calling txt.draw_text with norm_str, 10, ypos + 30, 10, raylib.BLACK
+            banish norm_str
+
+            if tri_hit.hit and (hit_object_name == "Triangle"):
+                var bary_str as string is "Barycenter: {bary.x} {bary.y} {bary.z}"
+                calling txt.draw_text with bary_str, 10, ypos + 45, 10, raylib.BLACK
+                banish bary_str
+
+        calling txt.draw_text with "Right click mouse to toggle camera controls", 10, 430, 10, raylib.GRAY
+        calling txt.draw_text with "(c) Turret 3D model by Alberto Cano", screen_width - 200, screen_height - 20, 10, raylib.GRAY
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+
+    return 0

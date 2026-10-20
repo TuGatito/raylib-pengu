@@ -1,0 +1,160 @@
+## raylib [models] example - loading iqm
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 3.5
+## Example contributed by Culacant (@culacant) and reviewed by Ramon Santamaria (@raysan5)
+## Example licensed under an unmodified zlib/libpng license.
+##
+## ## PenguScript Port
+## - Uses `raylibx.drawing` for frame and 3D mode scopes
+## - Uses `raylibx.models` for model loading, animation loading, and animated skeletal pose updates
+## - Uses `raylibx.textures` for texture loading and material map assignment
+## - Uses `raylibx.shapes3d` for rendering grid
+## - Uses `raylibx.text` for displaying animation name and speed overlays
+##
+## ## Example
+## ```pengu
+## pengu run examples/models/models_loading_iqm.pengu
+## ```
+
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ---
+
+## Target window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Target window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## ## Returns
+## Exit status code (0 for success).
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - loading iqm"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D with:
+        set .position is (with x is 10.0, y is 10.0, z is 10.0)
+        set .target is (with x is 0.0, y is 4.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var model as raylib.Model is with meshCount is 0
+    if loaded_m as raylib.Model is calling models.load_model with "resources/models/iqm/guy.iqm":
+        set model is loaded_m
+    defer calling models.unload_model with model
+
+    var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture is calling textures.load_texture with "resources/models/iqm/guytex.png":
+        set texture is loaded_tex
+    defer calling textures.unload_texture with texture
+
+    if model.materialCount > 0:
+        var mat0 as ref to raylib.Material is sigil of (model.materials at 0)
+        calling mat0.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+
+    var anim_holder as list of raylib.ModelAnimation is list of raylib.ModelAnimation
+    defer banish anim_holder
+    var anims as slice of raylib.ModelAnimation is anim_holder at 0 to 0
+    var anim_count as int is 0
+
+    if loaded_anims as slice of raylib.ModelAnimation is calling models.load_animations with "resources/models/iqm/guyanim.iqm":
+        set anims is loaded_anims
+        set anim_count is anims.length
+    defer calling models.unload_animations with anims
+
+    var anim_index as int is 0
+    var anim_current_frame as f32 is 0.0
+    var anim_speed as f32 is 1.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+        if anim_count > 0:
+            if calling input.is_key_pressed with raylib.KEY_RIGHT:
+                set anim_index is if anim_index == anim_count - 1 then 0 else anim_index + 1
+                set anim_current_frame is 0.0
+
+            if calling input.is_key_pressed with raylib.KEY_LEFT:
+                set anim_index is if anim_index == 0 then anim_count - 1 else anim_index - 1
+                set anim_current_frame is 0.0
+
+            if calling input.is_key_pressed with raylib.KEY_UP:
+                set anim_speed is anim_speed + 0.1
+                if anim_speed > 5.0:
+                    set anim_speed is 5.0
+
+            if calling input.is_key_pressed with raylib.KEY_DOWN:
+                set anim_speed is anim_speed - 0.1
+                if anim_speed < 0.0:
+                    set anim_speed is 0.0
+
+            set anim_current_frame is anim_current_frame + anim_speed
+
+            var cur_anim as raylib.ModelAnimation is anims at anim_index
+            calling model.update_animation with cur_anim, anim_current_frame
+
+            if anim_current_frame >= (cur_anim.keyframeCount to f32):
+                set anim_current_frame is 0.0
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        let rot_axis as raylib.Vector3 is with x is 1.0, y is 0.0, z is 0.0
+        let scale_vec as raylib.Vector3 is with x is 1.0, y is 1.0, z is 1.0
+        calling model.draw_ex with position, rot_axis, -90.0, scale_vec, raylib.WHITE
+
+        calling shapes3d.draw_grid with 10, 1.0
+
+        calling drawing.end_mode_3d
+
+        if anim_count > 0:
+            var active_anim as raylib.ModelAnimation is anims at anim_index
+            var anim_name as string is calling active_anim.get_name
+            var info_text as string is "Current animation: {anim_name}"
+            calling txt.draw_text with info_text, 10, 10, 20, raylib.MAROON
+            banish info_text
+            banish anim_name
+
+        var speed_text as string is "Animation speed: {(anim_speed to string)}"
+        calling txt.draw_text with speed_text, 10, 40, 20, raylib.MAROON
+        banish speed_text
+
+        calling txt.draw_text with "Use left and right arrow keys to change current animation", 10, SCREEN_HEIGHT - 34, 10, raylib.BLACK
+        calling txt.draw_text with "Use up and down arrow keys to change animation speed", 10, SCREEN_HEIGHT - 20, 10, raylib.BLACK
+        calling txt.draw_text with "(c) Guy IQM 3D model by @culacant", SCREEN_WIDTH - 200, SCREEN_HEIGHT - 20, 10, raylib.GRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

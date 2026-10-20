@@ -1,0 +1,177 @@
+## raylib [models] example - basic voxel
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.5
+## Example contributed by Tim Little (@timlittle) and reviewed by Ramon Santamaria (@raysan5)
+## Example licensed under an unmodified zlib/libpng license.
+##
+## ## PenguScript Port
+## - Uses `raylibx.drawing` for frame and 3D mode blocks
+## - Uses `raylibx.models` for mesh/model generation and ray-box collision testing
+## - Uses `raylibx.shapes` and `raylibx.shapes3d` for drawing voxels and screen crosshairs
+## - Uses `rcamerax` for first-person camera updates and ray projection
+##
+## ## Example
+## ```pengu
+## pengu run examples/models/models_basic_voxel.pengu
+## ```
+
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import rcamerax
+
+# --- Constants ---
+
+## Target window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Target window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Edge size of the voxel world cube (8x8x8).
+const WORLD_SIZE as int is 8
+
+# --- Helpers ---
+
+## Computes the flat 1D index for a 3D grid coordinate (x, y, z).
+##
+## ## Parameters
+## - `x`: X grid coordinate [0, WORLD_SIZE)
+## - `y`: Y grid coordinate [0, WORLD_SIZE)
+## - `z`: Z grid coordinate [0, WORLD_SIZE)
+##
+## ## Returns
+## Flat integer index into the 512-element voxel list.
+weave voxel_index with x as int, y as int, z as int into int:
+    return (x * WORLD_SIZE * WORLD_SIZE) + (y * WORLD_SIZE) + z
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## ## Returns
+## Exit status code (0 for success).
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - basic voxel"
+    defer calling raylib.CloseWindow
+
+    calling raylib.DisableCursor
+
+    var camera as raylib.Camera3D with:
+        set .position is (with x is -2.0, y is 0.0, z is -2.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Create a unit cube model
+    let cube_mesh as raylib.Mesh is calling raylib.GenMeshCube with 1.0, 1.0, 1.0
+    var cube_model as raylib.Model is calling models.load_model_from_mesh with cube_mesh
+    defer calling models.unload_model with cube_model
+
+    var mat0 as ref to raylib.Material is sigil of (cube_model.materials at 0)
+    let diffuse_idx as int is raylib.MATERIAL_MAP_DIFFUSE to int
+    var map_diffuse as ref to raylib.MaterialMap is sigil of (mat0->maps at diffuse_idx)
+    set map_diffuse->color is raylib.BEIGE
+
+    # Initialize voxel world grid (8x8x8 = 512 voxels)
+    var voxels as list of bool is list of bool
+    defer banish voxels
+    for i from 0 to 511:
+        calling voxels.push with true
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FIRST_PERSON to int)
+
+        # Handle voxel removal with mouse click
+        if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT:
+            let screen_w as f32 is (calling raylib.GetScreenWidth to f32) / 2.0
+            let screen_h as f32 is (calling raylib.GetScreenHeight to f32) / 2.0
+            let screen_center as raylib.Vector2 is with x is screen_w, y is screen_h
+            let ray as raylib.Ray is calling camera.to_world_ray with screen_center
+
+            var closest_dist as f32 is 99999.0
+            var closest_x as int is -1
+            var closest_y as int is -1
+            var closest_z as int is -1
+            var voxel_found as bool is false
+
+            for x from 0 to WORLD_SIZE - 1:
+                for y from 0 to WORLD_SIZE - 1:
+                    for z from 0 to WORLD_SIZE - 1:
+                        let idx as int is calling voxel_index with x, y, z
+                        if not (voxels at idx):
+                            continue
+
+                        let fx as f32 is x to f32
+                        let fy as f32 is y to f32
+                        let fz as f32 is z to f32
+
+                        var box as raylib.BoundingBox with:
+                            set .min is (with x is fx - 0.5, y is fy - 0.5, z is fz - 0.5)
+                            set .max is (with x is fx + 0.5, y is fy + 0.5, z is fz + 0.5)
+
+                        let collision as raylib.RayCollision is calling models.ray_box_hit with ray, box
+                        if collision.hit and (collision.distance < closest_dist):
+                            set closest_dist is collision.distance
+                            set closest_x is x
+                            set closest_y is y
+                            set closest_z is z
+                            set voxel_found is true
+
+            if voxel_found:
+                let hit_idx as int is calling voxel_index with closest_x, closest_y, closest_z
+                set voxels at hit_idx is false
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        calling shapes3d.draw_grid with 10, 1.0
+
+        for x from 0 to WORLD_SIZE - 1:
+            for y from 0 to WORLD_SIZE - 1:
+                for z from 0 to WORLD_SIZE - 1:
+                    let idx as int is calling voxel_index with x, y, z
+                    if not (voxels at idx):
+                        continue
+
+                    let pos as raylib.Vector3 is with x is (x to f32), y is (y to f32), z is (z to f32)
+                    calling cube_model.draw with pos, 1.0, raylib.BEIGE
+                    calling shapes3d.draw_cube_wires with pos, 1.0, 1.0, 1.0, raylib.BLACK
+
+        calling drawing.end_mode_3d
+
+        # Reference crosshair dot in the center of the screen
+        let center_x as int is (calling raylib.GetScreenWidth) / 2
+        let center_y as int is (calling raylib.GetScreenHeight) / 2
+        calling shapes.draw_circle with center_x, center_y, 4.0, raylib.RED
+
+        calling txt.draw_text with "Left-click a voxel to remove it!", 10, 10, 20, raylib.DARKGRAY
+        calling txt.draw_text with "WASD to move, mouse to look around", 10, 35, 10, raylib.GRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

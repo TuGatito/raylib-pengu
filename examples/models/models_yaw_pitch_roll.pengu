@@ -1,0 +1,154 @@
+## raylib [models] example - yaw pitch roll
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 1.8, last time updated with raylib 4.0
+##
+## Example contributed by Berni (@Berni8k) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2017-2025 Berni (@Berni8k) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates orienting a 3D airplane model by composing yaw, pitch, and roll rotations via MatrixRotateXYZ.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_yaw_pitch_roll.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raymath
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.colors as colors
+import raylibx.textures as textures
+import raylibx.models as models
+import rcamerax
+
+# --- Constants ---
+
+## Degrees to radians conversion factor.
+const DEG2RAD as f32 is 0.017453292519943295
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - yaw pitch roll"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 0.0, y is 50.0, z is -120.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 30.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load 3D model
+    var model_opt as maybe raylib.Model is calling models.load_model with "resources/models/obj/plane.obj"
+    var model as raylib.Model is with meshCount is 0
+    if loaded_m as raylib.Model is model_opt:
+        set model is loaded_m
+    defer calling models.unload_model with model
+
+    # Load texture
+    var texture_opt as maybe raylib.Texture2D is calling textures.load_texture with "resources/models/obj/plane_diffuse.png"
+    var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_t as raylib.Texture2D is texture_opt:
+        set texture is loaded_t
+    defer calling raylib.UnloadTexture with texture
+
+    calling texture.set_wrap with raylib.TEXTURE_WRAP_REPEAT
+
+    var mat as ref to raylib.Material is sigil of (model.materials at 0)
+    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    var pitch as f32 is 0.0
+    var roll as f32 is 0.0
+    var yaw as f32 is 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # Plane pitch (x-axis) controls
+        if calling raylib.IsKeyDown with raylib.KEY_DOWN:
+            set pitch is pitch + 0.6
+        else:
+            if calling raylib.IsKeyDown with raylib.KEY_UP:
+                set pitch is pitch - 0.6
+            else:
+                if pitch > 0.3:
+                    set pitch is pitch - 0.3
+                else:
+                    if pitch < -0.3:
+                        set pitch is pitch + 0.3
+
+        # Plane yaw (y-axis) controls
+        if calling raylib.IsKeyDown with raylib.KEY_S:
+            set yaw is yaw - 1.0
+        else:
+            if calling raylib.IsKeyDown with raylib.KEY_A:
+                set yaw is yaw + 1.0
+            else:
+                if yaw > 0.0:
+                    set yaw is yaw - 0.5
+                else:
+                    if yaw < 0.0:
+                        set yaw is yaw + 0.5
+
+        # Plane roll (z-axis) controls
+        if calling raylib.IsKeyDown with raylib.KEY_LEFT:
+            set roll is roll - 1.0
+        else:
+            if calling raylib.IsKeyDown with raylib.KEY_RIGHT:
+                set roll is roll + 1.0
+            else:
+                if roll > 0.0:
+                    set roll is roll - 0.5
+                else:
+                    if roll < 0.0:
+                        set roll is roll + 0.5
+
+        # Transformation matrix for Euler angle rotations
+        var rot_angles as raylib.Vector3 is with:
+            set .x is DEG2RAD * pitch
+            set .y is DEG2RAD * yaw
+            set .z is DEG2RAD * roll
+
+        set model.transform is (calling raymath.MatrixRotateXYZ with rot_angles)
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        var plane_pos as raylib.Vector3 is with x is 0.0, y is -8.0, z is 0.0
+        calling model.draw with plane_pos, 1.0, raylib.WHITE
+        calling shapes3d.draw_grid with 10, 10.0
+        calling drawing.end_mode_3d
+
+        # Draw controls info
+        calling shapes.draw_rectangle with 30, 370, 260, 70, (calling colors.fade with raylib.GREEN, 0.5)
+        calling shapes.draw_rectangle_lines with 30, 370, 260, 70, (calling colors.fade with raylib.DARKGREEN, 0.5)
+        calling txt.draw_text with "Pitch controlled with: KEY_UP / KEY_DOWN", 40, 380, 10, raylib.DARKGRAY
+        calling txt.draw_text with "Roll controlled with: KEY_LEFT / KEY_RIGHT", 40, 400, 10, raylib.DARKGRAY
+        calling txt.draw_text with "Yaw controlled with: KEY_A / KEY_S", 40, 420, 10, raylib.DARKGRAY
+
+        calling txt.draw_text with "(c) WWI Plane Model created by GiaHanLam", screen_width - 240, screen_height - 20, 10, raylib.DARKGRAY
+
+        calling drawing.end_drawing
+
+    return 0

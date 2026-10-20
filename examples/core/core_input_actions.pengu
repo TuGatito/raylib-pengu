@@ -1,0 +1,232 @@
+## examples/core/core_input_actions.pengu
+## raylib [core] example - input actions
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.6
+##
+## Example contributed by Jett (@JettMonstersGoBoom) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Jett (@JettMonstersGoBoom)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_input_actions.c` on top of the
+## `raylibx` wrapper layer. C's `ActionType` enum becomes an `omen` dispatched
+## with `judge`, and `ActionInput` stores strongly typed `raylib.KeyboardKey`
+## and `raylib.GamepadButton` values instead of raw `int`s.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_input_actions.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Default gamepad slot index checked by action queries.
+const DEFAULT_GAMEPAD_INDEX as int is 0
+
+## Total number of action slots in the action table.
+const MAX_ACTION as int is 6
+
+# --- Types --------------------------------------------------------------
+## Logical game actions that can be bound to both a keyboard key and a gamepad button.
+omen ActionType:
+    NoAction
+    ActionUp
+    ActionDown
+    ActionLeft
+    ActionRight
+    ActionFire
+
+## Pairs a keyboard key and a gamepad button for a single logical action.
+rune ActionInput:
+    key as raylib.KeyboardKey
+    button as raylib.GamepadButton
+
+# --- Helpers ------------------------------------------------------------
+## Maps an `ActionType` variant to its slot index in the action table.
+##
+## ## Parameters
+## - `action`: logical action to index.
+##
+## ## Returns
+## Slot index in `0..(MAX_ACTION - 1)`.
+weave action_slot with action as ActionType into int:
+    return judge action:
+        when NoAction -> 0
+        when ActionUp -> 1
+        when ActionDown -> 2
+        when ActionLeft -> 3
+        when ActionRight -> 4
+        when ActionFire -> 5
+
+## Checks whether an action's bound key or gamepad button was pressed this frame.
+##
+## ## Parameters
+## - `actions`: current action bindings table.
+## - `gamepad_index`: gamepad slot to query.
+## - `action`: logical action to check.
+##
+## ## Returns
+## `true` if either the key or gamepad button was pressed this frame.
+weave is_action_pressed with actions as list of ActionInput, gamepad_index as int, action as ActionType into bool:
+    let slot as int is calling action_slot with action
+    if slot >= (actions length):
+        return false
+    let binding as ActionInput is actions at slot
+    return (calling input.is_key_pressed with binding.key) or (calling input.is_gamepad_button_pressed with gamepad_index, binding.button)
+
+## Checks whether an action's bound key or gamepad button was released this frame.
+##
+## ## Parameters
+## - `actions`: current action bindings table.
+## - `gamepad_index`: gamepad slot to query.
+## - `action`: logical action to check.
+##
+## ## Returns
+## `true` if either the key or gamepad button was released this frame.
+weave is_action_released with actions as list of ActionInput, gamepad_index as int, action as ActionType into bool:
+    let slot as int is calling action_slot with action
+    if slot >= (actions length):
+        return false
+    let binding as ActionInput is actions at slot
+    return (calling input.is_key_released with binding.key) or (calling input.is_gamepad_button_released with gamepad_index, binding.button)
+
+## Checks whether an action's bound key or gamepad button is currently held down.
+##
+## ## Parameters
+## - `actions`: current action bindings table.
+## - `gamepad_index`: gamepad slot to query.
+## - `action`: logical action to check.
+##
+## ## Returns
+## `true` if either the key or gamepad button is held down.
+weave is_action_down with actions as list of ActionInput, gamepad_index as int, action as ActionType into bool:
+    let slot as int is calling action_slot with action
+    if slot >= (actions length):
+        return false
+    let binding as ActionInput is actions at slot
+    return (calling input.is_key_down with binding.key) or (calling input.is_gamepad_button_down with gamepad_index, binding.button)
+
+## Populates the action bindings table with the default WASD + left D-pad scheme.
+##
+## ## Parameters
+## - `actions`: reference to the action bindings list to populate.
+##
+## ## Memory
+## Reuses the existing list buffer by clearing and pushing `MAX_ACTION` entries.
+weave set_actions_default with actions as ref to (list of ActionInput) into void:
+    calling actions->clear
+    calling actions->push with (with key is raylib.KEY_NULL, button is raylib.GAMEPAD_BUTTON_UNKNOWN)
+    calling actions->push with (with key is raylib.KEY_W, button is raylib.GAMEPAD_BUTTON_LEFT_FACE_UP)
+    calling actions->push with (with key is raylib.KEY_S, button is raylib.GAMEPAD_BUTTON_LEFT_FACE_DOWN)
+    calling actions->push with (with key is raylib.KEY_A, button is raylib.GAMEPAD_BUTTON_LEFT_FACE_LEFT)
+    calling actions->push with (with key is raylib.KEY_D, button is raylib.GAMEPAD_BUTTON_LEFT_FACE_RIGHT)
+    calling actions->push with (with key is raylib.KEY_SPACE, button is raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN)
+
+## Populates the action bindings table with the alternate arrow keys + right face buttons scheme.
+##
+## ## Parameters
+## - `actions`: reference to the action bindings list to populate.
+##
+## ## Memory
+## Reuses the existing list buffer by clearing and pushing `MAX_ACTION` entries.
+weave set_actions_cursor with actions as ref to (list of ActionInput) into void:
+    calling actions->clear
+    calling actions->push with (with key is raylib.KEY_NULL, button is raylib.GAMEPAD_BUTTON_UNKNOWN)
+    calling actions->push with (with key is raylib.KEY_UP, button is raylib.GAMEPAD_BUTTON_RIGHT_FACE_UP)
+    calling actions->push with (with key is raylib.KEY_DOWN, button is raylib.GAMEPAD_BUTTON_RIGHT_FACE_DOWN)
+    calling actions->push with (with key is raylib.KEY_LEFT, button is raylib.GAMEPAD_BUTTON_RIGHT_FACE_LEFT)
+    calling actions->push with (with key is raylib.KEY_RIGHT, button is raylib.GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)
+    calling actions->push with (with key is raylib.KEY_SPACE, button is raylib.GAMEPAD_BUTTON_LEFT_FACE_DOWN)
+
+# --- Entry point --------------------------------------------------------
+## Moves a rectangle around the screen using abstract input actions that can be
+## toggled at runtime between WASD and arrow key control schemes.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - input actions"
+    defer calling raylib.CloseWindow
+
+    var action_set as int is 0
+    var action_inputs as list of ActionInput is list of ActionInput
+    defer banish action_inputs
+    calling set_actions_default with (sigil of action_inputs)
+
+    var release_action as bool is false
+    var gamepad_index as int is DEFAULT_GAMEPAD_INDEX
+
+    var position as raylib.Vector2 is with x is 400.0, y is 200.0
+    let box_size as raylib.Vector2 is with x is 40.0, y is 40.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        set gamepad_index is DEFAULT_GAMEPAD_INDEX
+
+        if calling is_action_down with action_inputs, gamepad_index, ActionType.ActionUp:
+            set position.y -= 2.0
+        if calling is_action_down with action_inputs, gamepad_index, ActionType.ActionDown:
+            set position.y += 2.0
+        if calling is_action_down with action_inputs, gamepad_index, ActionType.ActionLeft:
+            set position.x -= 2.0
+        if calling is_action_down with action_inputs, gamepad_index, ActionType.ActionRight:
+            set position.x += 2.0
+        if calling is_action_pressed with action_inputs, gamepad_index, ActionType.ActionFire:
+            set position.x is ((SCREEN_WIDTH to f32) - box_size.x) / 2.0
+            set position.y is ((SCREEN_HEIGHT to f32) - box_size.y) / 2.0
+
+        # Register release action for one frame
+        set release_action is calling is_action_released with action_inputs, gamepad_index, ActionType.ActionFire
+
+        # Switch control scheme by pressing TAB
+        if calling input.is_key_pressed with raylib.KEY_TAB:
+            set action_set is if action_set == 0 then 1 else 0
+            if action_set == 0:
+                calling set_actions_default with (sigil of action_inputs)
+            else:
+                calling set_actions_cursor with (sigil of action_inputs)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.GRAY
+
+        let rect_color as raylib.Color is if release_action then raylib.BLUE else raylib.RED
+        calling position.draw_rectangle with box_size, rect_color
+
+        let scheme_label as string is if action_set == 0 then "Current input set: WASD (default)" else "Current input set: Arrow keys"
+        calling txt.draw_text with scheme_label, 10, 10, 20, raylib.WHITE
+        calling txt.draw_text with "Use TAB key to toggles Actions keyset", 10, 50, 20, raylib.GREEN
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

@@ -1,0 +1,102 @@
+## raylib [models] example - waving cubes
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 3.7
+##
+## Example contributed by Codecat (@codecat) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2019-2025 Codecat (@codecat) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates animating a 3D grid of cubes using trigonometric waving equations.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_waving_cubes.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import rcamerax
+import std.fractio
+
+# --- Constants ---
+
+## Number of cubes along each 3D dimension (15x15x15 grid).
+const NUM_BLOCKS as int is 15
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - waving cubes"
+    defer calling raylib.CloseWindow
+
+    # Initialize camera
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 30.0, y is 20.0, z is 30.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 70.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var half_blocks as f32 is (NUM_BLOCKS to f32) / 2.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        var time as f32 is (calling raylib.GetTime) to f32
+        var sin_time as f32 is calling time.get_sin
+        var scale as f32 is (2.0 + sin_time) * 0.7
+
+        var camera_time as f32 is time * 0.3
+        set camera.position.x is (calling camera_time.get_cos) * 40.0
+        set camera.position.z is (calling camera_time.get_sin) * 40.0
+
+        var time4 as f32 is time * 4.0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        calling shapes3d.draw_grid with 10, 5.0
+
+        for x from 0 to NUM_BLOCKS:
+            for y from 0 to NUM_BLOCKS:
+                for z from 0 to NUM_BLOCKS:
+                    var block_scale as f32 is ((x + y + z) to f32) / 30.0
+                    var scatter_arg as f32 is (block_scale * 20.0) + time4
+                    var scatter as f32 is calling scatter_arg.get_sin
+
+                    var cube_pos as raylib.Vector3 is with:
+                        set .x is (((x to f32) - half_blocks) * (scale * 3.0)) + scatter
+                        set .y is (((y to f32) - half_blocks) * (scale * 2.0)) + scatter
+                        set .z is (((z to f32) - half_blocks) * (scale * 3.0)) + scatter
+
+                    var hue as f32 is (((x + y + z) * 18) % 360) to f32
+                    var cube_color as raylib.Color is calling raylib.ColorFromHSV with hue, 0.75, 0.9
+                    var cube_size as f32 is (2.4 - scale) * block_scale
+
+                    calling shapes3d.draw_cube with cube_pos, cube_size, cube_size, cube_size, cube_color
+
+        calling drawing.end_mode_3d
+
+        calling txt.draw_fps with 10, 10
+        calling drawing.end_drawing
+
+    return 0

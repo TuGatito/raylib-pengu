@@ -1,0 +1,309 @@
+## raylib [models] example - loading vox
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 4.0, last time updated with raylib 4.0
+##
+## Example contributed by Johann Nadalutti (@procfxgen) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2021-2025 Johann Nadalutti (@procfxgen) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates loading MagicaVoxel VOX files with custom dynamic point lighting shader.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_loading_vox.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raymath
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.colors as colors
+import raylibx.files as files
+import raylibx.models as models
+import raylibx.shaders as shaders
+
+# --- Constants ---
+
+## Maximum number of VOX files to load.
+const MAX_VOX_FILES as int is 4
+
+## Maximum number of dynamic lights supported by the shader.
+const MAX_LIGHTS as int is 4
+
+# --- Types ---
+
+## Light source type classification.
+omen LightType:
+    Directional
+    Point
+
+## Dynamic light data for shader uniform binding.
+rune Light:
+    type as int
+    enabled as bool
+    position as raylib.Vector3
+    target as raylib.Vector3
+    color as raylib.Color
+    attenuation as f32
+    enabled_loc as int
+    type_loc as int
+    position_loc as int
+    target_loc as int
+    color_loc as int
+    attenuation_loc as int
+
+# --- Helpers ---
+
+## Sends updated light properties to the lighting shader.
+##
+## ## Parameters
+## - `shader`: The active voxel lighting shader.
+## - `light`: The light struct whose values will be updated in shader uniforms.
+weave update_light_values with shader as raylib.Shader, light as Light into void:
+    calling shader.set_int with light.enabled_loc, (if light.enabled then 1 else 0)
+    calling shader.set_int with light.type_loc, light.type
+    calling shader.set_vec3 with light.position_loc, light.position
+    calling shader.set_vec3 with light.target_loc, light.target
+
+    var col_vec as raylib.Vector4 is with:
+        set .x is ((light.color.r to f32) / 255.0)
+        set .y is ((light.color.g to f32) / 255.0)
+        set .z is ((light.color.b to f32) / 255.0)
+        set .w is ((light.color.a to f32) / 255.0)
+    calling shader.set_vec4 with light.color_loc, col_vec
+
+## Creates a dynamic light and queries its uniform locations within the shader.
+##
+## ## Parameters
+## - `light_index`: Index of this light in the shader lights array.
+## - `light_type`: Type of light (`LightType.Point` or `LightType.Directional`).
+## - `position`: 3D position of the light source.
+## - `target`: Target look-at direction for directional lights.
+## - `color`: Emitted light color.
+## - `shader`: The target shader.
+##
+## ## Returns
+## Initialized `Light` struct with queried shader locations.
+weave create_light with light_index as int, light_type as int, position as raylib.Vector3, target as raylib.Vector3, color as raylib.Color, shader as raylib.Shader into Light:
+    var light as Light is with:
+        set .enabled is true
+        set .type is light_type
+        set .position is position
+        set .target is target
+        set .color is color
+        set .attenuation is 0.0
+
+    var s_en as string is "lights[{light_index}].enabled"
+    var s_ty as string is "lights[{light_index}].type"
+    var s_pos as string is "lights[{light_index}].position"
+    var s_tar as string is "lights[{light_index}].target"
+    var s_col as string is "lights[{light_index}].color"
+
+    set light.enabled_loc is -1
+    set light.type_loc is -1
+    set light.position_loc is -1
+    set light.target_loc is -1
+    set light.color_loc is -1
+
+    var opt_en as maybe int is calling shader.location with s_en
+    if loc as int is opt_en:
+        set light.enabled_loc is loc
+
+    var opt_ty as maybe int is calling shader.location with s_ty
+    if loc as int is opt_ty:
+        set light.type_loc is loc
+
+    var opt_pos as maybe int is calling shader.location with s_pos
+    if loc as int is opt_pos:
+        set light.position_loc is loc
+
+    var opt_tar as maybe int is calling shader.location with s_tar
+    if loc as int is opt_tar:
+        set light.target_loc is loc
+
+    var opt_col as maybe int is calling shader.location with s_col
+    if loc as int is opt_col:
+        set light.color_loc is loc
+
+    banish s_en
+    banish s_ty
+    banish s_pos
+    banish s_tar
+    banish s_col
+
+    calling update_light_values with shader, light
+    return light
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    var vox_file_names as list of string is [
+        "examples/models/resources/models/vox/chr_knight.vox",
+        "examples/models/resources/models/vox/chr_sword.vox",
+        "examples/models/resources/models/vox/monu9.vox",
+        "examples/models/resources/models/vox/fez.vox"
+    ]
+    defer banish vox_file_names
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - loading vox"
+    defer calling raylib.CloseWindow
+
+    # Define camera to look into our 3D world
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 10.0, y is 10.0, z is 10.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # Load MagicaVoxel files
+    var model_list as list of raylib.Model is list of raylib.Model
+    defer banish model_list
+
+    for i from 0 to MAX_VOX_FILES:
+        var path as string is vox_file_names at i
+        var loaded as maybe raylib.Model is calling models.load_model with path
+        var m as raylib.Model is with meshCount is 0
+        if opt_m as raylib.Model is loaded:
+            set m is opt_m
+
+        # Compute model translation matrix to center model on draw position (0, 0, 0)
+        var bb as raylib.BoundingBox is calling m.bounding_box
+        var center_x as f32 is bb.min.x + ((bb.max.x - bb.min.x) / 2.0)
+        var center_z as f32 is bb.min.z + ((bb.max.z - bb.min.z) / 2.0)
+
+        var mat_translate as raylib.Matrix is calling raymath.MatrixTranslate with (-center_x), 0.0, (-center_z)
+        set m.transform is mat_translate
+
+        calling model_list.push with m
+
+    # Defer unloading of all models
+    defer:
+        for i from 0 to MAX_VOX_FILES:
+            var m as raylib.Model is model_list at i
+            calling models.unload_model with m
+
+    var current_model as int is 0
+    var model_pos as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    var camera_rot as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+
+    # Load voxel shader
+    var shader_opt as maybe raylib.Shader is calling shaders.load_shader with "examples/models/resources/shaders/glsl330/voxel_lighting.vs", "resources/shaders/glsl330/voxel_lighting.fs"
+    var shader as raylib.Shader is with id is 0
+    if loaded_sh as raylib.Shader is shader_opt:
+        set shader is loaded_sh
+    defer calling shaders.unload_shader with shader
+
+    # Get required shader locations
+    var opt_vp as maybe int is calling shader.location with "viewPos"
+    if loc as int is opt_vp:
+        set shader.locs at (raylib.SHADER_LOC_VECTOR_VIEW to int) is loc
+
+    # Ambient light level (basic ambient lighting)
+    var ambient_loc as maybe int is calling shader.location with "ambient"
+    if loc as int is ambient_loc:
+        var amb_col as raylib.Vector4 is with x is 0.1, y is 0.1, z is 0.1, w is 1.0
+        calling shader.set_vec4 with loc, amb_col
+
+    # Assign lighting shader to all materials across all loaded models
+    for i from 0 to MAX_VOX_FILES:
+        var m as raylib.Model is model_list at i
+        for j from 0 to m.materialCount:
+            var mat as ref to raylib.Material is sigil of (m.materials at j)
+            set mat->shader is shader
+
+    # Create lights
+    var light_list as list of Light is list of Light
+    defer banish light_list
+
+    var zero_vec as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    calling light_list.push with (calling create_light with 0, (LightType.Point to int), (with x is -20.0, y is 20.0, z is -20.0), zero_vec, raylib.GRAY, shader)
+    calling light_list.push with (calling create_light with 1, (LightType.Point to int), (with x is 20.0, y is -20.0, z is 20.0), zero_vec, raylib.GRAY, shader)
+    calling light_list.push with (calling create_light with 2, (LightType.Point to int), (with x is -20.0, y is 20.0, z is 20.0), zero_vec, raylib.GRAY, shader)
+    calling light_list.push with (calling create_light with 3, (LightType.Point to int), (with x is 20.0, y is -20.0, z is -20.0), zero_vec, raylib.GRAY, shader)
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling raylib.IsMouseButtonDown with raylib.MOUSE_BUTTON_MIDDLE:
+            var mouse_delta as raylib.Vector2 is calling raylib.GetMouseDelta
+            set camera_rot.x is mouse_delta.x * 0.05
+            set camera_rot.y is mouse_delta.y * 0.05
+        else:
+            set camera_rot.x is 0.0
+            set camera_rot.y is 0.0
+
+        # Update camera movement with custom controls
+        var forward_move as f32 is (if (calling raylib.IsKeyDown with raylib.KEY_W) or (calling raylib.IsKeyDown with raylib.KEY_UP) then 0.1 else 0.0) - (if (calling raylib.IsKeyDown with raylib.KEY_S) or (calling raylib.IsKeyDown with raylib.KEY_DOWN) then 0.1 else 0.0)
+        var right_move as f32 is (if (calling raylib.IsKeyDown with raylib.KEY_D) or (calling raylib.IsKeyDown with raylib.KEY_RIGHT) then 0.1 else 0.0) - (if (calling raylib.IsKeyDown with raylib.KEY_A) or (calling raylib.IsKeyDown with raylib.KEY_LEFT) then 0.1 else 0.0)
+        var move_vec as raylib.Vector3 is with x is forward_move, y is right_move, z is 0.0
+
+        var zoom_move as f32 is (calling raylib.GetMouseWheelMove) * -2.0
+        calling raylib.UpdateCameraPro with (sigil of camera), move_vec, camera_rot, zoom_move
+
+        # Cycle between models on mouse click
+        if calling raylib.IsMouseButtonPressed with raylib.MOUSE_BUTTON_LEFT:
+            set current_model is (current_model + 1) % MAX_VOX_FILES
+
+        # Update shader with camera view vector
+        var view_loc as int is shader.locs at (raylib.SHADER_LOC_VECTOR_VIEW to int)
+        calling shader.set_vec3 with view_loc, camera.position
+
+        # Update light values
+        for i from 0 to MAX_LIGHTS:
+            var lt as Light is light_list at i
+            calling update_light_values with shader, lt
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Draw 3D model
+        calling drawing.begin_mode_3d with camera
+        var active_m as raylib.Model is model_list at current_model
+        calling active_m.draw with model_pos, 1.0, raylib.WHITE
+        calling shapes3d.draw_grid with 10, 1.0
+
+        # Draw spheres to show where the lights are
+        for i from 0 to MAX_LIGHTS:
+            var lt as Light is light_list at i
+            if lt.enabled:
+                calling raylib.DrawSphereEx with lt.position, 0.2, 8, 8, lt.color
+            else:
+                calling shapes3d.draw_sphere_wires with lt.position, 0.2, 8, 8, (calling colors.fade with lt.color, 0.3)
+        calling drawing.end_mode_3d
+
+        # Display info
+        calling shapes.draw_rectangle with 10, 40, 340, 70, (calling colors.fade with raylib.SKYBLUE, 0.5)
+        calling shapes.draw_rectangle_lines with 10, 40, 340, 70, (calling colors.fade with raylib.DARKBLUE, 0.5)
+        calling txt.draw_text with "- MOUSE LEFT BUTTON: CYCLE VOX MODELS", 20, 50, 10, raylib.BLUE
+        calling txt.draw_text with "- MOUSE MIDDLE BUTTON: ZOOM OR ROTATE CAMERA", 20, 70, 10, raylib.BLUE
+        calling txt.draw_text with "- UP-DOWN-LEFT-RIGHT KEYS: MOVE CAMERA", 20, 90, 10, raylib.BLUE
+
+        var cur_path as string is vox_file_names at current_model
+        var file_base as string is calling files.file_name with cur_path
+        var title_str as string is "VOX model file: {file_base}"
+        calling txt.draw_text with title_str, 10, 10, 20, raylib.GRAY
+        banish file_base
+        banish title_str
+
+        calling drawing.end_drawing
+
+    return 0

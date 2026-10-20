@@ -1,0 +1,368 @@
+## raylib [models] example - animation blend custom
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 6.0
+##
+## Example contributed by dmitrii-brand (@dmitrii-brand) and reviewed by Ramon Santamaria (@raysan5)
+##
+## DETAILS: Example demonstrates per-bone animation blending, allowing smooth transitions
+## between two animations by interpolating bone transforms. This is useful for:
+##  - Blending movement animations (walk/run) with action animations (jump/attack)
+##  - Creating smooth animation transitions
+##  - Layering animations (e.g., upper body attack while lower body walks)
+##
+## WARNING: GPU skinning must be enabled in raylib with a compilation flag,
+## if not enabled, CPU skinning will be used instead.
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2026 dmitrii-brand (@dmitrii-brand)
+##
+## ## PenguScript Port
+## Ported to PenguScript with idiomatic wrappers (`raylibx.drawing`, `raylibx.input`,
+## `raylibx.shapes3d`, `raylibx.models`, `raylibx.shaders`, `raylibx.text`, `rlgl`),
+## per-bone matrix interpolation, CPU skinning fallback, and full English docstrings.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_animation_blend_custom.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shaders as shaders
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raymath
+import rlgl
+import std.ffi
+
+# --- Constants ---
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Path to the rigged character model.
+const MODEL_PATH as string is "resources/models/gltf/greenman.glb"
+
+## Path to the vertex skinning shader.
+const VS_SHADER_PATH as string is "resources/shaders/glsl330/skinning.vs"
+
+## Path to the fragment skinning shader.
+const FS_SHADER_PATH as string is "resources/shaders/glsl330/skinning.fs"
+
+# --- Helpers ---
+
+## Checks whether a bone is part of the upper body for selective animation blending.
+##
+## ## Parameters
+## - `bone_name`: name of the bone to test.
+##
+## ## Returns
+## `true` if the bone belongs to the upper body, `false` otherwise.
+weave is_upper_body_bone with bone_name as string into bool:
+    # Check if bone name contains upper body keywords
+    if idx_spine as int is calling txt.text_find with bone_name, "spine":
+        return true
+    if idx_chest as int is calling txt.text_find with bone_name, "chest":
+        return true
+    if idx_neck as int is calling txt.text_find with bone_name, "neck":
+        return true
+    if idx_head as int is calling txt.text_find with bone_name, "head":
+        return true
+    if idx_shoulder as int is calling txt.text_find with bone_name, "shoulder":
+        return true
+    if idx_arm as int is calling txt.text_find with bone_name, "arm":
+        return true
+    if idx_hand as int is calling txt.text_find with bone_name, "hand":
+        return true
+    if idx_clavicle as int is calling txt.text_find with bone_name, "clavicle":
+        return true
+
+    return false
+
+## Blends two animations per-bone with selective upper/lower body blending.
+##
+## Interpolates bone transforms between two keyframes according to `blend` and
+## `upper_body_blend`. When CPU skinning is active, updates vertex and normal buffers.
+##
+## ## Parameters
+## - `model`: reference to the character model.
+## - `anim0`: first animation clip.
+## - `frame0`: keyframe index of first animation.
+## - `anim1`: second animation clip.
+## - `frame1`: keyframe index of second animation.
+## - `blend`: normalized blending factor in `[0.0, 1.0]`.
+## - `upper_body_blend`: whether to split blending between upper and lower body bones.
+weave update_model_animation_bone_custom with model as ref to raylib.Model, anim0 as ref to raylib.ModelAnimation, frame0_in as int, anim1 as ref to raylib.ModelAnimation, frame1_in as int, blend_in as f32, upper_body_blend as bool into void:
+    let anim0_poses as bool is not calling ffi.is_null with (transmute anim0->keyframePoses to ref to void)
+    let anim1_poses as bool is not calling ffi.is_null with (transmute anim1->keyframePoses to ref to void)
+    let bind_pose_valid as bool is not calling ffi.is_null with (transmute model->skeleton.bindPose to ref to void)
+
+    if (anim0->boneCount != 0) and anim0_poses and (anim1->boneCount != 0) and anim1_poses and (model->skeleton.boneCount != 0) and bind_pose_valid:
+        # Clamp blend factor to [0, 1]
+        var blend as f32 is blend_in
+        if blend < 0.0:
+            set blend is 0.0
+        if blend > 1.0:
+            set blend is 1.0
+
+        # Ensure frame indices are valid
+        var frame0 as int is frame0_in
+        if frame0 >= anim0->keyframeCount:
+            set frame0 is anim0->keyframeCount - 1
+        if frame0 < 0:
+            set frame0 is 0
+
+        var frame1 as int is frame1_in
+        if frame1 >= anim1->keyframeCount:
+            set frame1 is anim1->keyframeCount - 1
+        if frame1 < 0:
+            set frame1 is 0
+
+        # Get bone count (use minimum of all to be safe)
+        var bone_count as u32 is model->skeleton.boneCount
+        if anim0->boneCount < bone_count:
+            set bone_count is anim0->boneCount
+        if anim1->boneCount < bone_count:
+            set bone_count is anim1->boneCount
+
+        var bone_matrices as ref to raylib.Matrix is model->boneMatrices
+
+        # Blend each bone
+        var bone_idx as int is 0
+        while (bone_idx to u32) < bone_count:
+            var bone_blend_factor as f32 is blend
+
+            if upper_body_blend:
+                var bone_item as raylib.BoneInfo is model->skeleton.bones at bone_idx
+                var bone_name as string is calling bone_item.get_name
+                let is_upper as bool is calling is_upper_body_bone with bone_name
+                banish bone_name
+
+                # Upper body: use anim1 (attack), Lower body: use anim0 (walk)
+                if is_upper:
+                    set bone_blend_factor is blend
+                else:
+                    set bone_blend_factor is 1.0 - blend
+
+            # Get transforms from both animations
+            let bind_tf as raylib.Transform is model->skeleton.bindPose at bone_idx
+            var pose0 as raylib.ModelAnimPose is anim0->keyframePoses at frame0
+            let anim_tf0 as raylib.Transform is pose0 at bone_idx
+            var pose1 as raylib.ModelAnimPose is anim1->keyframePoses at frame1
+            let anim_tf1 as raylib.Transform is pose1 at bone_idx
+
+            # Blend the transforms
+            var blended as raylib.Transform is with:
+                set .translation is calling raymath.Vector3Lerp with anim_tf0.translation, anim_tf1.translation, bone_blend_factor
+                set .rotation is calling raymath.QuaternionSlerp with anim_tf0.rotation, anim_tf1.rotation, bone_blend_factor
+                set .scale is calling raymath.Vector3Lerp with anim_tf0.scale, anim_tf1.scale, bone_blend_factor
+
+            # Convert bind pose to matrix
+            let bind_mat as raylib.Matrix is calling raymath.MatrixMultiply with (calling raymath.MatrixMultiply with (calling raymath.MatrixScale with bind_tf.scale.x, bind_tf.scale.y, bind_tf.scale.z), (calling raymath.QuaternionToMatrix with bind_tf.rotation)), (calling raymath.MatrixTranslate with bind_tf.translation.x, bind_tf.translation.y, bind_tf.translation.z)
+
+            # Convert blended transform to matrix
+            let blended_mat as raylib.Matrix is calling raymath.MatrixMultiply with (calling raymath.MatrixMultiply with (calling raymath.MatrixScale with blended.scale.x, blended.scale.y, blended.scale.z), (calling raymath.QuaternionToMatrix with blended.rotation)), (calling raymath.MatrixTranslate with blended.translation.x, blended.translation.y, blended.translation.z)
+
+            # Calculate final bone matrix
+            set bone_matrices at bone_idx is calling raymath.MatrixMultiply with (calling raymath.MatrixInvert with bind_mat), blended_mat
+
+            set bone_idx is bone_idx + 1
+
+        # CPU skinning fallback updates CPU buffers and uploads them to GPU
+        for m from 0 to model->meshCount:
+            var mesh as raylib.Mesh is model->meshes at m
+
+            let has_weights as bool is not calling ffi.is_null with (transmute mesh.boneWeights to ref to void)
+            let has_indices as bool is not calling ffi.is_null with (transmute mesh.boneIndices to ref to void)
+            let has_anim_verts as bool is not calling ffi.is_null with (transmute mesh.animVertices to ref to void)
+            let has_anim_norms as bool is not calling ffi.is_null with (transmute mesh.animNormals to ref to void)
+
+            if has_weights and has_indices and has_anim_verts and has_anim_norms:
+                let vertex_values_count as int is mesh.vertexCount * 3
+                var bone_counter as int is 0
+                var buffer_update_required as bool is false
+                let has_normals as bool is not calling ffi.is_null with (transmute mesh.normals to ref to void)
+
+                var anim_verts as ref to f32 is mesh.animVertices
+                var anim_norms as ref to f32 is mesh.animNormals
+                var bone_weights as ref to f32 is mesh.boneWeights
+                var bone_indices as ref to byte is mesh.boneIndices
+                var verts as ref to f32 is mesh.vertices
+                var norms as ref to f32 is mesh.normals
+
+                var v_counter as int is 0
+                while v_counter < vertex_values_count:
+                    set anim_verts at v_counter is 0.0
+                    set anim_verts at (v_counter + 1) is 0.0
+                    set anim_verts at (v_counter + 2) is 0.0
+
+                    if has_anim_norms:
+                        set anim_norms at v_counter is 0.0
+                        set anim_norms at (v_counter + 1) is 0.0
+                        set anim_norms at (v_counter + 2) is 0.0
+
+                    for j from 0 to 4:
+                        let bone_weight as f32 is bone_weights at bone_counter
+                        let bone_index as int is (bone_indices at bone_counter) to int
+                        set bone_counter is bone_counter + 1
+
+                        if bone_weight != 0.0:
+                            var orig_v as raylib.Vector3 is with:
+                                set .x is verts at v_counter
+                                set .y is verts at (v_counter + 1)
+                                set .z is verts at (v_counter + 2)
+
+                            let anim_vertex as raylib.Vector3 is calling raymath.Vector3Transform with orig_v, (bone_matrices at bone_index)
+                            set anim_verts at v_counter is (anim_verts at v_counter) + (anim_vertex.x * bone_weight)
+                            set anim_verts at (v_counter + 1) is (anim_verts at (v_counter + 1)) + (anim_vertex.y * bone_weight)
+                            set anim_verts at (v_counter + 2) is (anim_verts at (v_counter + 2)) + (anim_vertex.z * bone_weight)
+                            set buffer_update_required is true
+
+                            if has_normals:
+                                var orig_n as raylib.Vector3 is with:
+                                    set .x is norms at v_counter
+                                    set .y is norms at (v_counter + 1)
+                                    set .z is norms at (v_counter + 2)
+
+                                let normal_mat as raylib.Matrix is calling raymath.MatrixTranspose with (calling raymath.MatrixInvert with (bone_matrices at bone_index))
+                                let anim_normal as raylib.Vector3 is calling raymath.Vector3Transform with orig_n, normal_mat
+                                set anim_norms at v_counter is (anim_norms at v_counter) + (anim_normal.x * bone_weight)
+                                set anim_norms at (v_counter + 1) is (anim_norms at (v_counter + 1)) + (anim_normal.y * bone_weight)
+                                set anim_norms at (v_counter + 2) is (anim_norms at (v_counter + 2)) + (anim_normal.z * bone_weight)
+
+                    set v_counter is v_counter + 3
+
+                if buffer_update_required:
+                    let v_pos_loc as int is raylib.SHADER_LOC_VERTEX_POSITION to int
+                    let v_norm_loc as int is raylib.SHADER_LOC_VERTEX_NORMAL to int
+                    let data_size as int is mesh.vertexCount * 3 * 4
+                    var vbo_ids as ref to u32 is mesh.vboId
+                    calling rlgl.rlUpdateVertexBuffer with (vbo_ids at v_pos_loc), (transmute anim_verts to ref to frozen void), data_size, 0
+                    if has_normals:
+                        calling rlgl.rlUpdateVertexBuffer with (vbo_ids at v_norm_loc), (transmute anim_norms to ref to frozen void), data_size, 0
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## Loads a character model and animations, performs custom per-bone blending between
+## a walk cycle (lower body) and an attack animation (upper body), and renders the result.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if asset loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - animation blend custom"
+    defer calling raylib.CloseWindow
+
+    # Define the camera to look into our 3d world
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 4.0, y is 4.0, z is 4.0)
+        set .target is (with x is 0.0, y is 1.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is raylib.CAMERA_PERSPECTIVE
+
+    # Load gltf model
+    let loaded_model as maybe raylib.Model is calling models.load_model with MODEL_PATH
+    if model as raylib.Model is loaded_model:
+        defer calling models.unload_model with model
+
+        let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0 # Set model position
+
+        # Load skinning shader
+        let loaded_shader as maybe raylib.Shader is calling shaders.load_shader with VS_SHADER_PATH, FS_SHADER_PATH
+        if skinning_shader as raylib.Shader is loaded_shader:
+            defer calling shaders.unload_shader with skinning_shader
+            var mat as ref to raylib.Material is sigil of (model.materials at 1)
+            set mat->shader is skinning_shader
+
+            # Load gltf model animations
+            let loaded_anims as maybe (slice of raylib.ModelAnimation) is calling models.load_animations with MODEL_PATH
+            if anims as slice of raylib.ModelAnimation is loaded_anims:
+                defer calling models.unload_animations with anims
+
+                let anim_count as int is anims.length
+
+                # Use specific animation indices: 2-walk/move, 3-attack
+                var anim_index0 as int is 2
+                var anim_index1 as int is 3
+                var anim_current_frame0 as int is 0
+                var anim_current_frame1 as int is 0
+
+                if anim_index0 >= anim_count:
+                    set anim_index0 is 0
+                if anim_index1 >= anim_count:
+                    set anim_index1 is if anim_count > 1 then 1 else 0
+
+                var upper_body_blend as bool is true # Toggle: true = upper/lower body blending, false = uniform blending (50/50)
+
+                calling raylib.SetTargetFPS with TARGET_FPS
+
+                # Main game loop
+                while not calling raylib.WindowShouldClose:
+                    # Update
+                    calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+                    # Toggle upper/lower body blending mode (SPACE key)
+                    if calling input.is_key_pressed with raylib.KEY_SPACE:
+                        set upper_body_blend is not upper_body_blend
+
+                    # Update animation frames
+                    var anim0 as raylib.ModelAnimation is anims at anim_index0
+                    var anim1 as raylib.ModelAnimation is anims at anim_index1
+
+                    set anim_current_frame0 is (anim_current_frame0 + 1) % anim0.keyframeCount
+                    set anim_current_frame1 is (anim_current_frame1 + 1) % anim1.keyframeCount
+
+                    # Blend the two animations
+                    # When upper_body_blend is ON: upper body = attack (1.0), lower body = walk (0.0)
+                    # When upper_body_blend is OFF: uniform blend at 0.5 (50% walk, 50% attack)
+                    let blend_factor as f32 is if upper_body_blend then 1.0 else 0.5
+                    calling update_model_animation_bone_custom with (sigil of model), (sigil of anim0), anim_current_frame0, (sigil of anim1), anim_current_frame1, blend_factor, upper_body_blend
+
+                    # Draw
+                    calling drawing.begin_drawing
+                    calling drawing.clear_background with raylib.RAYWHITE
+
+                    calling drawing.begin_mode_3d with camera
+                    calling model.draw with position, 1.0, raylib.WHITE
+                    calling shapes3d.draw_grid with 10, 1.0
+                    calling drawing.end_mode_3d
+
+                    # Draw UI
+                    var name0 as string is calling anim0.get_name
+                    let txt0 as string is "ANIM 0: {name0}"
+                    calling txt.draw_text with txt0, 10, 10, 20, raylib.GRAY
+                    banish txt0
+                    banish name0
+
+                    var name1 as string is calling anim1.get_name
+                    let txt1 as string is "ANIM 1: {name1}"
+                    calling txt.draw_text with txt1, 10, 40, 20, raylib.GRAY
+                    banish txt1
+                    banish name1
+
+                    let mode_str as string is if upper_body_blend then "Upper/Lower Body Blending" else "Uniform Blending"
+                    let mode_txt as string is "[SPACE] Toggle blending mode: {mode_str}"
+                    let screen_h as int is calling raylib.GetScreenHeight
+                    calling txt.draw_text with mode_txt, 10, screen_h - 30, 20, raylib.DARKGRAY
+                    banish mode_txt
+
+                    calling drawing.end_drawing
+
+                return 0
+
+    return 1

@@ -514,6 +514,56 @@ enchanting raylib.Model:
     weave is_animation_valid with animation as raylib.ModelAnimation into bool:
         return calling raylib.IsModelAnimationValid with (essence of self), animation
 
+enchanting raylib.BoneInfo:
+
+    ## Returns the bone's name as an owned PenguScript string.
+    ##
+    ## ## Returns
+    ## A copy of the bone's 32-byte name field as a `string`.
+    ##
+    ## ## Notes
+    ## `pengu bind` flattens `char name[32]` to `name as char` on `BoneInfo`, so reading it
+    ## directly yields only the first character. Taking the address of `self.name` and casting to
+    ## `ref to char` recovers the C string pointer cleanly.
+    ##
+    ## ## Memory
+    ## Returns a freshly allocated `string` copied from the bone's embedded array; release it with
+    ## `banish` when done.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var bone_name as string is calling bone.get_name
+    ## defer banish bone_name
+    ## ```
+
+    weave get_name into string:
+        return calling ffi.string_from_cstr with (transmute (sigil of (self->name)) to ref to char)
+
+enchanting raylib.ModelAnimation:
+
+    ## Returns the animation's name as an owned PenguScript string.
+    ##
+    ## ## Returns
+    ## A copy of the animation's 32-byte name field as a `string`.
+    ##
+    ## ## Notes
+    ## `pengu bind` flattens `char name[32]` to `name as char` on `ModelAnimation`, so reading it
+    ## directly yields only the first character. Taking the address of `self->name` and casting to
+    ## `ref to char` recovers the C string pointer cleanly.
+    ##
+    ## ## Memory
+    ## Returns a freshly allocated `string` copied from the animation's embedded array; release it
+    ## with `banish` when done.
+    ##
+    ## ## Example
+    ## ```pengu
+    ## var anim_name as string is calling anim.get_name
+    ## defer banish anim_name
+    ## ```
+
+    weave get_name into string:
+        return calling ffi.string_from_cstr with (transmute (sigil of (self->name)) to ref to char)
+
 ## Loads a model and its materials from a file.
 ##
 ## ## Parameters

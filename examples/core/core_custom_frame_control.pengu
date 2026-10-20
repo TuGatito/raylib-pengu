@@ -1,0 +1,168 @@
+## examples/core/core_custom_frame_control.pengu
+## raylib [core] example - custom frame control
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## NOTE: WARNING: This is an example for advance users willing to have full control over
+## the frame processes. By default, EndDrawing() handles this job: draws everything on
+## the screen, swaps screen buffers and manages frame timing, all in one line.
+##
+##To achieve that behavior manually, raylib needs to be compiled with the
+## SUPPORT_CUSTOM_FRAME_CONTROL flag enabled on config.h
+##
+## Example originally created with raylib 4.0, last time updated with raylib 4.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2021-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_custom_frame_control.c` built on top
+## of `raylib` and `raylibx`. Demonstrates manual input polling, buffer swapping,
+## and frame-rate waiting (`PollInputEvents`, `SwapScreenBuffer`, `WaitTime`).
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_custom_frame_control.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Initial target frames per second.
+const INITIAL_TARGET_FPS as int is 60
+
+## Horizontal speed of the moving circle, in pixels per second.
+const CIRCLE_SPEED as f32 is 200.0
+
+## Radius of the moving circle, in pixels.
+const CIRCLE_RADIUS as f32 is 50.0
+
+# --- Entry point --------------------------------------------------------
+## Program entry point.
+##
+## Runs a custom frame loop that manually polls input events, swaps the back
+## buffer, and sleeps for the remaining frame budget to hit `target_fps`.
+##
+## ## Returns
+## Exit code (`0` on clean exit).
+weave main into int:
+    # Initialization
+    #--------------------------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - custom frame control"
+    defer calling raylib.CloseWindow
+
+    # Custom timming variables
+    var previous_time as f64 is calling raylib.GetTime # Previous time measure
+    var current_time as f64 is 0.0                     # Current time measure
+    var update_draw_time as f64 is 0.0                 # Update + Draw time
+    var wait_time as f64 is 0.0                        # Wait time (if target fps required)
+    var delta_time as f32 is 0.0                       # Frame time (Update + Draw + Wait time)
+
+    var time_counter as f32 is 0.0 # Accumulative time counter (seconds)
+    var position as f32 is 0.0     # Circle position
+    var pause as bool is false     # Pause control flag
+
+    var target_fps as int is INITIAL_TARGET_FPS # Our initial target fps
+    #--------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+        # Update
+        #----------------------------------------------------------------------------------
+        calling raylib.PollInputEvents # Poll input events (SUPPORT_CUSTOM_FRAME_CONTROL)
+
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set pause is not pause
+
+        if calling input.is_key_pressed with raylib.KEY_UP:
+            set target_fps += 20
+        else if calling input.is_key_pressed with raylib.KEY_DOWN:
+            set target_fps -= 20
+
+        if target_fps < 0:
+            set target_fps is 0
+
+        if not pause:
+            set position += CIRCLE_SPEED * delta_time # We move at 200 pixels per second
+            if position >= ((calling raylib.GetScreenWidth) to f32):
+                set position is 0.0
+            set time_counter += delta_time # We count time (seconds)
+        #----------------------------------------------------------------------------------
+
+        # Draw
+        #----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let screen_w as int is calling raylib.GetScreenWidth
+        let screen_h as int is calling raylib.GetScreenHeight
+        let lines_count as int is screen_w / 200
+        for i from 0 to lines_count:
+            calling shapes.draw_line with (200 * i), 0, (200 * i), screen_h, raylib.SKYBLUE
+
+        calling shapes.draw_circle with (position to int), ((screen_h / 2) - 25), CIRCLE_RADIUS, raylib.RED
+
+        let ms_val as int is (time_counter * 1000.0) to int
+        let ms_text as string is "{ms_val} ms"
+        defer banish ms_text
+        calling txt.draw_text with ms_text, ((position to int) - 40), ((screen_h / 2) - 100), 20, raylib.MAROON
+
+        let pos_val as int is position to int
+        let pos_text as string is "PosX: {pos_val}"
+        defer banish pos_text
+        calling txt.draw_text with pos_text, ((position to int) - 50), ((screen_h / 2) + 40), 20, raylib.BLACK
+
+        calling txt.draw_text with "Circle is moving at a constant 200 pixels/sec,\nindependently of the frame rate.", 10, 10, 20, raylib.DARKGRAY
+        calling txt.draw_text with "PRESS SPACE to PAUSE MOVEMENT", 10, (screen_h - 60), 20, raylib.GRAY
+        calling txt.draw_text with "PRESS UP | DOWN to CHANGE TARGET FPS", 10, (screen_h - 30), 20, raylib.GRAY
+
+        let target_fps_text as string is "TARGET FPS: {target_fps}"
+        defer banish target_fps_text
+        calling txt.draw_text with target_fps_text, (screen_w - 220), 10, 20, raylib.LIME
+
+        if delta_time > 0.0:
+            let cur_fps_val as int is (1.0 / delta_time) to int
+            let cur_fps_text as string is "CURRENT FPS: {cur_fps_val}"
+            defer banish cur_fps_text
+            calling txt.draw_text with cur_fps_text, (screen_w - 220), 40, 20, raylib.GREEN
+        else:
+            calling txt.draw_text with "CURRENT FPS: 0", (screen_w - 220), 40, 20, raylib.GREEN
+
+        calling drawing.end_drawing
+
+        # NOTE: In case raylib is compiled with SUPPORT_CUSTOM_FRAME_CONTROL,
+        # screen buffer swapping, time control and input polling is allowed to the user
+
+        calling raylib.SwapScreenBuffer # Flip the back buffer to screen (front buffer)
+
+        set current_time is calling raylib.GetTime
+        set update_draw_time is current_time - previous_time
+
+        if target_fps > 0: # We want a fixed frame rate
+            set wait_time is (1.0 / (target_fps to f64)) - update_draw_time
+            if wait_time > 0.0:
+                calling raylib.WaitTime with wait_time
+                set current_time is calling raylib.GetTime
+                set delta_time is (current_time - previous_time) to f32
+        else:
+            set delta_time is update_draw_time to f32 # Framerate could be variable
+
+        set previous_time is current_time
+        #----------------------------------------------------------------------------------
+
+    return 0

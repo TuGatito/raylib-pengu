@@ -1,0 +1,98 @@
+## examples/core/core_scissor_test.pengu
+## raylib [core] example - scissor test
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 3.0
+##
+## Example contributed by Chris Dill (@MysteriousSpace) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2019-2025 Chris Dill (@MysteriousSpace)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_scissor_test.c` built on top of the
+## `raylibx` wrapper layer. `BeginScissorMode` / `EndScissorMode` map to
+## `drawing.begin_scissor_mode` / `drawing.end_scissor_mode`, and
+## `DrawRectangleLinesEx` becomes the `Rectangle` method `scissor_area.draw_outline`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_scissor_test.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Width and height of the movable scissor clipping box in pixels.
+const SCISSOR_SIZE as f32 is 300.0
+
+# --- Entry point --------------------------------------------------------
+## Tracks the mouse cursor with a clipping rectangle that reveals a hidden
+## message beneath, toggled on/off with the `S` key.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - scissor test"
+    defer calling raylib.CloseWindow
+
+    var scissor_area as raylib.Rectangle is with x is 0.0, y is 0.0, width is SCISSOR_SIZE, height is SCISSOR_SIZE
+    var scissor_mode as bool is true
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling input.is_key_pressed with raylib.KEY_S:
+            set scissor_mode is not scissor_mode
+
+        # Center the scissor area around the mouse position
+        set scissor_area.x is ((calling raylib.GetMouseX) to f32) - (scissor_area.width / 2.0)
+        set scissor_area.y is ((calling raylib.GetMouseY) to f32) - (scissor_area.height / 2.0)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        if scissor_mode:
+            calling drawing.begin_scissor_mode with (scissor_area.x to int), (scissor_area.y to int), (scissor_area.width to int), (scissor_area.height to int)
+
+        # Draw full screen rectangle and some text
+        # Note: Only the part defined by the scissor area will be rendered
+        calling shapes.draw_rectangle with 0, 0, (calling raylib.GetScreenWidth), (calling raylib.GetScreenHeight), raylib.RED
+        calling txt.draw_text with "Move the mouse around to reveal this text!", 190, 200, 20, raylib.LIGHTGRAY
+
+        if scissor_mode:
+            calling drawing.end_scissor_mode
+
+        calling scissor_area.draw_outline with 1.0, raylib.BLACK
+        calling txt.draw_text with "Press S to toggle scissor test", 10, 10, 20, raylib.BLACK
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

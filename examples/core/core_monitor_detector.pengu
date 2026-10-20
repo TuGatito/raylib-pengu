@@ -1,0 +1,198 @@
+## examples/core/core_monitor_detector.pengu
+## raylib [core] example - monitor detector
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.6
+##
+## Example contributed by Maicon Santana (@maiconpintoabreu) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Maicon Santana (@maiconpintoabreu)
+##
+## ## PenguScript Port
+## 1:1 port of `examples/core/core_monitor_detector.c` over `raylibx`. Monitor
+## names are retrieved as owned PenguScript strings via
+## `raylibx.window.get_monitor_name`, and the per-frame monitor table is stored
+## in a `list of MonitorInfo` released at the end of every frame.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_monitor_detector.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.window as window
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Maximum number of monitors tracked.
+const MAX_MONITORS as int is 10
+
+# --- Types --------------------------------------------------------------
+## Snapshot of a connected monitor's geometry, refresh rate, and name.
+rune MonitorInfo:
+    position as raylib.Vector2
+    name as string
+    width as int
+    height as int
+    physical_width as int
+    physical_height as int
+    refresh_rate as int
+
+# --- Helpers ------------------------------------------------------------
+## Releases all monitor name strings and the enclosing `MonitorInfo` list.
+##
+## ## Parameters
+## - `monitors`: list of `MonitorInfo` records to release.
+weave release_monitors with monitors as list of MonitorInfo into void:
+    for info in monitors:
+        banish info.name
+    banish monitors
+
+# --- Entry point --------------------------------------------------------
+## Detects connected monitors, displays their layout and specs, and lets the
+## user cycle the window across monitors with `Enter`.
+##
+## ## Returns
+## Process exit code: `0` on normal window closure.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - monitor detector"
+    defer calling raylib.CloseWindow
+
+    var current_monitor_index as int is calling raylib.GetCurrentMonitor
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        # Variables to find the max X and Y to calculate the scale
+        var max_width as int is 1
+        var max_height as int is 1
+
+        # Monitor offset is to fix when monitor position x is negative
+        var monitor_offset_x as int is 0
+
+        # Rebuild monitors list every frame
+        var monitor_count as int is calling raylib.GetMonitorCount
+        if monitor_count > MAX_MONITORS:
+            set monitor_count is MAX_MONITORS
+
+        var monitors as list of MonitorInfo is list of MonitorInfo
+        defer calling release_monitors with monitors
+
+        for i from 0 to monitor_count:
+            let pos as raylib.Vector2 is calling raylib.GetMonitorPosition with i
+            let info as MonitorInfo is with:
+                set .position is pos
+                set .name is (calling window.get_monitor_name with i)
+                set .width is (calling raylib.GetMonitorWidth with i)
+                set .height is (calling raylib.GetMonitorHeight with i)
+                set .physical_width is (calling raylib.GetMonitorPhysicalWidth with i)
+                set .physical_height is (calling raylib.GetMonitorPhysicalHeight with i)
+                set .refresh_rate is (calling raylib.GetMonitorRefreshRate with i)
+            calling monitors.push with info
+
+            if info.position.x < (monitor_offset_x to f32):
+                set monitor_offset_x is -(info.position.x to int)
+
+            let width as int is (info.position.x to int) + info.width
+            let height as int is (info.position.y to int) + info.height
+
+            if max_width < width:
+                set max_width is width
+            if max_height < height:
+                set max_height is height
+
+        if (calling input.is_key_pressed with raylib.KEY_ENTER) and (monitor_count > 1):
+            set current_monitor_index += 1
+
+            # Set index to 0 if the last one
+            if current_monitor_index == monitor_count:
+                set current_monitor_index is 0
+
+            calling raylib.SetWindowMonitor with current_monitor_index  # Move window to current_monitor_index
+        else:
+            set current_monitor_index is calling raylib.GetCurrentMonitor  # Get current_monitor_index if manually moved
+
+        var monitor_scale as f32 is 0.6
+
+        if max_height > (max_width + monitor_offset_x):
+            set monitor_scale *= (SCREEN_HEIGHT to f32) / (max_height to f32)
+        else:
+            set monitor_scale *= (SCREEN_WIDTH to f32) / ((max_width + monitor_offset_x) to f32)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "Press [Enter] to move window to next monitor available", 20, 20, 20, raylib.DARKGRAY
+
+        calling shapes.draw_rectangle_lines with 20, 60, (SCREEN_WIDTH - 40), (SCREEN_HEIGHT - 100), raylib.DARKGRAY
+
+        # Draw monitor rectangles with information inside
+        for i, mon in monitors:
+            # Calculate rectangle position and size using monitor_scale
+            let rec as raylib.Rectangle is with:
+                set .x is ((mon.position.x + (monitor_offset_x to f32)) * monitor_scale) + 140.0
+                set .y is (mon.position.y * monitor_scale) + 80.0
+                set .width is (mon.width to f32) * monitor_scale
+                set .height is (mon.height to f32) * monitor_scale
+
+            let title_label as string is "[{i}] {mon.name}"
+            defer banish title_label
+            let font_size as int is (120.0 * monitor_scale) to int
+
+            # Draw monitor name and information inside the rectangle
+            calling txt.draw_text with title_label, ((rec.x to int) + 10), ((rec.y to int) + ((100.0 * monitor_scale) to int)), font_size, raylib.BLUE
+
+            let pos_x_int as int is mon.position.x to int
+            let pos_y_int as int is mon.position.y to int
+            let details_label as string is "Resolution: [{mon.width}px x {mon.height}px]\nRefreshRate: [{mon.refresh_rate}hz]\nPhysical Size: [{mon.physical_width}mm x {mon.physical_height}mm]\nPosition: {pos_x_int} x {pos_y_int}"
+            defer banish details_label
+
+            calling txt.draw_text with details_label, ((rec.x to int) + 10), ((rec.y to int) + ((200.0 * monitor_scale) to int)), font_size, raylib.DARKGRAY
+
+            # Highlight current monitor
+            if i == current_monitor_index:
+                calling rec.draw_outline with 5.0, raylib.RED
+                let raw_win_pos as raylib.Vector2 is calling raylib.GetWindowPosition
+                let window_position as raylib.Vector2 is with:
+                    set .x is ((raw_win_pos.x + (monitor_offset_x to f32)) * monitor_scale) + 140.0
+                    set .y is (raw_win_pos.y * monitor_scale) + 80.0
+                let window_extent as raylib.Vector2 is with:
+                    set .x is (SCREEN_WIDTH to f32) * monitor_scale
+                    set .y is (SCREEN_HEIGHT to f32) * monitor_scale
+
+                # Draw window position based on monitors
+                calling window_position.draw_rectangle with window_extent, (calling colors.fade with raylib.GREEN, 0.5)
+            else:
+                calling rec.draw_outline with 5.0, raylib.GRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

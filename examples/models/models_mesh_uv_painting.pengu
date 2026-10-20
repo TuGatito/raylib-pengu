@@ -1,0 +1,399 @@
+## raylib [models] example - mesh uv painting
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example contributed by PanicTitan (@PanicTitan) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 PanicTitan (@PanicTitan)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with English documentation.
+## Demonstrates painting directly onto a 3D mesh texture using ray-triangle intersection and UV barycentric interpolation.
+##
+## ## Example
+## ```shell
+## pengu run examples/models/models_mesh_uv_painting.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raymath
+import rayguix
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.colors as colors
+import raylibx.images as images
+import raylibx.textures as textures
+import raylibx.models as models
+import rcamerax
+import std.ffi
+import std.fractio
+
+# --- Constants ---
+
+## Resolution of the square canvas texture (512x512).
+const CANVAS_SIZE as int is 512
+
+## Canvas size as float.
+const CANVAS_SIZE_F as f32 is 512.0
+
+## Number of swatches in the quick color palette.
+const PALETTE_COUNT as int is 8
+
+# --- Types ---
+
+## Painting tool mode.
+omen ToolMode:
+    Paint
+    Picker
+
+## Primitive shape selection for the 3D canvas mesh.
+omen ShapeType:
+    Sphere
+    Cube
+    Cylinder
+    Torus
+
+# --- Helpers ---
+
+## Replaces the current mesh model with a new primitive shape and recalculates its bounding box.
+##
+## ## Parameters
+## - `model`: Pointer to the model being replaced.
+## - `bbox`: Pointer to the bounding box to update.
+## - `current_shape`: Pointer to the active shape type state.
+## - `new_shape`: Target shape type.
+## - `canvas_texture`: Active texture to preserve across mesh rebuilds.
+weave change_shape with model as ref to raylib.Model, bbox as ref to raylib.BoundingBox, current_shape as ref to ShapeType, new_shape as ShapeType, canvas_texture as raylib.Texture2D into void:
+    calling models.unload_model with (essence of model)
+
+    var mesh as raylib.Mesh is judge new_shape:
+        when ShapeType.Sphere -> calling raylib.GenMeshSphere with 1.5, 32, 32
+        when ShapeType.Cube -> calling raylib.GenMeshCube with 2.2, 2.2, 2.2
+        when ShapeType.Cylinder -> calling raylib.GenMeshCylinder with 1.2, 2.5, 24
+        when ShapeType.Torus -> calling raylib.GenMeshTorus with 0.6, 1.6, 24, 36
+
+    set essence of model is (calling models.load_model_from_mesh with mesh)
+
+    # Center cylinder vertically around origin
+    if (new_shape == ShapeType.Cylinder):
+        set model->transform is (calling raymath.MatrixTranslate with 0.0, -1.25, 0.0)
+
+    var mat as ref to raylib.Material is sigil of (model->materials at 0)
+    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, canvas_texture
+
+    var first_mesh as raylib.Mesh is model->meshes at 0
+    var box as raylib.BoundingBox is calling first_mesh.bounding_box
+    set box.min is calling raymath.Vector3Transform with box.min, model->transform
+    set box.max is calling raymath.Vector3Transform with box.max, model->transform
+    set essence of bbox is box
+
+    set essence of current_shape is new_shape
+
+## Casts a ray against the model's mesh triangles and computes the interpolated UV coordinates.
+##
+## ## Parameters
+## - `ray`: Picking ray cast from the mouse cursor.
+## - `model`: Target 3D model.
+## - `bbox`: Fast-reject bounding box.
+##
+## ## Returns
+## `some uv` with normalized coordinates in [0, 1], or `maybe none` if no triangle was hit.
+weave get_mesh_hit_uv with ray as raylib.Ray, model as raylib.Model, bbox as raylib.BoundingBox into maybe raylib.Vector2:
+    var box_hit as raylib.RayCollision is calling models.ray_box_hit with ray, bbox
+    if not box_hit.hit:
+        return maybe none
+
+    var mesh as raylib.Mesh is model.meshes at 0
+    var closest_dist as f32 is 1000000000.0
+    var found as bool is false
+    var hit_uv as raylib.Vector2 is with x is 0.0, y is 0.0
+    var has_indices as bool is not calling ffi.is_null with (transmute mesh.indices to ref to void)
+
+    for tri from 0 to mesh.triangleCount:
+        var i0 as int is 0
+        var i1 as int is 0
+        var i2 as int is 0
+
+        if has_indices:
+            set i0 is (mesh.indices at (3 * tri + 0)) to int
+            set i1 is (mesh.indices at (3 * tri + 1)) to int
+            set i2 is (mesh.indices at (3 * tri + 2)) to int
+        else:
+            set i0 is 3 * tri
+            set i1 is 3 * tri + 1
+            set i2 is 3 * tri + 2
+
+        var va as raylib.Vector3 is with:
+            set .x is (mesh.vertices at (3 * i0 + 0))
+            set .y is (mesh.vertices at (3 * i0 + 1))
+            set .z is (mesh.vertices at (3 * i0 + 2))
+
+        var vb as raylib.Vector3 is with:
+            set .x is (mesh.vertices at (3 * i1 + 0))
+            set .y is (mesh.vertices at (3 * i1 + 1))
+            set .z is (mesh.vertices at (3 * i1 + 2))
+
+        var vc as raylib.Vector3 is with:
+            set .x is (mesh.vertices at (3 * i2 + 0))
+            set .y is (mesh.vertices at (3 * i2 + 1))
+            set .z is (mesh.vertices at (3 * i2 + 2))
+
+        var a as raylib.Vector3 is calling raymath.Vector3Transform with va, model.transform
+        var b as raylib.Vector3 is calling raymath.Vector3Transform with vb, model.transform
+        var c as raylib.Vector3 is calling raymath.Vector3Transform with vc, model.transform
+
+        var hit as raylib.RayCollision is calling models.ray_triangle_hit with ray, a, b, c
+        if hit.hit and (hit.distance < closest_dist):
+            set closest_dist is hit.distance
+            set found is true
+
+            var uv_a as raylib.Vector2 is with:
+                set .x is (mesh.texcoords at (2 * i0 + 0))
+                set .y is (mesh.texcoords at (2 * i0 + 1))
+
+            var uv_b as raylib.Vector2 is with:
+                set .x is (mesh.texcoords at (2 * i1 + 0))
+                set .y is (mesh.texcoords at (2 * i1 + 1))
+
+            var uv_c as raylib.Vector2 is with:
+                set .x is (mesh.texcoords at (2 * i2 + 0))
+                set .y is (mesh.texcoords at (2 * i2 + 1))
+
+            var w as raylib.Vector3 is calling raymath.Vector3Barycenter with hit.point, a, b, c
+
+            var nx as f32 is (w.x * uv_a.x) + (w.y * uv_b.x) + (w.z * uv_c.x)
+            var ny as f32 is (w.x * uv_a.y) + (w.y * uv_b.y) + (w.z * uv_c.y)
+
+            # Wrap into [0, 1] to prevent seams
+            while nx < 0.0:
+                set nx is nx + 1.0
+            while nx >= 1.0:
+                set nx is nx - 1.0
+
+            while ny < 0.0:
+                set ny is ny + 1.0
+            while ny >= 1.0:
+                set ny is ny - 1.0
+
+            set hit_uv.x is nx
+            set hit_uv.y is ny
+
+    if found:
+        return some hit_uv
+    return maybe none
+
+# --- Entry point ---
+
+## Application entry point.
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - mesh uv painting"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D is with:
+        set .position is (with x is 0.0, y is 3.5, z is 6.5)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # CPU-side canvas and GPU texture
+    var canvas_image as raylib.Image is calling images.gen_image_color with CANVAS_SIZE, CANVAS_SIZE, raylib.RAYWHITE
+    defer calling images.unload_image with canvas_image
+
+    var canvas_texture as raylib.Texture2D is calling raylib.LoadTextureFromImage with canvas_image
+    defer calling raylib.UnloadTexture with canvas_texture
+    calling canvas_texture.set_filter with raylib.TEXTURE_FILTER_BILINEAR
+
+    var model as raylib.Model is with meshCount is 0
+    defer calling models.unload_model with model
+
+    var model_bbox as raylib.BoundingBox is with:
+        set .min is (with x is 0.0, y is 0.0, z is 0.0)
+        set .max is (with x is 0.0, y is 0.0, z is 0.0)
+
+    var current_shape as ShapeType is ShapeType.Sphere
+    calling change_shape with (sigil of model), (sigil of model_bbox), (sigil of current_shape), ShapeType.Sphere, canvas_texture
+
+    var current_tool as ToolMode is ToolMode.Paint
+    var active_color as raylib.Color is raylib.RED
+    var brush_radius as int is 12
+    var last_hit_uv as raylib.Vector2 is with x is 0.0, y is 0.0
+    var has_last_hit as bool is false
+
+    var palette as list of raylib.Color is [
+        raylib.RED, raylib.ORANGE, raylib.GOLD, raylib.LIME,
+        raylib.SKYBLUE, raylib.PURPLE, raylib.DARKGRAY, raylib.WHITE
+    ]
+    defer banish palette
+
+    var ui_panel_rec as raylib.Rectangle is with:
+        set .x is 10.0
+        set .y is 10.0
+        set .width is 230.0
+        set .height is 490.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        var mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+        var is_mouse_over_ui as bool is calling ui_panel_rec.contains_point with mouse_pos
+
+        if calling raylib.IsMouseButtonDown with raylib.MOUSE_BUTTON_RIGHT:
+            calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_THIRD_PERSON to int)
+
+        if (not is_mouse_over_ui) and (calling raylib.IsMouseButtonDown with raylib.MOUSE_BUTTON_LEFT):
+            var ray as raylib.Ray is calling camera.to_world_ray with mouse_pos
+            var hit_result as maybe raylib.Vector2 is calling get_mesh_hit_uv with ray, model, model_bbox
+
+            if hit_uv as raylib.Vector2 is hit_result:
+                var px as int is (hit_uv.x * CANVAS_SIZE_F) to int
+                var py as int is (hit_uv.y * CANVAS_SIZE_F) to int
+
+                if current_tool == ToolMode.Paint:
+                    var raw_dx as f32 is hit_uv.x - last_hit_uv.x
+                    var raw_dy as f32 is hit_uv.y - last_hit_uv.y
+                    var diff_x as f32 is if raw_dx < 0.0 then (-raw_dx) else raw_dx
+                    var diff_y as f32 is if raw_dy < 0.0 then (-raw_dy) else raw_dy
+
+                    if has_last_hit and (diff_x < 0.25) and (diff_y < 0.25):
+                        var last_px as int is (last_hit_uv.x * CANVAS_SIZE_F) to int
+                        var last_py as int is (last_hit_uv.y * CANVAS_SIZE_F) to int
+
+                        var p1 as raylib.Vector2 is with x is (last_px to f32), y is (last_py to f32)
+                        var p2 as raylib.Vector2 is with x is (px to f32), y is (py to f32)
+                        var dist as f32 is calling raymath.Vector2Distance with p1, p2
+                        var steps as int is ((dist / 2.0) to int) + 1
+
+                        for i from 0 to (steps + 1):
+                            var t as f32 is (i to f32) / (steps to f32)
+                            var cx as int is (calling raymath.Lerp with (last_px to f32), (px to f32), t) to int
+                            var cy as int is (calling raymath.Lerp with (last_py to f32), (py to f32), t) to int
+                            calling canvas_image.draw_circle with cx, cy, brush_radius, active_color
+                    else:
+                        calling canvas_image.draw_circle with px, py, brush_radius, active_color
+
+                    calling raylib.UpdateTexture with canvas_texture, (transmute canvas_image.data to ref to frozen void)
+                    set last_hit_uv is hit_uv
+                    set has_last_hit is true
+                else:
+                    set active_color is (calling canvas_image.color_at with px, py)
+                    set current_tool is ToolMode.Paint
+                    set has_last_hit is false
+            else:
+                set has_last_hit is false
+        else:
+            set has_last_hit is false
+
+        # Draw
+        calling drawing.begin_drawing
+        var bg_color as raylib.Color is with r is 30, g is 32, b is 40, a is 255
+        calling drawing.clear_background with bg_color
+
+        calling drawing.begin_mode_3d with camera
+        var zero_v3 as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+        calling model.draw with zero_v3, 1.0, raylib.WHITE
+        calling shapes3d.draw_grid with 10, 1.0
+        calling drawing.end_mode_3d
+
+        # Side panel
+        calling ui_panel_rec.draw with (calling colors.fade with raylib.BLACK, 0.8)
+        calling ui_panel_rec.draw_outline with 2.0, raylib.DARKGRAY
+        calling txt.draw_text with "MESH UV PAINTER", 25, 22, 20, raylib.GOLD
+
+        # Tool selection toggles
+        var paint_active as bool is (current_tool == ToolMode.Paint)
+        var picker_active as bool is (current_tool == ToolMode.Picker)
+        var btn_paint_rec as raylib.Rectangle is with x is 25.0, y is 55.0, width is 95.0, height is 32.0
+        var btn_picker_rec as raylib.Rectangle is with x is 125.0, y is 55.0, width is 95.0, height is 32.0
+
+        if (calling rayguix.toggle with btn_paint_rec, "PAINT", (sigil of paint_active)) != 0:
+            set current_tool is ToolMode.Paint
+        if (calling rayguix.toggle with btn_picker_rec, "PICKER", (sigil of picker_active)) != 0:
+            set current_tool is ToolMode.Picker
+
+        # Shape selection toggles
+        calling txt.draw_text with "Mesh Shape:", 25, 100, 10, raylib.LIGHTGRAY
+        var sphere_active as bool is (current_shape == ShapeType.Sphere)
+        var cube_active as bool is (current_shape == ShapeType.Cube)
+        var cyl_active as bool is (current_shape == ShapeType.Cylinder)
+        var torus_active as bool is (current_shape == ShapeType.Torus)
+
+        var rec_sph as raylib.Rectangle is with x is 25.0, y is 120.0, width is 95.0, height is 28.0
+        var rec_cub as raylib.Rectangle is with x is 125.0, y is 120.0, width is 95.0, height is 28.0
+        var rec_cyl as raylib.Rectangle is with x is 25.0, y is 153.0, width is 95.0, height is 28.0
+        var rec_tor as raylib.Rectangle is with x is 125.0, y is 153.0, width is 95.0, height is 28.0
+
+        if (calling rayguix.toggle with rec_sph, "SPHERE", (sigil of sphere_active)) != 0:
+            calling change_shape with (sigil of model), (sigil of model_bbox), (sigil of current_shape), ShapeType.Sphere, canvas_texture
+        if (calling rayguix.toggle with rec_cub, "CUBE", (sigil of cube_active)) != 0:
+            calling change_shape with (sigil of model), (sigil of model_bbox), (sigil of current_shape), ShapeType.Cube, canvas_texture
+        if (calling rayguix.toggle with rec_cyl, "CYLINDER", (sigil of cyl_active)) != 0:
+            calling change_shape with (sigil of model), (sigil of model_bbox), (sigil of current_shape), ShapeType.Cylinder, canvas_texture
+        if (calling rayguix.toggle with rec_tor, "TORUS", (sigil of torus_active)) != 0:
+            calling change_shape with (sigil of model), (sigil of model_bbox), (sigil of current_shape), ShapeType.Torus, canvas_texture
+
+        # Color display
+        calling txt.draw_text with "Active Color:", 25, 195, 10, raylib.LIGHTGRAY
+        calling shapes.draw_rectangle with 125, 193, 95, 20, active_color
+        calling shapes.draw_rectangle_lines with 125, 193, 95, 20, raylib.WHITE
+
+        # Color swatches
+        calling txt.draw_text with "Palette Swatches:", 25, 225, 10, raylib.LIGHTGRAY
+        for i from 0 to PALETTE_COUNT:
+            var col_x as f32 is 25.0 + ((i % 4) to f32) * 48.0
+            var col_y as f32 is 245.0 + ((i / 4) to f32) * 45.0
+            var swatch_rec as raylib.Rectangle is with x is col_x, y is col_y, width is 40.0, height is 38.0
+            var pal_col as raylib.Color is palette at i
+            calling swatch_rec.draw with pal_col
+            calling swatch_rec.draw_outline with 1.0, raylib.WHITE
+
+            if (calling swatch_rec.contains_point with mouse_pos) and (calling raylib.IsMouseButtonPressed with raylib.MOUSE_BUTTON_LEFT):
+                set active_color is pal_col
+
+        # Brush size buttons
+        var size_text as string is "Brush Size: {brush_radius}px"
+        calling txt.draw_text with size_text, 25, 345, 10, raylib.LIGHTGRAY
+        banish size_text
+
+        var btn_minus as raylib.Rectangle is with x is 25.0, y is 365.0, width is 95.0, height is 30.0
+        var btn_plus as raylib.Rectangle is with x is 125.0, y is 365.0, width is 95.0, height is 30.0
+
+        if (calling rayguix.button with btn_minus, "SIZE -") != 0:
+            if brush_radius > 2:
+                set brush_radius is brush_radius - 2
+        if (calling rayguix.button with btn_plus, "SIZE +") != 0:
+            if brush_radius < 64:
+                set brush_radius is brush_radius + 2
+
+        # Canvas action buttons
+        var btn_clear as raylib.Rectangle is with x is 25.0, y is 410.0, width is 95.0, height is 30.0
+        var btn_fill as raylib.Rectangle is with x is 125.0, y is 410.0, width is 95.0, height is 30.0
+
+        if (calling rayguix.button with btn_clear, "CLEAR") != 0:
+            calling canvas_image.clear with raylib.RAYWHITE
+            calling raylib.UpdateTexture with canvas_texture, (transmute canvas_image.data to ref to frozen void)
+
+        if (calling rayguix.button with btn_fill, "FILL") != 0:
+            calling canvas_image.clear with active_color
+            calling raylib.UpdateTexture with canvas_texture, (transmute canvas_image.data to ref to frozen void)
+
+        calling txt.draw_text with "Left click: paint / pick color   |   Right drag: orbit camera", 260, screen_height - 25, 10, raylib.RAYWHITE
+        calling txt.draw_fps with screen_width - 90, 15
+
+        calling drawing.end_drawing
+
+    return 0

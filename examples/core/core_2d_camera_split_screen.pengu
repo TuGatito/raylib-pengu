@@ -15,15 +15,15 @@
 ##
 ## Copyright (c) 2023-2025 Gabriel dos Santos Sanches (@gabrielssanches)
 ##
-## ## Port a PenguScript
-## Traducción 1:1 de `examples/core/core_2d_camera_split_screen.c` sobre la
-## capa de wrappers `raylibx`. Las dos vistas idénticas del original se
-## factorizan en `draw_player_view`, que recibe la cámara, los dos jugadores y la
-## etiqueta de cada mitad. `load_render_texture` devuelve `maybe`; el ejemplo se
-## apoya en `or return` para salir con código `1` si la GPU no puede crear el
-## objetivo de render, y libera ambos con `defer`.
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_2d_camera_split_screen.c` on top of the
+## `raylibx` wrapper layer. The two identical views from the original are factored
+## into `draw_player_view`, which receives the camera, both players, and the label
+## for each half. `load_render_texture` returns `maybe`; the example unwraps both
+## render targets with `if ... as ... is ...:` and exits with code `1` if the GPU
+## cannot create either target, releasing both with `defer`.
 ##
-## ## Ejemplo
+## ## Example
 ## ```bash
 ## pengu run examples/core/core_2d_camera_split_screen.pengu
 ## ```
@@ -38,58 +38,58 @@ import raylibx.text as txt
 import raylibx.textures as textures
 import raymathx
 
-# --- Constantes ---------------------------------------------------------
-## Ancho de la ventana, en píxeles.
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
 const SCREEN_WIDTH as int is 800
 
-## Alto de la ventana, en píxeles.
+## Window height, in pixels.
 const SCREEN_HEIGHT as int is 440
 
-## Fotogramas por segundo a los que corre el bucle principal.
+## Target frames per second for the main game loop.
 const TARGET_FPS as int is 60
 
-## Lado del cuadrado que representa a cada jugador, en píxeles.
+## Side length of the square representing each player, in pixels.
 const PLAYER_SIZE as int is 40
 
-## Velocidad de cada jugador, en píxeles por fotograma.
+## Speed of each player, in pixels per frame.
 const PLAYER_SPEED as f32 is 3.0
 
 # --- Helpers ------------------------------------------------------------
-## Dibuja la escena completa (rejilla, etiquetas y jugadores) desde una cámara.
+## Draws the complete scene (grid, labels, and players) from a camera.
 ##
-## ## Parámetros
-## - `camera`: cámara 2D de esta mitad de la pantalla.
-## - `player1`, `player2`: los dos rectángulos que se dibujan.
-## - `label`: texto de la barra superior de esta mitad.
-## - `label_color`: color de ese texto.
-## - `world_width`, `world_height`: extensión de la rejilla en píxeles de mundo.
+## ## Parameters
+## - `camera`: 2D camera for this half of the screen.
+## - `player1`, `player2`: the two player rectangles to draw.
+## - `label`: top-bar text for this half.
+## - `label_color`: color for that text.
+## - `world_width`, `world_height`: grid extent in world pixels.
 ##
-## ## Notas
-## Se llama dentro de un `begin_texture_mode`; por eso la barra superior usa
-## `GetScreenWidth`/`GetScreenHeight` en runtime, que dentro de un objetivo de
-## render devuelven las dimensiones del objetivo y no las de la ventana.
+## ## Notes
+## Called inside a `begin_texture_mode` block; the top bar uses
+## `GetScreenWidth`/`GetScreenHeight` at runtime, which inside a render target
+## return the target's dimensions rather than the window's.
 ##
-## ## Memoria
-## No asigna memoria. `label` se toma prestado y no se libera.
+## ## Memory
+## Allocates no persistent memory. `label` is borrowed and not freed.
 weave draw_player_view with camera as raylib.Camera2D, player1 as raylib.Rectangle, player2 as raylib.Rectangle, label as string, label_color as raylib.Color, world_width as int, world_height as int into void:
     calling drawing.clear_background with raylib.RAYWHITE
     calling drawing.begin_mode_2d with camera
 
-    # Rejilla vertical
+    # Vertical grid lines
     for i from 0 to ((world_width / PLAYER_SIZE) + 1):
         let x as f32 is ((PLAYER_SIZE * i) to f32)
         let top as raylib.Vector2 is with x is x, y is 0.0
         let bottom as raylib.Vector2 is with x is x, y is (world_height to f32)
         calling top.draw_line_to with bottom, raylib.LIGHTGRAY
 
-    # Rejilla horizontal
+    # Horizontal grid lines
     for i from 0 to ((world_height / PLAYER_SIZE) + 1):
         let y as f32 is ((PLAYER_SIZE * i) to f32)
         let left as raylib.Vector2 is with x is 0.0, y is y
         let right as raylib.Vector2 is with x is (world_width to f32), y is y
         calling left.draw_line_to with right, raylib.LIGHTGRAY
 
-    # Coordenadas de cada celda
+    # Cell coordinates
     for i from 0 to (world_width / PLAYER_SIZE):
         for j from 0 to (world_height / PLAYER_SIZE):
             let cell as string is "[{i},{j}]"
@@ -105,26 +105,26 @@ weave draw_player_view with camera as raylib.Camera2D, player1 as raylib.Rectang
     calling shapes.draw_rectangle with 0, 0, ((calling raylib.GetScreenWidth) / 2), 30, bar_color
     calling txt.draw_text with label, 10, 10, 10, label_color
 
-# --- Helpers (continuación) ---------------------------------------------
-## Dibuja dos vistas del mismo mundo, cada una con su propia cámara.
+# --- Helpers (continued) ------------------------------------------------
+## Draws two views of the same world, each with its own camera.
 ##
-## ## Parámetros
-## - `screen1`, `screen2`: objetivos de render de cada mitad.
-## - `camera1`, `camera2`: cámaras 2D que siguen a cada jugador.
-## - `player1`, `player2`: rectángulos que se mueven con el teclado.
+## ## Parameters
+## - `screen1`, `screen2`: render targets for each half.
+## - `camera1`, `camera2`: 2D cameras following each player.
+## - `player1`, `player2`: rectangles moved with the keyboard.
 ##
-## ## Notas
-## El bucle termina cuando el usuario cierra la ventana; los objetivos de
-## render los libera `main` con `defer`, no esta función.
+## ## Notes
+## The loop ends when the user closes the window; the render targets are
+## unloaded by `main` via `defer`, not by this function.
 ##
-## ## Memoria
-## Toma prestados los dos objetivos de render y los rectángulos; no los libera.
+## ## Memory
+## Borrows both render targets and the rectangles; does not free them.
 weave run_demo with screen1 as raylib.RenderTexture, screen2 as raylib.RenderTexture, camera1 as ref to raylib.Camera2D, camera2 as ref to raylib.Camera2D, player1 as ref to raylib.Rectangle, player2 as ref to raylib.Rectangle into void:
-    # Rectángulo volteado del tamaño de cada mitad
+    # Flipped rectangle the size of each split view
     let split_screen_rect as raylib.Rectangle is with x is 0.0, y is 0.0, width is (screen1.texture.width to f32), height is (-(screen1.texture.height to f32))
 
     while not calling raylib.WindowShouldClose:
-        # Actualización
+        # Update
         # -----------------------------------------------------------------
         if calling input.is_key_down with raylib.KEY_S:
             set player1->y += PLAYER_SPEED
@@ -150,7 +150,7 @@ weave run_demo with screen1 as raylib.RenderTexture, screen2 as raylib.RenderTex
         set camera2->target is with x is player2->x, y is player2->y
         # -----------------------------------------------------------------
 
-        # Dibujo
+        # Draw
         # -----------------------------------------------------------------
         calling drawing.begin_texture_mode with screen1
         calling draw_player_view with (essence of camera1), (essence of player1), (essence of player2), "PLAYER1: W/S/A/D to move", raylib.MAROON, SCREEN_WIDTH, SCREEN_HEIGHT
@@ -160,7 +160,7 @@ weave run_demo with screen1 as raylib.RenderTexture, screen2 as raylib.RenderTex
         calling draw_player_view with (essence of camera2), (essence of player1), (essence of player2), "PLAYER2: UP/DOWN/LEFT/RIGHT to move", raylib.DARKBLUE, SCREEN_WIDTH, SCREEN_HEIGHT
         calling drawing.end_texture_mode
 
-        # Ambas vistas, lado a lado
+        # Draw both views side by side
         calling drawing.begin_drawing
         calling drawing.clear_background with raylib.BLACK
 
@@ -172,14 +172,14 @@ weave run_demo with screen1 as raylib.RenderTexture, screen2 as raylib.RenderTex
         calling drawing.end_drawing
         # -----------------------------------------------------------------
 
-# --- Punto de entrada ---------------------------------------------------
-## Crea los dos objetivos de render y entrega el control a `run_demo`.
+# --- Entry point --------------------------------------------------------
+## Creates both render targets and hands control over to `run_demo`.
 ##
-## ## Retorno
-## `0` cuando la ventana se cierra con normalidad; `1` si no se puede crear
-## alguno de los objetivos de render.
+## ## Returns
+## `0` when the window closes normally; `1` if either render target cannot be
+## created.
 weave main into int:
-    # Inicialización
+    # Initialization
     # ---------------------------------------------------------------------
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - 2d camera split screen"
     defer calling raylib.CloseWindow

@@ -1,0 +1,94 @@
+## examples/core/core_random_values.pengu
+## raylib [core] example - random values
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.1, last time updated with raylib 1.1
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_random_values.c` built on top of the
+## `raylibx` wrapper layer. `GetRandomValue` is replaced with `random.between`,
+## and `TextFormat` is replaced with native PenguScript string interpolation
+## (`"{rand_value}"`) paired with `banish` per frame.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_random_values.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.random as random
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Inclusive lower bound for the generated random integer.
+const MIN_RANDOM_VALUE as int is -8
+
+## Inclusive upper bound for the generated random integer.
+const MAX_RANDOM_VALUE as int is 5
+
+## Number of frames (2 seconds at 60 FPS) between random value updates.
+const FRAMES_PER_INTERVAL as int is 120
+
+# --- Entry point --------------------------------------------------------
+## Displays a random integer in `[-8, 5]` that refreshes every two seconds.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - random values"
+    defer calling raylib.CloseWindow
+
+    # calling raylib.SetRandomSeed with (0xaabbccff to u32) # Set a custom random seed if desired
+
+    var rand_value as int is calling random.between with MIN_RANDOM_VALUE, MAX_RANDOM_VALUE
+    var frames_counter as int is 0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        set frames_counter += 1
+
+        # Every two seconds (120 frames) a new random value is generated
+        if ((frames_counter / FRAMES_PER_INTERVAL) % 2) == 1:
+            set rand_value is calling random.between with MIN_RANDOM_VALUE, MAX_RANDOM_VALUE
+            set frames_counter is 0
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "Every 2 seconds a new random value is generated:", 130, 100, 20, raylib.MAROON
+
+        let value_text as string is "{rand_value}"
+        calling txt.draw_text with value_text, 360, 180, 80, raylib.LIGHTGRAY
+        banish value_text
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

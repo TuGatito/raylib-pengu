@@ -12,17 +12,17 @@
 ##
 ## Copyright (c) 2019-2025 arvyy (@arvyy)
 ##
-## ## Port a PenguScript
-## Traducción 1:1 de `examples/core/core_2d_camera_platformer.c` sobre la
-## capa de wrappers `raylibx` + `rcamerax`. El array de punteros a función que C
-## usa para elegir el controlador de cámara se sustituye por un `judge`
-## exhaustivo sobre el índice de modo, que es la forma Pengunic de despachar sin
-## punteros. Los `static` de C que solo eran constantes (`minSpeed`,
-## `fractionSpeed`, `evenOutSpeed`, `bbox`) pasan a `const`; los que guardan
-## estado entre llamadas (`eveningOut`, `evenOutTarget`) siguen siendo
-## `static var` dentro de su weave.
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_2d_camera_platformer.c` on top of the
+## `raylibx` + `rcamerax` wrapper layer. The C array of function pointers used to
+## select the camera controller is replaced by an exhaustive `judge` over the mode
+## index, which is the Pengunic way to dispatch without function pointers. The C
+## `static` variables that were actually constants (`minSpeed`, `fractionSpeed`,
+## `evenOutSpeed`, `bbox`) become module-level `const` bindings; those that retain
+## state across calls (`eveningOut`, `evenOutTarget`) remain `static var` inside
+## their weave.
 ##
-## ## Ejemplo
+## ## Example
 ## ```bash
 ## pengu run examples/core/core_2d_camera_platformer.pengu
 ## ```
@@ -37,74 +37,79 @@ import raymathx
 import rcamerax
 import std.numerus
 
-# --- Constantes ---------------------------------------------------------
-## Ancho de la ventana, en píxeles.
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
 const SCREEN_WIDTH as int is 800
 
-## Alto de la ventana, en píxeles.
+## Window height, in pixels.
 const SCREEN_HEIGHT as int is 450
 
-## Fotogramas por segundo a los que corre el bucle principal.
+## Target frames per second for the main game loop.
 const TARGET_FPS as int is 60
 
-## Gravedad, en píxeles por segundo al cuadrado.
+## Gravity, in pixels per second squared.
 const G as f32 is 400.0
 
-## Impulso vertical del salto.
+## Vertical jump impulse.
 const PLAYER_JUMP_SPD as f32 is 350.0
 
-## Velocidad horizontal del jugador.
+## Horizontal player speed.
 const PLAYER_HOR_SPD as f32 is 200.0
 
-## Velocidad mínima del seguimiento suave de cámara.
+## Minimum speed for smooth camera follow.
 const MIN_SPEED as f32 is 30.0
 
-## Distancia mínima antes de que el seguimiento suave reaccione.
+## Minimum distance before smooth camera follow reacts.
 const MIN_EFFECT_LENGTH as f32 is 10.0
 
-## Fracción de la distancia que el seguimiento suave recorre por fotograma.
+## Fraction of distance covered per frame by smooth camera follow.
 const FRACTION_SPEED as f32 is 0.8
 
-## Velocidad con la que la cámara iguala la altura del jugador al aterrizar.
+## Speed at which the camera evens out to the player's height after landing.
 const EVEN_OUT_SPEED as f32 is 700.0
 
-## Margen de la caja que empuja la cámara cerca de los bordes.
+## Bounding box margin that pushes the camera near screen edges.
 const BBOX as raylib.Vector2 is with x is 0.2, y is 0.2
 
-# --- Tipos --------------------------------------------------------------
-## Jugador del plataformas: posición, velocidad vertical y si puede saltar.
+# --- Types --------------------------------------------------------------
+## Platformer player: position, vertical speed, and whether jumping is allowed.
 rune Player:
     position as raylib.Vector2
     speed as f32
     can_jump as bool
 
-## Elemento del escenario: un rectángulo que puede bloquear al jugador.
+## Environment item: a rectangle that may block the player.
 rune EnvItem:
     rect as raylib.Rectangle
     blocking as int
     color as raylib.Color
 
 # --- Helpers ------------------------------------------------------------
-## Construye un elemento del escenario.
+## Builds an environment item.
 ##
-## ## Parámetros
-## - `x`, `y`, `width`, `height`: geometría del rectángulo.
-## - `blocking`: distinto de cero si el jugador no puede atravesarlo.
-## - `color`: color de relleno.
+## ## Parameters
+## - `x`, `y`, `width`, `height`: rectangle geometry.
+## - `blocking`: non-zero if the player cannot pass through it.
+## - `color`: fill color.
 ##
-## ## Retorno
-## Un `EnvItem` nuevo; no asigna memoria.
+## ## Returns
+## A new `EnvItem`; allocates no memory.
 weave make_env_item with x as f32, y as f32, width as f32, height as f32, blocking as int, color as raylib.Color into EnvItem:
     return with:
         set .rect is with x is x, y is y, width is width, height is height
         set .blocking is blocking
         set .color is color
 
-## Comprueba si un elemento bloquea el próximo paso vertical del jugador.
+## Checks whether an item blocks the player's next vertical step.
 ##
-## ## Retorno
-## `true` si el rectángulo está en la columna del jugador y a la altura que su
-## velocidad va a alcanzar en este fotograma.
+## ## Parameters
+## - `item`: environment item to test.
+## - `player`: player reference.
+## - `delta`: frame time step, in seconds.
+##
+## ## Returns
+## `true` if the rectangle spans the player's column and lies within the height
+## reached by the player's velocity during this frame.
 weave blocks_player with item as EnvItem, player as ref to Player, delta as f32 into bool:
     if item.blocking == 0:
         return false
@@ -113,15 +118,15 @@ weave blocks_player with item as EnvItem, player as ref to Player, delta as f32 
     let speed as f32 is player->speed
     return (item.rect.x <= position.x) and ((item.rect.x + item.rect.width) >= position.x) and (item.rect.y >= position.y) and (item.rect.y <= (position.y + (speed * delta)))
 
-## Actualiza la física del jugador y la colisión con el escenario.
+## Updates player physics and collision with environment items.
 ##
-## ## Parámetros
-## - `player`: jugador que se muta en el sitio.
-## - `env_items`: rectángulos del escenario; se toman prestados.
-## - `delta`: tiempo transcurrido desde el fotograma anterior, en segundos.
+## ## Parameters
+## - `player`: player mutated in place.
+## - `env_items`: environment rectangles; borrowed.
+## - `delta`: elapsed time since the previous frame, in seconds.
 ##
-## ## Memoria
-## No asigna memoria y no libera `env_items`; la lista pertenece al llamador.
+## ## Memory
+## Allocates no memory and does not free `env_items`; the list belongs to the caller.
 weave update_player with player as ref to Player, env_items as list of EnvItem, delta as f32 into void:
     if calling input.is_key_down with raylib.KEY_LEFT:
         set player->position.x -= PLAYER_HOR_SPD * delta
@@ -147,18 +152,32 @@ weave update_player with player as ref to Player, env_items as list of EnvItem, 
     else:
         set player->can_jump is true
 
-## Cámara que sigue el centro del jugador.
+## Camera controller that follows the player's center.
 ##
-## ## Memoria
-## No asigna memoria; solo escribe los campos de la cámara.
+## ## Parameters
+## - `camera`: 2D camera mutated in place.
+## - `player`: player reference.
+## - `env_items`: environment items.
+## - `delta`: frame delta time.
+## - `width`, `height`: viewport dimensions.
+##
+## ## Memory
+## Allocates no memory; only writes to the camera fields.
 weave update_camera_center with camera as ref to raylib.Camera2D, player as ref to Player, env_items as list of EnvItem, delta as f32, width as int, height as int into void:
     set camera->offset is with x is ((width to f32) / 2.0), y is ((height to f32) / 2.0)
     set camera->target is player->position
 
-## Cámara que sigue al jugador pero se detiene en los bordes del mapa.
+## Camera controller that follows the player while clamping to the map edges.
 ##
-## ## Memoria
-## No asigna memoria; solo escribe los campos de la cámara.
+## ## Parameters
+## - `camera`: 2D camera mutated in place.
+## - `player`: player reference.
+## - `env_items`: environment items.
+## - `delta`: frame delta time.
+## - `width`, `height`: viewport dimensions.
+##
+## ## Memory
+## Allocates no memory; only writes to the camera fields.
 weave update_camera_center_inside_map with camera as ref to raylib.Camera2D, player as ref to Player, env_items as list of EnvItem, delta as f32, width as int, height as int into void:
     set camera->target is player->position
     set camera->offset is with x is ((width to f32) / 2.0), y is ((height to f32) / 2.0)
@@ -192,10 +211,17 @@ weave update_camera_center_inside_map with camera as ref to raylib.Camera2D, pla
     if min_screen.y > 0.0:
         set camera->offset.y is (height_f / 2.0) - min_screen.y
 
-## Cámara que sigue al jugador con suavizado.
+## Camera controller that smoothly follows the player.
 ##
-## ## Memoria
-## No asigna memoria; solo escribe los campos de la cámara.
+## ## Parameters
+## - `camera`: 2D camera mutated in place.
+## - `player`: player reference.
+## - `env_items`: environment items.
+## - `delta`: frame delta time.
+## - `width`, `height`: viewport dimensions.
+##
+## ## Memory
+## Allocates no memory; only writes to the camera fields.
 weave update_camera_center_smooth_follow with camera as ref to raylib.Camera2D, player as ref to Player, env_items as list of EnvItem, delta as f32, width as int, height as int into void:
     set camera->offset is with x is ((width to f32) / 2.0), y is ((height to f32) / 2.0)
 
@@ -210,10 +236,17 @@ weave update_camera_center_smooth_follow with camera as ref to raylib.Camera2D, 
         let step as raylib.Vector2 is calling diff.get_scale with ((speed * delta) / distance)
         set camera->target is (calling target.get_add with step)
 
-## Cámara que sigue al jugador en horizontal e iguala la altura al aterrizar.
+## Camera controller that follows the player horizontally and evens out vertically on landing.
 ##
-## ## Memoria
-## No asigna memoria; solo escribe los campos de la cámara.
+## ## Parameters
+## - `camera`: 2D camera mutated in place.
+## - `player`: player reference.
+## - `env_items`: environment items.
+## - `delta`: frame delta time.
+## - `width`, `height`: viewport dimensions.
+##
+## ## Memory
+## Allocates no memory; only writes to the camera fields.
 weave update_camera_even_out_on_landing with camera as ref to raylib.Camera2D, player as ref to Player, env_items as list of EnvItem, delta as f32, width as int, height as int into void:
     static var evening_out as bool is false
     static var even_out_target as f32 is 0.0
@@ -237,10 +270,17 @@ weave update_camera_even_out_on_landing with camera as ref to raylib.Camera2D, p
             set evening_out is true
             set even_out_target is player->position.y
 
-## Cámara que empuja al jugador cuando se acerca demasiado a un borde.
+## Camera controller that pushes the camera when the player approaches the screen bounds.
 ##
-## ## Memoria
-## No asigna memoria; solo escribe los campos de la cámara.
+## ## Parameters
+## - `camera`: 2D camera mutated in place.
+## - `player`: player reference.
+## - `env_items`: environment items.
+## - `delta`: frame delta time.
+## - `width`, `height`: viewport dimensions.
+##
+## ## Memory
+## Allocates no memory; only writes to the camera fields.
 weave update_camera_player_bounds_push with camera as ref to raylib.Camera2D, player as ref to Player, env_items as list of EnvItem, delta as f32, width as int, height as int into void:
     let width_f as f32 is (width to f32)
     let height_f as f32 is (height to f32)
@@ -267,13 +307,13 @@ weave update_camera_player_bounds_push with camera as ref to raylib.Camera2D, pl
     if player->position.y > max_world.y:
         set camera->target.y is min_world.y + (player->position.y - max_world.y)
 
-## Despacha al controlador de cámara seleccionado.
+## Dispatches to the selected camera controller.
 ##
-## ## Parámetros
-## - `option`: índice del controlador, de `0` a `4`.
+## ## Parameters
+## - `option`: controller index, from `0` to `4`.
 ##
-## ## Memoria
-## No asigna memoria; delega en el controlador elegido.
+## ## Memory
+## Allocates no memory; delegates to the chosen controller.
 weave update_camera with camera as ref to raylib.Camera2D, player as ref to Player, env_items as list of EnvItem, delta as f32, width as int, height as int, option as int into void:
     judge option:
         when 0 -> calling update_camera_center with camera, player, env_items, delta, width, height
@@ -282,14 +322,14 @@ weave update_camera with camera as ref to raylib.Camera2D, player as ref to Play
         when 3 -> calling update_camera_even_out_on_landing with camera, player, env_items, delta, width, height
         else -> calling update_camera_player_bounds_push with camera, player, env_items, delta, width, height
 
-# --- Punto de entrada ---------------------------------------------------
-## Controla un jugador que salta entre plataformas mientras cinco modos de
-## cámara distintos siguen su movimiento.
+# --- Entry point --------------------------------------------------------
+## Controls a player jumping between platforms while five different camera modes
+## track their movement.
 ##
-## ## Retorno
-## Código de salida del proceso: `0` cuando la ventana se cierra con normalidad.
+## ## Returns
+## Process exit code: `0` when the window closes normally.
 weave main into int:
-    # Inicialización
+    # Initialization
     # ---------------------------------------------------------------------
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - 2d camera platformer"
     defer calling raylib.CloseWindow
@@ -327,9 +367,9 @@ weave main into int:
     calling raylib.SetTargetFPS with TARGET_FPS
     # ---------------------------------------------------------------------
 
-    # Bucle principal
+    # Main game loop
     while not calling raylib.WindowShouldClose:
-        # Actualización
+        # Update
         # -----------------------------------------------------------------
         let delta_time as f32 is calling raylib.GetFrameTime
 
@@ -352,7 +392,7 @@ weave main into int:
         calling update_camera with (sigil of camera), (sigil of player), env_items, delta_time, SCREEN_WIDTH, SCREEN_HEIGHT, camera_option
         # -----------------------------------------------------------------
 
-        # Dibujo
+        # Draw
         # -----------------------------------------------------------------
         calling drawing.begin_drawing
         calling drawing.clear_background with raylib.LIGHTGRAY

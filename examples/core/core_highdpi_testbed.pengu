@@ -1,0 +1,173 @@
+## examples/core/core_highdpi_testbed.pengu
+## raylib [core] example - highdpi testbed
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example contributed by Ramon Santamaria (@raysan5) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_highdpi_testbed.c` on top of the
+## `raylibx` wrapper layer. Uses `Vector2.draw_circle` and `Rectangle.draw`
+## enchantments from `raylibx.shapes` along with string interpolation for grid
+## labels and monitor metrics.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_highdpi_testbed.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Initial window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Spacing between grid lines, in pixels.
+const GRID_SPACING as int is 40
+
+# --- Helpers ------------------------------------------------------------
+## Formats a non-negative integer with a leading zero when less than 10.
+##
+## ## Parameters
+## - `value`: integer to format.
+##
+## ## Returns
+## An owned `string` with at least two digits.
+##
+## ## Memory
+## Returns an owned interpolated `string`; the caller must `banish` it.
+weave format_two_digits with value as int into string:
+    if value < 10:
+        return "0{value}"
+    return "{value}"
+
+# --- Entry point --------------------------------------------------------
+## Displays a coordinate grid, monitor/window/DPI metrics, and a mouse cursor
+## crosshair to test HighDPI scaling and fullscreen/borderless toggles.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    let flags as u32 is (raylib.FLAG_WINDOW_RESIZABLE to u32) | (raylib.FLAG_WINDOW_HIGHDPI to u32)
+    calling raylib.SetConfigFlags with flags
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - highdpi testbed"
+    defer calling raylib.CloseWindow
+
+    var scale_dpi as raylib.Vector2 is calling raylib.GetWindowScaleDPI
+    var mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+    var current_monitor as int is calling raylib.GetCurrentMonitor
+    var window_pos as raylib.Vector2 is calling raylib.GetWindowPosition
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        set mouse_pos is calling raylib.GetMousePosition
+        set current_monitor is calling raylib.GetCurrentMonitor
+        set scale_dpi is calling raylib.GetWindowScaleDPI
+        set window_pos is calling raylib.GetWindowPosition
+
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            calling raylib.ToggleBorderlessWindowed
+        if calling input.is_key_pressed with raylib.KEY_F:
+            calling raylib.ToggleFullscreen
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let screen_w as int is calling raylib.GetScreenWidth
+        let screen_h as int is calling raylib.GetScreenHeight
+        let render_w as int is calling raylib.GetRenderWidth
+        let render_h as int is calling raylib.GetRenderHeight
+
+        # Draw grid
+        let h_count as int is (screen_h / GRID_SPACING) + 1
+        for h from 0 to h_count:
+            let y as int is h * GRID_SPACING
+            let label as string is calling format_two_digits with y
+            calling txt.draw_text with label, 4, (y - 4), 10, raylib.GRAY
+            banish label
+            calling shapes.draw_line with 24, y, screen_w, y, raylib.LIGHTGRAY
+
+        let v_count as int is (screen_w / GRID_SPACING) + 1
+        for v from 0 to v_count:
+            let x as int is v * GRID_SPACING
+            let label as string is calling format_two_digits with x
+            calling txt.draw_text with label, (x - 10), 4, 10, raylib.GRAY
+            banish label
+            calling shapes.draw_line with x, 20, x, screen_h, raylib.LIGHTGRAY
+
+        # Draw UI info
+        let monitor_count as int is calling raylib.GetMonitorCount
+        let monitor_w as int is calling raylib.GetMonitorWidth with current_monitor
+        let monitor_h as int is calling raylib.GetMonitorHeight with current_monitor
+
+        let monitor_info as string is "CURRENT MONITOR: {current_monitor + 1}/{monitor_count} ({monitor_w}x{monitor_h})"
+        calling txt.draw_text with monitor_info, 50, 50, 20, raylib.DARKGRAY
+        banish monitor_info
+
+        let win_pos_info as string is "WINDOW POSITION: {window_pos.x to int}x{window_pos.y to int}"
+        calling txt.draw_text with win_pos_info, 50, 90, 20, raylib.DARKGRAY
+        banish win_pos_info
+
+        let screen_info as string is "SCREEN SIZE: {screen_w}x{screen_h}"
+        calling txt.draw_text with screen_info, 50, 130, 20, raylib.DARKGRAY
+        banish screen_info
+
+        let render_info as string is "RENDER SIZE: {render_w}x{render_h}"
+        calling txt.draw_text with render_info, 50, 170, 20, raylib.DARKGRAY
+        banish render_info
+
+        let scale_info as string is "SCALE FACTOR: {scale_dpi.x}x{scale_dpi.y}"
+        calling txt.draw_text with scale_info, 50, 210, 20, raylib.GRAY
+        banish scale_info
+
+        # Draw reference rectangles, top-left and bottom-right corners
+        calling shapes.draw_rectangle with 0, 0, 30, 60, raylib.RED
+        calling shapes.draw_rectangle with (screen_w - 30), (screen_h - 60), 30, 60, raylib.BLUE
+
+        # Draw mouse position
+        calling mouse_pos.draw_circle with 20.0, raylib.MAROON
+        let h_bar as raylib.Rectangle is with x is (mouse_pos.x - 25.0), y is mouse_pos.y, width is 50.0, height is 2.0
+        let v_bar as raylib.Rectangle is with x is mouse_pos.x, y is (mouse_pos.y - 25.0), width is 2.0, height is 50.0
+        calling h_bar.draw with raylib.BLACK
+        calling v_bar.draw with raylib.BLACK
+
+        let mouse_x as int is calling raylib.GetMouseX
+        let mouse_y as int is calling raylib.GetMouseY
+        let coords_text as string is "[{mouse_x},{mouse_y}]"
+        let text_x as int is (mouse_pos.x to int) - 44
+        let text_y as int is if (mouse_pos.y > ((screen_h - 60) to f32)) then ((mouse_pos.y to int) - 46) else ((mouse_pos.y to int) + 30)
+        calling txt.draw_text with coords_text, text_x, text_y, 20, raylib.BLACK
+        banish coords_text
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

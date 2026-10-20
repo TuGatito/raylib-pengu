@@ -1,0 +1,143 @@
+## examples/models/models_loading_gltf.pengu
+## raylib [models] example - loading gltf
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## LIMITATIONS:
+##   - Only supports 1 armature per file, and skips loading it if there are multiple armatures
+##   - Only supports linear interpolation (default method in Blender when checked
+##     "Always Sample Animations" when exporting a GLTF file)
+##   - Only supports translation/rotation/scale animation channel.path,
+##     weights not considered (i.e. morph targets)
+##
+## Example originally created with raylib 3.7, last time updated with raylib 4.2
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2020-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/models/models_loading_gltf.c` on top of the
+## `raylibx.models`, `raylibx.drawing`, `raylibx.input`, `raylibx.shapes3d`, and
+## `raylibx.text` wrapper layers. Loads a glTF binary model (`robot.glb`) along
+## with its skeletal animations and steps through keyframes each frame while
+## allowing the user to switch animations with the left/right arrow keys.
+##
+## ## Example
+## ```bash
+## pengu run examples/models/models_loading_gltf.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.models as models
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main game loop.
+const TARGET_FPS as int is 60
+
+## Vertical field-of-view of the 3D camera, in degrees.
+const CAMERA_FOVY as f32 is 45.0
+
+## Path to the glTF binary model and animations resource.
+const MODEL_PATH as string is "resources/models/gltf/robot.glb"
+
+# --- Entry point --------------------------------------------------------
+## Loads a glTF 3D model and its animations, then plays the selected animation
+## in an orbital 3D view.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally, or `1` if the model
+## or animations fail to load.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - loading gltf"
+    defer calling raylib.CloseWindow
+
+    # Define the camera to look into our 3d world
+    var camera as raylib.Camera3D with:
+        set .position is (with x is 6.0, y is 6.0, z is 6.0)    # Camera position
+        set .target is (with x is 0.0, y is 2.0, z is 0.0)      # Camera looking at point
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)          # Camera up vector (rotation towards target)
+        set .fovy is CAMERA_FOVY                                # Camera field-of-view Y
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)   # Camera projection type
+
+    # Load model
+    let loaded_model as maybe raylib.Model is calling models.load_model with MODEL_PATH
+    if model as raylib.Model is loaded_model:
+        defer calling models.unload_model with model
+
+        let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0 # Set model world position
+
+        # Load model animations
+        let loaded_anims as maybe (slice of raylib.ModelAnimation) is calling models.load_animations with MODEL_PATH
+        if anims as slice of raylib.ModelAnimation is loaded_anims:
+            defer calling models.unload_animations with anims
+
+            let anim_count as int is anims.length
+
+            # Animation playing variables
+            var anim_index as int is 0          # Current animation playing
+            var anim_current_frame as int is 0  # Current animation frame
+
+            calling raylib.SetTargetFPS with TARGET_FPS # Set our game to run at 60 frames-per-second
+            # ---------------------------------------------------------------------
+
+            # Main game loop
+            while not calling raylib.WindowShouldClose: # Detect window close button or ESC key
+                # Update
+                # -----------------------------------------------------------------
+                calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+
+                # Select current animation
+                if calling input.is_key_pressed with raylib.KEY_RIGHT:
+                    set anim_index is (anim_index + 1) % anim_count
+                else if calling input.is_key_pressed with raylib.KEY_LEFT:
+                    set anim_index is ((anim_index + anim_count) - 1) % anim_count
+
+                # Update model animation
+                var anim_item as raylib.ModelAnimation is anims at anim_index
+                set anim_current_frame is (anim_current_frame + 1) % anim_item.keyframeCount
+                calling model.update_animation with anim_item, (anim_current_frame to f32)
+                # -----------------------------------------------------------------
+
+                # Draw
+                # -----------------------------------------------------------------
+                calling drawing.begin_drawing
+
+                calling drawing.clear_background with raylib.RAYWHITE
+
+                calling drawing.begin_mode_3d with camera
+
+                calling model.draw with position, 1.0, raylib.WHITE
+
+                calling shapes3d.draw_grid with 10, 1.0
+
+                calling drawing.end_mode_3d
+
+                var anim_name as string is calling anim_item.get_name
+                let anim_text as string is "Current animation: {anim_name}"
+                calling txt.draw_text with anim_text, 10, 40, 20, raylib.MAROON
+                banish anim_text
+                banish anim_name
+
+                calling txt.draw_text with "Use the LEFT/RIGHT keys to switch animation", 10, 10, 20, raylib.GRAY
+
+                calling drawing.end_drawing
+                # -----------------------------------------------------------------
+
+            return 0
+
+    return 1

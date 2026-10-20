@@ -1,0 +1,102 @@
+## examples/core/core_input_multitouch.pengu
+## raylib [core] example - input multitouch
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 2.1, last time updated with raylib 2.5
+##
+## Example contributed by Berni (@Berni8k) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2019-2025 Berni (@Berni8k) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 port of `examples/core/core_input_multitouch.c` over `raylibx`. Touch
+## positions are stored in a pre-sized `list of raylib.Vector2` released with
+## `defer banish`, and each active touch point is drawn with
+## `Vector2.draw_circle` and `raylibx.text.draw_text`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_input_multitouch.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Maximum number of simultaneous touch points tracked.
+const MAX_TOUCH_POINTS as int is 10
+
+## Radius of each touch indicator circle, in pixels.
+const TOUCH_RADIUS as f32 is 34.0
+
+# --- Entry point --------------------------------------------------------
+## Displays an orange circle and index label at every active touch point.
+##
+## ## Returns
+## Process exit code: `0` on normal window closure.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - input multitouch"
+    defer calling raylib.CloseWindow
+
+    var touch_positions as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish touch_positions
+    for _ from 0 to MAX_TOUCH_POINTS:
+        calling touch_positions.push with (with x is 0.0, y is 0.0)
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        # Get the touch point count (how many fingers are touching the screen)
+        var t_count as int is calling raylib.GetTouchPointCount
+        # Clamp touch points available (set the maximum touch points allowed)
+        if t_count > MAX_TOUCH_POINTS:
+            set t_count is MAX_TOUCH_POINTS
+
+        # Get touch points positions
+        for i from 0 to t_count:
+            set touch_positions at i is (calling raylib.GetTouchPosition with i)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        for i from 0 to t_count:
+            let pos as raylib.Vector2 is touch_positions at i
+            # Make sure point is not (0, 0) as this means there is no touch for it
+            if (pos.x > 0.0) and (pos.y > 0.0):
+                # Draw circle and touch index number
+                calling pos.draw_circle with TOUCH_RADIUS, raylib.ORANGE
+                let label as string is "{i}"
+                defer banish label
+                calling txt.draw_text with label, ((pos.x to int) - 10), ((pos.y to int) - 70), 40, raylib.BLACK
+
+        calling txt.draw_text with "touch the screen at multiple locations to get multiple balls", 10, 10, 20, raylib.DARKGRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

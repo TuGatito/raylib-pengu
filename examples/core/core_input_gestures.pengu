@@ -1,0 +1,139 @@
+## examples/core/core_input_gestures.pengu
+## raylib [core] example - input gestures
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 1.4, last time updated with raylib 4.2
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2016-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_input_gestures.c` on top of the
+## `raylibx` wrapper layer. Uses `Rectangle.contains_point`, `Rectangle.draw`,
+## and `Vector2.draw_circle` from `raylibx.shapes`, and maps gesture ordinals to
+## labels with a `judge` expression.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_input_gestures.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Maximum number of gesture log entries before the list resets.
+const MAX_GESTURE_STRINGS as int is 20
+
+# --- Helpers ------------------------------------------------------------
+## Maps a `raylib.Gesture` ordinal value to its display label.
+##
+## ## Parameters
+## - `gesture`: gesture ordinal from `raylib.GetGestureDetected`.
+##
+## ## Returns
+## Display string for recognized gestures, or `""` for `GESTURE_NONE`/unknown.
+weave gesture_label with gesture as int into string:
+    return judge gesture:
+        when 1 -> "GESTURE TAP"
+        when 2 -> "GESTURE DOUBLETAP"
+        when 4 -> "GESTURE HOLD"
+        when 8 -> "GESTURE DRAG"
+        when 16 -> "GESTURE SWIPE RIGHT"
+        when 32 -> "GESTURE SWIPE LEFT"
+        when 64 -> "GESTURE SWIPE UP"
+        when 128 -> "GESTURE SWIPE DOWN"
+        when 256 -> "GESTURE PINCH IN"
+        when 512 -> "GESTURE PINCH OUT"
+        else -> ""
+
+# --- Entry point --------------------------------------------------------
+## Detects touch/mouse gestures inside a test area and logs them on screen.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - input gestures"
+    defer calling raylib.CloseWindow
+
+    var touch_position as raylib.Vector2 is with x is 0.0, y is 0.0
+    let touch_area as raylib.Rectangle is with:
+        set .x is 220.0
+        set .y is 10.0
+        set .width is (SCREEN_WIDTH to f32) - 230.0
+        set .height is (SCREEN_HEIGHT to f32) - 20.0
+
+    var gesture_strings as list of string is list of string
+    defer banish gesture_strings
+
+    let gesture_none as int is raylib.GESTURE_NONE to int
+    var current_gesture as int is gesture_none
+    var last_gesture as int is gesture_none
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        set last_gesture is current_gesture
+        set current_gesture is calling raylib.GetGestureDetected
+        set touch_position is calling raylib.GetTouchPosition with 0
+
+        if (calling touch_area.contains_point with touch_position) and (current_gesture != gesture_none):
+            if current_gesture != last_gesture:
+                let label as string is calling gesture_label with current_gesture
+                calling gesture_strings.push with label
+
+                # Reset gesture strings when reaching capacity
+                if (gesture_strings length) >= MAX_GESTURE_STRINGS:
+                    calling gesture_strings.clear
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling touch_area.draw with raylib.GRAY
+        calling shapes.draw_rectangle with 225, 15, (SCREEN_WIDTH - 240), (SCREEN_HEIGHT - 30), raylib.RAYWHITE
+
+        calling txt.draw_text with "GESTURES TEST AREA", (SCREEN_WIDTH - 270), (SCREEN_HEIGHT - 40), 20, (calling colors.fade with raylib.GRAY, 0.5)
+
+        let gestures_count as int is gesture_strings length
+        for i, entry in gesture_strings:
+            let row_alpha as f32 is if (i % 2) == 0 then 0.5 else 0.3
+            calling shapes.draw_rectangle with 10, (30 + (20 * i)), 200, 20, (calling colors.fade with raylib.LIGHTGRAY, row_alpha)
+
+            let text_color as raylib.Color is if i < (gestures_count - 1) then raylib.DARKGRAY else raylib.MAROON
+            calling txt.draw_text with entry, 35, (36 + (20 * i)), 10, text_color
+
+        calling shapes.draw_rectangle_lines with 10, 29, 200, (SCREEN_HEIGHT - 50), raylib.GRAY
+        calling txt.draw_text with "DETECTED GESTURES", 50, 15, 10, raylib.GRAY
+
+        if current_gesture != gesture_none:
+            calling touch_position.draw_circle with 30.0, raylib.MAROON
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

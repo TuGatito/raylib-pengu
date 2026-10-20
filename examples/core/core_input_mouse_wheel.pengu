@@ -1,0 +1,110 @@
+## examples/core/core_input_mouse_wheel.pengu
+## raylib [core] example - input mouse wheel
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.1, last time updated with raylib 1.3
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 port of `examples/core/core_input_mouse_wheel.c` using `raylibx.drawing`,
+## `raylibx.shapes`, and `raylibx.text`. C's `TextFormat("Box position Y: %03i", ...)`
+## is replaced with a zero-padded PenguScript string helper whose returned
+## string is released at the end of each frame via `defer banish`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_input_mouse_wheel.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.text as txt
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frame rate for the main loop.
+const TARGET_FPS as int is 60
+
+## Side length of the movable box, in pixels.
+const BOX_SIZE as int is 80
+
+## Scrolling speed in pixels per wheel step.
+const SCROLL_SPEED as int is 4
+
+# --- Helpers ------------------------------------------------------------
+## Formats the box Y coordinate matching C's `TextFormat("Box position Y: %03i", y)`.
+##
+## ## Parameters
+## - `y`: vertical position of the box in pixels.
+##
+## ## Returns
+## A newly allocated `string` with three-digit zero padding.
+##
+## ## Memory
+## Returns an owned PenguScript `string`; the caller should `banish` it when done.
+weave format_box_position_y with y as int into string:
+    if y < 0:
+        let abs_y as int is -y
+        if abs_y < 10:
+            return "Box position Y: -0{abs_y}"
+        return "Box position Y: -{abs_y}"
+    if y < 10:
+        return "Box position Y: 00{y}"
+    if y < 100:
+        return "Box position Y: 0{y}"
+    return "Box position Y: {y}"
+
+# --- Entry point --------------------------------------------------------
+## Moves a maroon box vertically in response to the mouse wheel.
+##
+## ## Returns
+## Process exit code: `0` on normal window closure.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - input mouse wheel"
+    defer calling raylib.CloseWindow
+
+    var box_position_y as int is (SCREEN_HEIGHT / 2) - (BOX_SIZE / 2)
+    let scroll_speed as f32 is (SCROLL_SPEED to f32)
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        let wheel_delta as int is ((calling raylib.GetMouseWheelMove) * scroll_speed) to int
+        set box_position_y -= wheel_delta
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling shapes.draw_rectangle with ((SCREEN_WIDTH / 2) - (BOX_SIZE / 2)), box_position_y, BOX_SIZE, BOX_SIZE, raylib.MAROON
+
+        calling txt.draw_text with "Use mouse wheel to move the cube up and down!", 10, 10, 20, raylib.GRAY
+
+        let pos_text as string is calling format_box_position_y with box_position_y
+        defer banish pos_text
+        calling txt.draw_text with pos_text, 10, 40, 20, raylib.LIGHTGRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

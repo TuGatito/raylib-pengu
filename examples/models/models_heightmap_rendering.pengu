@@ -1,0 +1,112 @@
+## raylib [models] example - heightmap rendering
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.8, last time updated with raylib 3.5
+## Example licensed under an unmodified zlib/libpng license.
+##
+## ## PenguScript Port
+## - Uses `raylibx.drawing` for frame and 3D mode scopes
+## - Uses `raylibx.images` and `raylibx.textures` for heightmap image loading and texture preview
+## - Uses `raylibx.models` for heightmap mesh generation, model wrapper, and drawing
+## - Uses `raylibx.shapes` and `raylibx.shapes3d` for rendering preview border and 3D grid
+## - Uses `raylibx.text` for FPS display
+##
+## ## Example
+## ```pengu
+## pengu run examples/models/models_heightmap_rendering.pengu
+## ```
+
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.models as models
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ---
+
+## Target window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Target window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry point ---
+
+## Program main entry point.
+##
+## ## Returns
+## Exit status code (0 for success).
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - heightmap rendering"
+    defer calling raylib.CloseWindow
+
+    var camera as raylib.Camera3D with:
+        set .position is (with x is 18.0, y is 21.0, z is 18.0)
+        set .target is (with x is 0.0, y is 0.0, z is 0.0)
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    var image as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_img as raylib.Image is calling images.load_image with "resources/heightmap.png":
+        set image is loaded_img
+
+    var texture as raylib.Texture2D is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture is calling textures.load_texture_from_image with image:
+        set texture is loaded_tex
+    defer calling textures.unload_texture with texture
+
+    let mesh_size as raylib.Vector3 is with x is 16.0, y is 8.0, z is 16.0
+    let mesh as raylib.Mesh is calling raylib.GenMeshHeightmap with image, mesh_size
+    var model as raylib.Model is calling models.load_model_from_mesh with mesh
+    defer calling models.unload_model with model
+
+    var mat0 as ref to raylib.Material is sigil of (model.materials at 0)
+    calling mat0.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+
+    let map_pos as raylib.Vector3 is with x is -8.0, y is 0.0, z is -8.0
+
+    calling images.unload_image with image
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_ORBITAL to int)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        calling model.draw with map_pos, 1.0, raylib.RED
+        calling shapes3d.draw_grid with 20, 1.0
+
+        calling drawing.end_mode_3d
+
+        # 2D heightmap texture preview
+        let preview_x as int is SCREEN_WIDTH - texture.width - 20
+        calling texture.draw with preview_x, 20, raylib.WHITE
+        calling shapes.draw_rectangle_lines with preview_x, 20, texture.width, texture.height, raylib.GREEN
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

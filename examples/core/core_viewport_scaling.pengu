@@ -1,0 +1,414 @@
+## examples/core/core_viewport_scaling.pengu
+## raylib [core] example - viewport scaling
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.5
+##
+## Example contributed by Agnis Aldiņš (@nezvers) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Agnis Aldiņš (@nezvers)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_viewport_scaling.c` on top of the
+## `raylibx` and `std.numerus` layers. The six viewport scaling strategies are
+## modeled with the `omen ViewportType` and dispatched with exhaustive `judge`
+## expressions (`viewport_type_name`, `next_viewport_type`,
+## `prev_viewport_type`, and `resize_render_size`). Button hit-testing uses
+## `Rectangle.contains_point`, and offscreen drawing uses `raylibx.textures` and
+## `raylibx.drawing`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_viewport_scaling.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+import std.numerus
+
+# --- Constants ----------------------------------------------------------
+## Initial window width, in pixels.
+const INITIAL_SCREEN_WIDTH as int is 800
+
+## Initial window height, in pixels.
+const INITIAL_SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Number of preset game resolutions.
+const RESOLUTION_COUNT as int is 4
+
+# --- Types --------------------------------------------------------------
+## Viewport scaling strategy.
+omen ViewportType:
+    ## Integer-only upscale preserving aspect ratio (useful for pixel art).
+    KeepAspectInteger
+    ## Integer-only upscale preserving vertical resolution.
+    KeepHeightInteger
+    ## Integer-only upscale preserving horizontal resolution.
+    KeepWidthInteger
+    ## Fractional upscale/downscale preserving aspect ratio.
+    KeepAspect
+    ## Fractional upscale/downscale preserving vertical resolution.
+    KeepHeight
+    ## Fractional upscale/downscale preserving horizontal resolution.
+    KeepWidth
+
+# --- Helpers ------------------------------------------------------------
+## Returns the GUI display name of a `ViewportType`.
+##
+## ## Parameters
+## - `viewport_type`: the active scaling mode.
+##
+## ## Returns
+## Static string literal naming the mode.
+weave viewport_type_name with viewport_type as ViewportType into string:
+    judge viewport_type:
+        when KeepAspectInteger -> "KEEP_ASPECT_INTEGER"
+        when KeepHeightInteger -> "KEEP_HEIGHT_INTEGER"
+        when KeepWidthInteger -> "KEEP_WIDTH_INTEGER"
+        when KeepAspect -> "KEEP_ASPECT"
+        when KeepHeight -> "KEEP_HEIGHT"
+        when KeepWidth -> "KEEP_WIDTH"
+
+## Cycles forward to the next `ViewportType`.
+##
+## ## Parameters
+## - `viewport_type`: the current scaling mode.
+##
+## ## Returns
+## The next `ViewportType` in cyclic order.
+weave next_viewport_type with viewport_type as ViewportType into ViewportType:
+    judge viewport_type:
+        when KeepAspectInteger -> ViewportType.KeepHeightInteger
+        when KeepHeightInteger -> ViewportType.KeepWidthInteger
+        when KeepWidthInteger -> ViewportType.KeepAspect
+        when KeepAspect -> ViewportType.KeepHeight
+        when KeepHeight -> ViewportType.KeepWidth
+        when KeepWidth -> ViewportType.KeepAspectInteger
+
+## Cycles backward to the previous `ViewportType`.
+##
+## ## Parameters
+## - `viewport_type`: the current scaling mode.
+##
+## ## Returns
+## The previous `ViewportType` in cyclic order.
+weave prev_viewport_type with viewport_type as ViewportType into ViewportType:
+    judge viewport_type:
+        when KeepAspectInteger -> ViewportType.KeepWidth
+        when KeepHeightInteger -> ViewportType.KeepAspectInteger
+        when KeepWidthInteger -> ViewportType.KeepHeightInteger
+        when KeepAspect -> ViewportType.KeepWidthInteger
+        when KeepHeight -> ViewportType.KeepAspect
+        when KeepWidth -> ViewportType.KeepHeight
+
+## Computes source and destination rectangles for integer aspect-preserving scaling.
+weave keep_aspect_centered_integer with screen_width as int, screen_height as int, game_width as int, game_height as int, source_rect as ref to raylib.Rectangle, dest_rect as ref to raylib.Rectangle into void:
+    let sw as f32 is (screen_width to f32)
+    let sh as f32 is (screen_height to f32)
+    let gw as f32 is (game_width to f32)
+    let gh as f32 is (game_height to f32)
+
+    set source_rect->x is 0.0
+    set source_rect->y is gh
+    set source_rect->width is gw
+    set source_rect->height is -gh
+
+    let ratio_x as int is screen_width / game_width
+    let ratio_y as int is screen_height / game_height
+    let min_ratio as int is calling ratio_x.get_min_with with ratio_y
+    let resize_ratio as f32 is (min_ratio to f32)
+
+    set dest_rect->x is ((((sw - (gw * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->y is ((((sh - (gh * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->width is (((gw * resize_ratio) to int) to f32)
+    set dest_rect->height is (((gh * resize_ratio) to int) to f32)
+
+## Computes source and destination rectangles for integer height-preserving scaling.
+weave keep_height_centered_integer with screen_width as int, screen_height as int, game_width as int, game_height as int, source_rect as ref to raylib.Rectangle, dest_rect as ref to raylib.Rectangle into void:
+    let sw as f32 is (screen_width to f32)
+    let sh as f32 is (screen_height to f32)
+    let gh as f32 is (game_height to f32)
+
+    let resize_ratio as f32 is sh / gh
+    let src_w as f32 is (((sw / resize_ratio) to int) to f32)
+
+    set source_rect->x is 0.0
+    set source_rect->y is 0.0
+    set source_rect->width is src_w
+    set source_rect->height is -gh
+
+    set dest_rect->x is ((((sw - (src_w * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->y is ((((sh - (gh * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->width is (((src_w * resize_ratio) to int) to f32)
+    set dest_rect->height is (((gh * resize_ratio) to int) to f32)
+
+## Computes source and destination rectangles for integer width-preserving scaling.
+weave keep_width_centered_integer with screen_width as int, screen_height as int, game_width as int, game_height as int, source_rect as ref to raylib.Rectangle, dest_rect as ref to raylib.Rectangle into void:
+    let sw as f32 is (screen_width to f32)
+    let sh as f32 is (screen_height to f32)
+    let gw as f32 is (game_width to f32)
+
+    let resize_ratio as f32 is sw / gw
+    let src_h as f32 is (((sh / resize_ratio) to int) to f32)
+
+    set source_rect->x is 0.0
+    set source_rect->y is 0.0
+    set source_rect->width is gw
+    set source_rect->height is -src_h
+
+    set dest_rect->x is ((((sw - (gw * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->y is ((((sh - (src_h * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->width is (((gw * resize_ratio) to int) to f32)
+    set dest_rect->height is (((src_h * resize_ratio) to int) to f32)
+
+## Computes source and destination rectangles for fractional aspect-preserving scaling.
+weave keep_aspect_centered with screen_width as int, screen_height as int, game_width as int, game_height as int, source_rect as ref to raylib.Rectangle, dest_rect as ref to raylib.Rectangle into void:
+    let sw as f32 is (screen_width to f32)
+    let sh as f32 is (screen_height to f32)
+    let gw as f32 is (game_width to f32)
+    let gh as f32 is (game_height to f32)
+
+    set source_rect->x is 0.0
+    set source_rect->y is gh
+    set source_rect->width is gw
+    set source_rect->height is -gh
+
+    let ratio_x as f32 is sw / gw
+    let ratio_y as f32 is sh / gh
+    let resize_ratio as f32 is calling ratio_x.get_min_with with ratio_y
+
+    set dest_rect->x is ((((sw - (gw * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->y is ((((sh - (gh * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->width is (((gw * resize_ratio) to int) to f32)
+    set dest_rect->height is (((gh * resize_ratio) to int) to f32)
+
+## Computes source and destination rectangles for fractional height-preserving scaling.
+weave keep_height_centered with screen_width as int, screen_height as int, game_width as int, game_height as int, source_rect as ref to raylib.Rectangle, dest_rect as ref to raylib.Rectangle into void:
+    let sw as f32 is (screen_width to f32)
+    let sh as f32 is (screen_height to f32)
+    let gh as f32 is (game_height to f32)
+
+    let resize_ratio as f32 is sh / gh
+    let src_w as f32 is (((sw / resize_ratio) to int) to f32)
+
+    set source_rect->x is 0.0
+    set source_rect->y is 0.0
+    set source_rect->width is src_w
+    set source_rect->height is -gh
+
+    set dest_rect->x is ((((sw - (src_w * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->y is ((((sh - (gh * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->width is (((src_w * resize_ratio) to int) to f32)
+    set dest_rect->height is (((gh * resize_ratio) to int) to f32)
+
+## Computes source and destination rectangles for fractional width-preserving scaling.
+weave keep_width_centered with screen_width as int, screen_height as int, game_width as int, game_height as int, source_rect as ref to raylib.Rectangle, dest_rect as ref to raylib.Rectangle into void:
+    let sw as f32 is (screen_width to f32)
+    let sh as f32 is (screen_height to f32)
+    let gw as f32 is (game_width to f32)
+
+    let resize_ratio as f32 is sw / gw
+    let src_h as f32 is (((sh / resize_ratio) to int) to f32)
+
+    set source_rect->x is 0.0
+    set source_rect->y is 0.0
+    set source_rect->width is gw
+    set source_rect->height is -src_h
+
+    set dest_rect->x is ((((sw - (gw * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->y is ((((sh - (src_h * resize_ratio)) * 0.5) to int) to f32)
+    set dest_rect->width is (((gw * resize_ratio) to int) to f32)
+    set dest_rect->height is (((src_h * resize_ratio) to int) to f32)
+
+## Recomputes the viewport rectangles and recreates the render target texture.
+weave resize_render_size with viewport_type as ViewportType, screen_width as ref to int, screen_height as ref to int, game_width as int, game_height as int, source_rect as ref to raylib.Rectangle, dest_rect as ref to raylib.Rectangle, target as ref to raylib.RenderTexture into void:
+    let sw as int is calling raylib.GetScreenWidth
+    let sh as int is calling raylib.GetScreenHeight
+    set essence of screen_width is sw
+    set essence of screen_height is sh
+
+    judge viewport_type:
+        when KeepAspectInteger -> calling keep_aspect_centered_integer with sw, sh, game_width, game_height, source_rect, dest_rect
+        when KeepHeightInteger -> calling keep_height_centered_integer with sw, sh, game_width, game_height, source_rect, dest_rect
+        when KeepWidthInteger -> calling keep_width_centered_integer with sw, sh, game_width, game_height, source_rect, dest_rect
+        when KeepAspect -> calling keep_aspect_centered with sw, sh, game_width, game_height, source_rect, dest_rect
+        when KeepHeight -> calling keep_height_centered with sw, sh, game_width, game_height, source_rect, dest_rect
+        when KeepWidth -> calling keep_width_centered with sw, sh, game_width, game_height, source_rect, dest_rect
+
+    calling textures.unload_render_texture with (essence of target)
+    let target_w as int is (source_rect->width to int)
+    let target_h as int is (-(source_rect->height to int))
+    let loaded as maybe raylib.RenderTexture is calling textures.load_render_texture with target_w, target_h
+    if fresh as raylib.RenderTexture is loaded:
+        set essence of target is fresh
+
+## Maps a window-space point into the render texture's coordinate space.
+weave screen_to_render_texture_position with point as raylib.Vector2, texture_rect as ref to raylib.Rectangle, scaled_rect as ref to raylib.Rectangle into raylib.Vector2:
+    let rel_x as f32 is point.x - scaled_rect->x
+    let rel_y as f32 is point.y - scaled_rect->y
+    let ratio_x as f32 is texture_rect->width / scaled_rect->width
+    return with x is (rel_x * ratio_x), y is (rel_y * ratio_x)
+
+# --- Entry point --------------------------------------------------------
+## Opens a resizable window and lets the user cycle through preset game
+## resolutions and viewport scaling modes.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    var screen_width as int is INITIAL_SCREEN_WIDTH
+    var screen_height as int is INITIAL_SCREEN_HEIGHT
+
+    calling raylib.SetConfigFlags with (raylib.FLAG_WINDOW_RESIZABLE to u32)
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [core] example - viewport scaling"
+    defer calling raylib.CloseWindow
+
+    # Preset resolutions that could be created by subdividing screen resolution
+    var resolution_list as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish resolution_list
+    calling resolution_list.push with (with x is 64.0, y is 64.0)
+    calling resolution_list.push with (with x is 256.0, y is 240.0)
+    calling resolution_list.push with (with x is 320.0, y is 180.0)
+    # 4K doesn't work with integer scaling but included for example purposes with non-integer scaling
+    calling resolution_list.push with (with x is 3840.0, y is 2160.0)
+
+    var resolution_index as int is 0
+    var game_width as int is 64
+    var game_height as int is 64
+
+    let empty_tex as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    var target as raylib.RenderTexture is with id is 0, texture is empty_tex, depth is empty_tex
+    var source_rect as raylib.Rectangle is with x is 0.0, y is 0.0, width is 0.0, height is 0.0
+    var dest_rect as raylib.Rectangle is with x is 0.0, y is 0.0, width is 0.0, height is 0.0
+
+    var viewport_type as ViewportType is ViewportType.KeepAspectInteger
+    calling resize_render_size with viewport_type, (sigil of screen_width), (sigil of screen_height), game_width, game_height, (sigil of source_rect), (sigil of dest_rect), (sigil of target)
+
+    # Button rectangles
+    let decrease_resolution_button as raylib.Rectangle is with x is 200.0, y is 30.0, width is 10.0, height is 10.0
+    let increase_resolution_button as raylib.Rectangle is with x is 215.0, y is 30.0, width is 10.0, height is 10.0
+    let decrease_type_button as raylib.Rectangle is with x is 200.0, y is 45.0, width is 10.0, height is 10.0
+    let increase_type_button as raylib.Rectangle is with x is 215.0, y is 45.0, width is 10.0, height is 10.0
+    let info_rect as raylib.Rectangle is with x is 5.0, y is 5.0, width is 330.0, height is 105.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling raylib.IsWindowResized:
+            calling resize_render_size with viewport_type, (sigil of screen_width), (sigil of screen_height), game_width, game_height, (sigil of source_rect), (sigil of dest_rect), (sigil of target)
+
+        let mouse_position as raylib.Vector2 is calling raylib.GetMousePosition
+        let mouse_pressed as bool is calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT
+
+        # Check buttons and rescale
+        if (calling decrease_resolution_button.contains_point with mouse_position) and mouse_pressed:
+            set resolution_index is ((resolution_index + RESOLUTION_COUNT) - 1) % RESOLUTION_COUNT
+            let res as raylib.Vector2 is resolution_list at resolution_index
+            set game_width is (res.x to int)
+            set game_height is (res.y to int)
+            calling resize_render_size with viewport_type, (sigil of screen_width), (sigil of screen_height), game_width, game_height, (sigil of source_rect), (sigil of dest_rect), (sigil of target)
+
+        if (calling increase_resolution_button.contains_point with mouse_position) and mouse_pressed:
+            set resolution_index is (resolution_index + 1) % RESOLUTION_COUNT
+            let res as raylib.Vector2 is resolution_list at resolution_index
+            set game_width is (res.x to int)
+            set game_height is (res.y to int)
+            calling resize_render_size with viewport_type, (sigil of screen_width), (sigil of screen_height), game_width, game_height, (sigil of source_rect), (sigil of dest_rect), (sigil of target)
+
+        if (calling decrease_type_button.contains_point with mouse_position) and mouse_pressed:
+            set viewport_type is calling prev_viewport_type with viewport_type
+            calling resize_render_size with viewport_type, (sigil of screen_width), (sigil of screen_height), game_width, game_height, (sigil of source_rect), (sigil of dest_rect), (sigil of target)
+
+        if (calling increase_type_button.contains_point with mouse_position) and mouse_pressed:
+            set viewport_type is calling next_viewport_type with viewport_type
+            calling resize_render_size with viewport_type, (sigil of screen_width), (sigil of screen_height), game_width, game_height, (sigil of source_rect), (sigil of dest_rect), (sigil of target)
+
+        let texture_mouse_position as raylib.Vector2 is calling screen_to_render_texture_position with mouse_position, (sigil of source_rect), (sigil of dest_rect)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        # Draw our scene to the render texture
+        calling drawing.begin_texture_mode with target
+        calling drawing.clear_background with raylib.WHITE
+        calling texture_mouse_position.draw_circle with 20.0, raylib.LIME
+        calling drawing.end_texture_mode
+
+        # Draw render texture to main framebuffer
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.BLACK
+
+        # Draw our render texture with rotation applied
+        calling target.texture.draw_pro with source_rect, dest_rect, (with x is 0.0, y is 0.0), 0.0, raylib.WHITE
+
+        # Draw Native resolution (GUI or anything)
+        # Draw info box
+        calling info_rect.draw with (calling colors.fade with raylib.LIGHTGRAY, 0.7)
+        calling info_rect.draw_outline with 1.0, raylib.BLUE
+
+        let win_res_text as string is "Window Resolution: {screen_width} x {screen_height}"
+        calling txt.draw_text with win_res_text, 15, 15, 10, raylib.BLACK
+        banish win_res_text
+
+        let game_res_text as string is "Game Resolution: {game_width} x {game_height}"
+        calling txt.draw_text with game_res_text, 15, 30, 10, raylib.BLACK
+        banish game_res_text
+
+        let type_name as string is calling viewport_type_name with viewport_type
+        let type_text as string is "Type: {type_name}"
+        calling txt.draw_text with type_text, 15, 45, 10, raylib.BLACK
+        banish type_text
+
+        let scale_ratio as raylib.Vector2 is with:
+            set .x is dest_rect.width / source_rect.width
+            set .y is (-dest_rect.height) / source_rect.height
+        if (scale_ratio.x < 0.001) or (scale_ratio.y < 0.001):
+            calling txt.draw_text with "Scale ratio: INVALID", 15, 60, 10, raylib.BLACK
+        else:
+            let ratio_text as string is "Scale ratio: {scale_ratio.x} x {scale_ratio.y}"
+            calling txt.draw_text with ratio_text, 15, 60, 10, raylib.BLACK
+            banish ratio_text
+
+        let neg_src_h as f32 is -source_rect.height
+        let src_size_text as string is "Source size: {source_rect.width} x {neg_src_h}"
+        calling txt.draw_text with src_size_text, 15, 75, 10, raylib.BLACK
+        banish src_size_text
+
+        let dst_size_text as string is "Destination size: {dest_rect.width} x {dest_rect.height}"
+        calling txt.draw_text with dst_size_text, 15, 90, 10, raylib.BLACK
+        banish dst_size_text
+
+        # Draw buttons
+        calling decrease_type_button.draw with raylib.SKYBLUE
+        calling increase_type_button.draw with raylib.SKYBLUE
+        calling decrease_resolution_button.draw with raylib.SKYBLUE
+        calling increase_resolution_button.draw with raylib.SKYBLUE
+        calling txt.draw_text with "<", ((decrease_type_button.x to int) + 3), ((decrease_type_button.y to int) + 1), 10, raylib.BLACK
+        calling txt.draw_text with ">", ((increase_type_button.x to int) + 3), ((increase_type_button.y to int) + 1), 10, raylib.BLACK
+        calling txt.draw_text with "<", ((decrease_resolution_button.x to int) + 3), ((decrease_resolution_button.y to int) + 1), 10, raylib.BLACK
+        calling txt.draw_text with ">", ((increase_resolution_button.x to int) + 3), ((increase_resolution_button.y to int) + 1), 10, raylib.BLACK
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    calling textures.unload_render_texture with target
+    return 0

@@ -1,0 +1,389 @@
+## examples/core/core_input_gestures_testbed.pengu
+## raylib [core] example - input gestures testbed
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 5.0, last time updated with raylib 6.0
+##
+## Example contributed by ubkp (@ubkp) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2023-2025 ubkp (@ubkp)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_input_gestures_testbed.c` on top of
+## the `raylibx` wrapper layer and `std.fractio`. Gesture names, gesture colors,
+## and log filter state transitions are expressed with `judge` expressions, and
+## the protractor vector uses `get_sin` / `get_cos` from `std.fractio`.
+##
+## ## Example
+## ```bash
+## pengu run examples/core/core_input_gestures_testbed.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import std.fractio
+
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height, in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second for the main loop.
+const TARGET_FPS as int is 60
+
+## Number of entries in the circular gesture log.
+const GESTURE_LOG_SIZE as int is 20
+
+## Maximum number of simultaneous touch points tracked.
+const MAX_TOUCH_COUNT as int is 32
+
+## Length of the protractor needle, in pixels.
+const ANGLE_LENGTH as f32 is 90.0
+
+# --- Helpers ------------------------------------------------------------
+## Returns the human-readable name for a gesture bitflag value.
+##
+## ## Parameters
+## - `gesture`: gesture ordinal from `raylib.GetGestureDetected`.
+##
+## ## Returns
+## Static string literal naming the gesture.
+weave gesture_name with gesture as int into string:
+    return judge gesture:
+        when 0 -> "None"
+        when 1 -> "Tap"
+        when 2 -> "Double Tap"
+        when 4 -> "Hold"
+        when 8 -> "Drag"
+        when 16 -> "Swipe Right"
+        when 32 -> "Swipe Left"
+        when 64 -> "Swipe Up"
+        when 128 -> "Swipe Down"
+        when 256 -> "Pinch In"
+        when 512 -> "Pinch Out"
+        else -> "Unknown"
+
+## Returns the highlight color associated with a gesture bitflag value.
+##
+## ## Parameters
+## - `gesture`: gesture ordinal from `raylib.GetGestureDetected`.
+##
+## ## Returns
+## A `raylib.Color` matching the gesture category.
+weave gesture_color_of with gesture as int into raylib.Color:
+    return judge gesture:
+        when 0 -> raylib.BLACK
+        when 1 -> raylib.BLUE
+        when 2 -> raylib.SKYBLUE
+        when 4 -> raylib.BLACK
+        when 8 -> raylib.LIME
+        when 16 -> raylib.RED
+        when 32 -> raylib.RED
+        when 64 -> raylib.RED
+        when 128 -> raylib.RED
+        when 256 -> raylib.VIOLET
+        when 512 -> raylib.ORANGE
+        else -> raylib.BLACK
+
+## Evaluates whether the current gesture should be recorded under `log_mode`.
+##
+## ## Parameters
+## - `log_mode`: active filter mode (`0`..`3`).
+## - `current_gesture`: gesture detected this frame.
+## - `previous_gesture`: last gesture recorded in the log.
+##
+## ## Returns
+## `true` when the gesture should be appended to the circular log.
+weave should_fill_log with log_mode as int, current_gesture as int, previous_gesture as int into bool:
+    if current_gesture == 0:
+        return false
+    return judge log_mode:
+        when 3 -> ((current_gesture != 4) and (current_gesture != previous_gesture)) or (current_gesture < 3)
+        when 2 -> current_gesture != 4
+        when 1 -> current_gesture != previous_gesture
+        else -> true
+
+# --- Entry point --------------------------------------------------------
+## Runs an interactive testbed displaying gesture logs, last gesture icons,
+## drag/pinch protractor angle, and active touch/mouse points.
+##
+## ## Returns
+## Process exit code: `0` when the window closes normally.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - input gestures testbed"
+    defer calling raylib.CloseWindow
+
+    let message_position as raylib.Vector2 is with x is 160.0, y is 7.0
+
+    # Last gesture variables
+    var last_gesture as int is 0
+    let last_gesture_position as raylib.Vector2 is with x is 165.0, y is 130.0
+
+    # Circular gesture log
+    var gesture_log as list of string is list of string
+    defer banish gesture_log
+    for _ from 0 to GESTURE_LOG_SIZE:
+        calling gesture_log.push with ""
+
+    var gesture_log_index as int is 0
+    var previous_gesture as int is 0
+
+    # Log mode values:
+    # - 0 shows repeated events
+    # - 1 hides repeated events
+    # - 2 shows repeated events but hides hold events
+    # - 3 hides repeated events and hides hold events
+    var log_mode as int is 1
+
+    var gesture_color as raylib.Color is with r is 0, g is 0, b is 0, a is 255
+    let log_button_1 as raylib.Rectangle is with x is 53.0, y is 7.0, width is 48.0, height is 26.0
+    let log_button_2 as raylib.Rectangle is with x is 108.0, y is 7.0, width is 36.0, height is 26.0
+    let gesture_log_position as raylib.Vector2 is with x is 10.0, y is 10.0
+
+    # Protractor variables
+    var current_angle_degrees as f32 is 0.0
+    var final_vector as raylib.Vector2 is with x is 0.0, y is 0.0
+    let protractor_position as raylib.Vector2 is with x is 266.0, y is 315.0
+
+    var touch_positions as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish touch_positions
+    for _ from 0 to MAX_TOUCH_COUNT:
+        calling touch_positions.push with (with x is 0.0, y is 0.0)
+
+    let gesture_none as int is raylib.GESTURE_NONE to int
+    let gesture_tap as int is raylib.GESTURE_TAP to int
+    let gesture_doubletap as int is raylib.GESTURE_DOUBLETAP to int
+    let gesture_drag as int is raylib.GESTURE_DRAG to int
+    let gesture_swipe_right as int is raylib.GESTURE_SWIPE_RIGHT to int
+    let gesture_swipe_left as int is raylib.GESTURE_SWIPE_LEFT to int
+    let gesture_swipe_up as int is raylib.GESTURE_SWIPE_UP to int
+    let gesture_swipe_down as int is raylib.GESTURE_SWIPE_DOWN to int
+    let gesture_pinch_in as int is raylib.GESTURE_PINCH_IN to int
+    let gesture_pinch_out as int is raylib.GESTURE_PINCH_OUT to int
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        let current_gesture as int is calling raylib.GetGestureDetected
+        let current_drag_degrees as f32 is calling raylib.GetGestureDragAngle
+        let current_pitch_degrees as f32 is calling raylib.GetGesturePinchAngle
+        let touch_count as int is calling raylib.GetTouchPointCount
+
+        # Handle last gesture (filter meaningful gestures: 1, 2, 8 to 512)
+        if (current_gesture != 0) and (current_gesture != 4) and (current_gesture != previous_gesture):
+            set last_gesture is current_gesture
+
+        # Handle gesture log filter buttons
+        if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+            let mouse_now as raylib.Vector2 is calling raylib.GetMousePosition
+            if calling log_button_1.contains_point with mouse_now:
+                set log_mode is judge log_mode:
+                    when 3 -> 2
+                    when 2 -> 3
+                    when 1 -> 0
+                    else -> 1
+            else if calling log_button_2.contains_point with mouse_now:
+                set log_mode is judge log_mode:
+                    when 3 -> 1
+                    when 2 -> 0
+                    when 1 -> 3
+                    else -> 2
+
+        if calling should_fill_log with log_mode, current_gesture, previous_gesture:
+            set previous_gesture is current_gesture
+            set gesture_color is calling gesture_color_of with current_gesture
+            if gesture_log_index <= 0:
+                set gesture_log_index is GESTURE_LOG_SIZE
+            set gesture_log_index -= 1
+            set gesture_log at gesture_log_index is calling gesture_name with current_gesture
+
+        # Handle protractor angle
+        if current_gesture > 255:
+            set current_angle_degrees is current_pitch_degrees
+        else if current_gesture > 15:
+            set current_angle_degrees is current_drag_degrees
+        else if current_gesture > 0:
+            set current_angle_degrees is 0.0
+
+        let current_angle_radians as f32 is ((current_angle_degrees + 90.0) * raylib.PI) / 180.0
+        set final_vector is with:
+            set .x is (ANGLE_LENGTH * (calling current_angle_radians.get_sin)) + protractor_position.x
+            set .y is (ANGLE_LENGTH * (calling current_angle_radians.get_cos)) + protractor_position.y
+
+        # Handle touch and mouse pointer points
+        var mouse_position as raylib.Vector2 is with x is 0.0, y is 0.0
+        let clamped_touch_count as int is if touch_count < MAX_TOUCH_COUNT then touch_count else MAX_TOUCH_COUNT
+        if current_gesture != gesture_none:
+            if clamped_touch_count != 0:
+                for i from 0 to clamped_touch_count:
+                    set touch_positions at i is calling raylib.GetTouchPosition with i
+            else:
+                set mouse_position is calling raylib.GetMousePosition
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let msg_x as int is message_position.x to int
+        let msg_y as int is message_position.y to int
+
+        # Draw common elements
+        calling txt.draw_text with "*", (msg_x + 5), (msg_y + 5), 10, raylib.BLACK
+        calling txt.draw_text with "Example optimized for Web/HTML5\non Smartphones with Touch Screen.", (msg_x + 15), (msg_y + 5), 10, raylib.BLACK
+        calling txt.draw_text with "*", (msg_x + 5), (msg_y + 35), 10, raylib.BLACK
+        calling txt.draw_text with "While running on Desktop Web Browsers,\ninspect and turn on Touch Emulation.", (msg_x + 15), (msg_y + 35), 10, raylib.BLACK
+
+        # Draw last gesture
+        let lg_x as int is last_gesture_position.x to int
+        let lg_y as int is last_gesture_position.y to int
+        calling txt.draw_text with "Last gesture", (lg_x + 33), (lg_y - 47), 20, raylib.BLACK
+        calling txt.draw_text with "Swipe         Tap       Pinch  Touch", (lg_x + 17), (lg_y - 18), 10, raylib.BLACK
+
+        calling shapes.draw_rectangle with (lg_x + 20), lg_y, 20, 20, (if last_gesture == gesture_swipe_up then raylib.RED else raylib.LIGHTGRAY)
+        calling shapes.draw_rectangle with lg_x, (lg_y + 20), 20, 20, (if last_gesture == gesture_swipe_left then raylib.RED else raylib.LIGHTGRAY)
+        calling shapes.draw_rectangle with (lg_x + 40), (lg_y + 20), 20, 20, (if last_gesture == gesture_swipe_right then raylib.RED else raylib.LIGHTGRAY)
+        calling shapes.draw_rectangle with (lg_x + 20), (lg_y + 40), 20, 20, (if last_gesture == gesture_swipe_down then raylib.RED else raylib.LIGHTGRAY)
+        calling shapes.draw_circle with (lg_x + 80), (lg_y + 16), 10.0, (if last_gesture == gesture_tap then raylib.BLUE else raylib.LIGHTGRAY)
+
+        let drag_ring_center as raylib.Vector2 is with x is (last_gesture_position.x + 103.0), y is (last_gesture_position.y + 16.0)
+        calling drag_ring_center.draw_ring with 6.0, 11.0, 0.0, 360.0, 0, (if last_gesture == gesture_drag then raylib.LIME else raylib.LIGHTGRAY)
+
+        let dbl_color as raylib.Color is if last_gesture == gesture_doubletap then raylib.SKYBLUE else raylib.LIGHTGRAY
+        calling shapes.draw_circle with (lg_x + 80), (lg_y + 43), 10.0, dbl_color
+        calling shapes.draw_circle with (lg_x + 103), (lg_y + 43), 10.0, dbl_color
+
+        let pinch_out_color as raylib.Color is if last_gesture == gesture_pinch_out then raylib.ORANGE else raylib.LIGHTGRAY
+        let po_l1 as raylib.Vector2 is with x is (last_gesture_position.x + 122.0), y is (last_gesture_position.y + 16.0)
+        let po_l2 as raylib.Vector2 is with x is (last_gesture_position.x + 137.0), y is (last_gesture_position.y + 26.0)
+        let po_l3 as raylib.Vector2 is with x is (last_gesture_position.x + 137.0), y is (last_gesture_position.y + 6.0)
+        calling po_l1.draw_triangle with po_l2, po_l3, pinch_out_color
+
+        let po_r1 as raylib.Vector2 is with x is (last_gesture_position.x + 147.0), y is (last_gesture_position.y + 6.0)
+        let po_r2 as raylib.Vector2 is with x is (last_gesture_position.x + 147.0), y is (last_gesture_position.y + 26.0)
+        let po_r3 as raylib.Vector2 is with x is (last_gesture_position.x + 162.0), y is (last_gesture_position.y + 16.0)
+        calling po_r1.draw_triangle with po_r2, po_r3, pinch_out_color
+
+        let pinch_in_color as raylib.Color is if last_gesture == gesture_pinch_in then raylib.VIOLET else raylib.LIGHTGRAY
+        let pi_l1 as raylib.Vector2 is with x is (last_gesture_position.x + 125.0), y is (last_gesture_position.y + 33.0)
+        let pi_l2 as raylib.Vector2 is with x is (last_gesture_position.x + 125.0), y is (last_gesture_position.y + 53.0)
+        let pi_l3 as raylib.Vector2 is with x is (last_gesture_position.x + 140.0), y is (last_gesture_position.y + 43.0)
+        calling pi_l1.draw_triangle with pi_l2, pi_l3, pinch_in_color
+
+        let pi_r1 as raylib.Vector2 is with x is (last_gesture_position.x + 144.0), y is (last_gesture_position.y + 43.0)
+        let pi_r2 as raylib.Vector2 is with x is (last_gesture_position.x + 159.0), y is (last_gesture_position.y + 53.0)
+        let pi_r3 as raylib.Vector2 is with x is (last_gesture_position.x + 159.0), y is (last_gesture_position.y + 33.0)
+        calling pi_r1.draw_triangle with pi_r2, pi_r3, pinch_in_color
+
+        for i from 0 to 4:
+            let dot_color as raylib.Color is if touch_count <= i then raylib.LIGHTGRAY else gesture_color
+            calling shapes.draw_circle with (lg_x + 180), (lg_y + 7 + (i * 15)), 5.0, dot_color
+
+        # Draw gesture log
+        let log_x as int is gesture_log_position.x to int
+        let log_y as int is gesture_log_position.y to int
+        calling txt.draw_text with "Log", log_x, log_y, 20, raylib.BLACK
+
+        var ii as int is gesture_log_index
+        for i from 0 to GESTURE_LOG_SIZE:
+            let entry_color as raylib.Color is if i == 0 then gesture_color else raylib.LIGHTGRAY
+            calling txt.draw_text with (gesture_log at ii), log_x, (log_y + 410 - (i * 20)), 20, entry_color
+            set ii is (ii + 1) % GESTURE_LOG_SIZE
+
+        let log_button_1_color as raylib.Color is judge log_mode:
+            when 3 -> raylib.MAROON
+            when 1 -> raylib.MAROON
+            else -> raylib.GRAY
+        let log_button_2_color as raylib.Color is judge log_mode:
+            when 3 -> raylib.MAROON
+            when 2 -> raylib.MAROON
+            else -> raylib.GRAY
+
+        calling log_button_1.draw with log_button_1_color
+        let btn1_x as int is log_button_1.x to int
+        let btn1_y as int is log_button_1.y to int
+        calling txt.draw_text with "Hide", (btn1_x + 7), (btn1_y + 3), 10, raylib.WHITE
+        calling txt.draw_text with "Repeat", (btn1_x + 7), (btn1_y + 13), 10, raylib.WHITE
+
+        calling log_button_2.draw with log_button_2_color
+        calling txt.draw_text with "Hide", (btn1_x + 62), (btn1_y + 3), 10, raylib.WHITE
+        calling txt.draw_text with "Hold", (btn1_x + 62), (btn1_y + 13), 10, raylib.WHITE
+
+        # Draw protractor
+        let prot_x as int is protractor_position.x to int
+        let prot_y as int is protractor_position.y to int
+        calling txt.draw_text with "Angle", (prot_x + 55), (prot_y + 76), 10, raylib.BLACK
+
+        let angle_string as string is "{current_angle_degrees}"
+        let dot_index as maybe int is calling txt.text_find with angle_string, "."
+        let trim_len as int is if dot_index is present then ((calling dot_index.unwrap) + 3) else (angle_string length)
+        let angle_string_trim as string is calling txt.text_subtext with angle_string, 0, trim_len
+        calling txt.draw_text with angle_string_trim, (prot_x + 55), (prot_y + 92), 20, gesture_color
+        banish angle_string_trim
+        banish angle_string
+
+        calling protractor_position.draw_circle with 80.0, raylib.WHITE
+        let h_start as raylib.Vector2 is with x is (protractor_position.x - 90.0), y is protractor_position.y
+        let h_end as raylib.Vector2 is with x is (protractor_position.x + 90.0), y is protractor_position.y
+        let v_start as raylib.Vector2 is with x is protractor_position.x, y is (protractor_position.y - 90.0)
+        let v_end as raylib.Vector2 is with x is protractor_position.x, y is (protractor_position.y + 90.0)
+        let d1_start as raylib.Vector2 is with x is (protractor_position.x - 80.0), y is (protractor_position.y - 45.0)
+        let d1_end as raylib.Vector2 is with x is (protractor_position.x + 80.0), y is (protractor_position.y + 45.0)
+        let d2_start as raylib.Vector2 is with x is (protractor_position.x - 80.0), y is (protractor_position.y + 45.0)
+        let d2_end as raylib.Vector2 is with x is (protractor_position.x + 80.0), y is (protractor_position.y - 45.0)
+        calling h_start.draw_line_ex with h_end, 3.0, raylib.LIGHTGRAY
+        calling v_start.draw_line_ex with v_end, 3.0, raylib.LIGHTGRAY
+        calling d1_start.draw_line_ex with d1_end, 3.0, raylib.GREEN
+        calling d2_start.draw_line_ex with d2_end, 3.0, raylib.GREEN
+
+        calling txt.draw_text with "0", (prot_x + 96), (prot_y - 9), 20, raylib.BLACK
+        calling txt.draw_text with "30", (prot_x + 74), (prot_y - 68), 20, raylib.BLACK
+        calling txt.draw_text with "90", (prot_x - 11), (prot_y - 110), 20, raylib.BLACK
+        calling txt.draw_text with "150", (prot_x - 100), (prot_y - 68), 20, raylib.BLACK
+        calling txt.draw_text with "180", (prot_x - 124), (prot_y - 9), 20, raylib.BLACK
+        calling txt.draw_text with "210", (prot_x - 100), (prot_y + 50), 20, raylib.BLACK
+        calling txt.draw_text with "270", (prot_x - 18), (prot_y + 92), 20, raylib.BLACK
+        calling txt.draw_text with "330", (prot_x + 72), (prot_y + 50), 20, raylib.BLACK
+
+        if current_angle_degrees != 0.0:
+            calling protractor_position.draw_line_ex with final_vector, 3.0, gesture_color
+
+        # Draw touch and mouse pointer points
+        if current_gesture != gesture_none:
+            if clamped_touch_count != 0:
+                for i from 0 to clamped_touch_count:
+                    let pt as raylib.Vector2 is touch_positions at i
+                    calling pt.draw_circle with 50.0, (calling colors.fade with gesture_color, 0.5)
+                    calling pt.draw_circle with 5.0, gesture_color
+
+                if clamped_touch_count == 2:
+                    let p0 as raylib.Vector2 is touch_positions at 0
+                    let p1 as raylib.Vector2 is touch_positions at 1
+                    let thick as f32 is if current_gesture == 512 then 8.0 else 12.0
+                    calling p0.draw_line_ex with p1, thick, gesture_color
+            else:
+                calling mouse_position.draw_circle with 35.0, (calling colors.fade with gesture_color, 0.5)
+                calling mouse_position.draw_circle with 5.0, gesture_color
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

@@ -10,16 +10,15 @@
 ##
 ## Copyright (c) 2015-2025 Ramon Santamaria (@raysan5)
 ##
-## ## Port a PenguScript
-## Traducción 1:1 de `examples/core/core_3d_camera_first_person.c` sobre la
-## capa de wrappers `raylibx` + `rcamerax`. `CameraYaw`/`CameraPitch` pasan a
-## ser `camera.yaw` y `camera.pitch`; `UpdateCamera` se queda como función del
-## binding, que es donde `raylib` la declara. Las columnas aleatorias de C
-## (`heights`, `positions`, `colors`) se guardan en tres listas liberadas con
-## `defer banish`, y el estado de la cámara se muestra con interpolación de
-## cadenas en lugar de `TextFormat`.
+## ## PenguScript Port
+## 1:1 translation of `examples/core/core_3d_camera_first_person.c` on top of the
+## `raylibx` + `rcamerax` wrapper layer. `CameraYaw`/`CameraPitch` become
+## `camera.yaw` and `camera.pitch`; `UpdateCamera` remains a binding function call,
+## which is where `raylib` declares it. The random C column arrays (`heights`,
+## `positions`, `colors`) are stored in three lists released with `defer banish`,
+## and the camera status panel uses string interpolation instead of `TextFormat`.
 ##
-## ## Ejemplo
+## ## Example
 ## ```bash
 ## pengu run examples/core/core_3d_camera_first_person.pengu
 ## ```
@@ -36,27 +35,27 @@ import raylibx.text as txt
 import raymathx
 import rcamerax
 
-# --- Constantes ---------------------------------------------------------
-## Ancho de la ventana, en píxeles.
+# --- Constants ----------------------------------------------------------
+## Window width, in pixels.
 const SCREEN_WIDTH as int is 800
 
-## Alto de la ventana, en píxeles.
+## Window height, in pixels.
 const SCREEN_HEIGHT as int is 450
 
-## Fotogramas por segundo a los que corre el bucle principal.
+## Target frames per second for the main game loop.
 const TARGET_FPS as int is 60
 
-## Número de columnas aleatorias que se generan.
+## Number of random columns generated in the scene.
 const MAX_COLUMNS as int is 20
 
 # --- Helpers ------------------------------------------------------------
-## Traduce el modo de cámara de raylib a su nombre legible.
+## Translates a raylib camera mode to its human-readable name.
 ##
-## ## Parámetros
-## - `mode`: modo actual de la cámara.
+## ## Parameters
+## - `mode`: current camera mode.
 ##
-## ## Retorno
-## El nombre del modo. Los literales de retorno no poseen memoria.
+## ## Returns
+## The mode name. Returned string literals do not own heap memory.
 weave describe_camera_mode with mode as raylib.CameraMode into string:
     judge mode:
         when CAMERA_FREE -> "FREE"
@@ -65,13 +64,13 @@ weave describe_camera_mode with mode as raylib.CameraMode into string:
         when CAMERA_ORBITAL -> "ORBITAL"
         when CAMERA_CUSTOM -> "CUSTOM"
 
-## Traduce el tipo de proyección de raylib a su nombre legible.
+## Translates a raylib projection type to its human-readable name.
 ##
-## ## Parámetros
-## - `projection`: valor del campo `Camera3D.projection`.
+## ## Parameters
+## - `projection`: value of the `Camera3D.projection` field.
 ##
-## ## Retorno
-## El nombre de la proyección. Los literales de retorno no poseen memoria.
+## ## Returns
+## The projection name. Returned string literals do not own heap memory.
 weave describe_projection with projection as int into string:
     if projection == (raylib.CAMERA_PERSPECTIVE to int):
         return "PERSPECTIVE"
@@ -79,30 +78,30 @@ weave describe_projection with projection as int into string:
         return "ORTHOGRAPHIC"
     return "CUSTOM"
 
-# --- Punto de entrada ---------------------------------------------------
-## Recorre un mundo 3D con una cámara en primera persona que puede cambiar de
-## modo (`1`–`4`) y de proyección (`P`).
+# --- Entry point --------------------------------------------------------
+## Explores a 3D world with a first-person camera that can switch camera modes
+## (`1`–`4`) and projection (`P`).
 ##
-## ## Retorno
-## Código de salida del proceso: `0` cuando la ventana se cierra con normalidad.
+## ## Returns
+## Process exit code: `0` when the window closes normally.
 weave main into int:
-    # Inicialización
+    # Initialization
     # ---------------------------------------------------------------------
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [core] example - 3d camera first person"
     defer calling raylib.CloseWindow
 
-    # Cámara que mira al mundo 3D (posición, objetivo y vector «arriba»)
+    # Define the camera to look into our 3D world (position, target, up vector)
     var camera as raylib.Camera3D with:
-        set .position is (with x is 0.0, y is 2.0, z is 4.0)   # Posición de la cámara
-        set .target is (with x is 0.0, y is 2.0, z is 0.0)      # Punto al que mira
-        set .up is (with x is 0.0, y is 1.0, z is 0.0)          # Vector «arriba»
-        set .fovy is 60.0                                       # Campo de visión Y
-        set .projection is (raylib.CAMERA_PERSPECTIVE to int)   # Proyección en perspectiva
+        set .position is (with x is 0.0, y is 2.0, z is 4.0)   # Camera position
+        set .target is (with x is 0.0, y is 2.0, z is 0.0)      # Camera looking at point
+        set .up is (with x is 0.0, y is 1.0, z is 0.0)          # Camera up vector (rotation towards target)
+        set .fovy is 60.0                                       # Camera field-of-view Y
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)   # Camera projection type
 
     var camera_mode as raylib.CameraMode is raylib.CAMERA_FIRST_PERSON
     let deg2rad as f32 is (raylib.DEG2RAD to f32)
 
-    # Columnas aleatorias
+    # Generate random columns
     var heights as list of f32 is list of f32
     defer banish heights
     var positions as list of raylib.Vector3 is list of raylib.Vector3
@@ -126,15 +125,15 @@ weave main into int:
             set .a is 255
         calling column_colors.push with column_color
 
-    calling raylib.DisableCursor          # Limita el cursor al movimiento relativo
+    calling raylib.DisableCursor          # Limit cursor to relative movement inside the window
     calling raylib.SetTargetFPS with TARGET_FPS
     # ---------------------------------------------------------------------
 
-    # Bucle principal
+    # Main game loop
     while not calling raylib.WindowShouldClose:
-        # Actualización
+        # Update
         # -----------------------------------------------------------------
-        # Cambio de modo de cámara
+        # Switch camera mode
         if calling input.is_key_pressed with raylib.KEY_ONE:
             set camera_mode is raylib.CAMERA_FREE
             set camera.up is with x is 0.0, y is 1.0, z is 0.0
@@ -148,10 +147,10 @@ weave main into int:
             set camera_mode is raylib.CAMERA_ORBITAL
             set camera.up is with x is 0.0, y is 1.0, z is 0.0
 
-        # Cambio de proyección
+        # Switch camera projection
         if calling input.is_key_pressed with raylib.KEY_P:
             if camera.projection == (raylib.CAMERA_PERSPECTIVE to int):
-                # Vista isométrica
+                # Create isometric view
                 set camera_mode is raylib.CAMERA_THIRD_PERSON
                 set camera.position is with x is 0.0, y is 2.0, z is -100.0
                 set camera.target is with x is 0.0, y is 2.0, z is 0.0
@@ -161,7 +160,7 @@ weave main into int:
                 calling camera.yaw with (-135.0 * deg2rad), true
                 calling camera.pitch with (-45.0 * deg2rad), true, true, false
             else if camera.projection == (raylib.CAMERA_ORTHOGRAPHIC to int):
-                # Vista por defecto
+                # Reset to default view
                 set camera_mode is raylib.CAMERA_THIRD_PERSON
                 set camera.position is with x is 0.0, y is 2.0, z is 10.0
                 set camera.target is with x is 0.0, y is 2.0, z is 0.0
@@ -169,11 +168,11 @@ weave main into int:
                 set camera.projection is (raylib.CAMERA_PERSPECTIVE to int)
                 set camera.fovy is 60.0
 
-        # Movimiento y rotación estándar según el modo
+        # Update camera computes movement internally depending on the camera mode
         calling raylib.UpdateCamera with (sigil of camera), camera_mode
         # -----------------------------------------------------------------
 
-        # Dibujo
+        # Draw
         # -----------------------------------------------------------------
         calling drawing.begin_drawing
         calling drawing.clear_background with raylib.RAYWHITE
@@ -181,24 +180,24 @@ weave main into int:
         calling drawing.begin_mode_3d with camera
 
         let ground as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
-        calling ground.draw_plane with (with x is 32.0, y is 32.0), raylib.LIGHTGRAY  # Suelo
-        calling shapes3d.draw_cube with (with x is -16.0, y is 2.5, z is 0.0), 1.0, 5.0, 32.0, raylib.BLUE         # Pared azul
-        calling shapes3d.draw_cube with (with x is 16.0, y is 2.5, z is 0.0), 1.0, 5.0, 32.0, raylib.LIME          # Pared verde
-        calling shapes3d.draw_cube with (with x is 0.0, y is 2.5, z is 16.0), 32.0, 5.0, 1.0, raylib.GOLD          # Pared amarilla
+        calling ground.draw_plane with (with x is 32.0, y is 32.0), raylib.LIGHTGRAY  # Draw ground
+        calling shapes3d.draw_cube with (with x is -16.0, y is 2.5, z is 0.0), 1.0, 5.0, 32.0, raylib.BLUE         # Draw a blue wall
+        calling shapes3d.draw_cube with (with x is 16.0, y is 2.5, z is 0.0), 1.0, 5.0, 32.0, raylib.LIME          # Draw a green wall
+        calling shapes3d.draw_cube with (with x is 0.0, y is 2.5, z is 16.0), 32.0, 5.0, 1.0, raylib.GOLD          # Draw a yellow wall
 
-        # Columnas
+        # Draw some cubes around
         for i, position in positions:
             calling shapes3d.draw_cube with position, 2.0, (heights at i), 2.0, (column_colors at i)
             calling shapes3d.draw_cube_wires with position, 2.0, (heights at i), 2.0, raylib.MAROON
 
-        # Cubo del jugador
+        # Draw player cube
         if camera_mode == raylib.CAMERA_THIRD_PERSON:
             calling shapes3d.draw_cube with camera.target, 0.5, 0.5, 0.5, raylib.PURPLE
             calling shapes3d.draw_cube_wires with camera.target, 0.5, 0.5, 0.5, raylib.DARKPURPLE
 
         calling drawing.end_mode_3d
 
-        # Paneles de información
+        # Draw info boxes
         let panel_color as raylib.Color is calling colors.fade with raylib.SKYBLUE, 0.5
         calling shapes.draw_rectangle with 5, 5, 330, 100, panel_color
         calling shapes.draw_rectangle_lines with 5, 5, 330, 100, raylib.BLUE
