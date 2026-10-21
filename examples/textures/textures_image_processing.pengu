@@ -1,0 +1,261 @@
+## ## PenguScript Port
+## Translated from raylib [textures] example - image processing
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates CPU-based image processing filters: grayscale,
+## tint, color inversion, contrast, brightness, Gaussian blur, and flips,
+## updating a single GPU texture with each modified image.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_image_processing.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Total number of selectable image filter operations.
+const NUM_PROCESSES as int is 9
+
+# --- Types --------------------------------------------------------------
+## Available image processing operations.
+omen ImageProcess:
+    ## No modification applied to original image.
+    ProcessNone
+    ## Convert all colors to grayscale equivalents.
+    ProcessGrayscale
+    ## Tint the image with green color.
+    ProcessTint
+    ## Invert the RGB color channels.
+    ProcessInvert
+    ## Adjust contrast of the image.
+    ProcessContrast
+    ## Adjust brightness of the image.
+    ProcessBrightness
+    ## Apply Gaussian blur filter.
+    ProcessGaussianBlur
+    ## Flip pixels vertically.
+    ProcessFlipVertical
+    ## Flip pixels horizontally.
+    ProcessFlipHorizontal
+
+# --- Helpers ------------------------------------------------------------
+## Converts an integer index to the corresponding `ImageProcess` enum variant.
+##
+## ## Parameters
+## - `index`: zero-based process index (0 to 8).
+##
+## ## Returns
+## Associated `ImageProcess` value.
+weave process_from_index with index as int into ImageProcess:
+    if index == 1:
+        return ImageProcess.ProcessGrayscale
+    if index == 2:
+        return ImageProcess.ProcessTint
+    if index == 3:
+        return ImageProcess.ProcessInvert
+    if index == 4:
+        return ImageProcess.ProcessContrast
+    if index == 5:
+        return ImageProcess.ProcessBrightness
+    if index == 6:
+        return ImageProcess.ProcessGaussianBlur
+    if index == 7:
+        return ImageProcess.ProcessFlipVertical
+    if index == 8:
+        return ImageProcess.ProcessFlipHorizontal
+    return ImageProcess.ProcessNone
+
+## Converts an `ImageProcess` enum variant to its zero-based integer index.
+##
+## ## Parameters
+## - `proc`: process mode to convert.
+##
+## ## Returns
+## Zero-based index from 0 to 8.
+weave process_to_index with proc as ImageProcess into int:
+    return judge proc:
+        when ImageProcess.ProcessNone -> 0
+        when ImageProcess.ProcessGrayscale -> 1
+        when ImageProcess.ProcessTint -> 2
+        when ImageProcess.ProcessInvert -> 3
+        when ImageProcess.ProcessContrast -> 4
+        when ImageProcess.ProcessBrightness -> 5
+        when ImageProcess.ProcessGaussianBlur -> 6
+        when ImageProcess.ProcessFlipVertical -> 7
+        when ImageProcess.ProcessFlipHorizontal -> 8
+
+## Returns the human-readable display label for an `ImageProcess`.
+##
+## ## Parameters
+## - `proc`: process mode to query.
+##
+## ## Returns
+## Label string describing the filter.
+weave process_name with proc as ImageProcess into string:
+    return judge proc:
+        when ImageProcess.ProcessNone -> "NO PROCESSING"
+        when ImageProcess.ProcessGrayscale -> "COLOR GRAYSCALE"
+        when ImageProcess.ProcessTint -> "COLOR TINT"
+        when ImageProcess.ProcessInvert -> "COLOR INVERT"
+        when ImageProcess.ProcessContrast -> "COLOR CONTRAST"
+        when ImageProcess.ProcessBrightness -> "COLOR BRIGHTNESS"
+        when ImageProcess.ProcessGaussianBlur -> "GAUSSIAN BLUR"
+        when ImageProcess.ProcessFlipVertical -> "FLIP VERTICAL"
+        when ImageProcess.ProcessFlipHorizontal -> "FLIP HORIZONTAL"
+
+## Applies the selected image process filter to a fresh copy of the image.
+##
+## ## Parameters
+## - `img`: source template image.
+## - `proc`: image processing mode to execute.
+##
+## ## Returns
+## Newly allocated working copy with the filter applied.
+##
+## ## Memory
+## Allocates a new CPU image buffer; caller owns the result.
+weave apply_process with img as raylib.Image, proc as ImageProcess into raylib.Image:
+    var copy_img as raylib.Image is calling img.copy
+    judge proc:
+        when ImageProcess.ProcessNone ->
+            let _none as bool is true
+        when ImageProcess.ProcessGrayscale ->
+            calling copy_img.to_grayscale
+        when ImageProcess.ProcessTint ->
+            calling copy_img.tint with raylib.GREEN
+        when ImageProcess.ProcessInvert ->
+            calling copy_img.invert
+        when ImageProcess.ProcessContrast ->
+            calling copy_img.adjust_contrast with -40
+        when ImageProcess.ProcessBrightness ->
+            calling copy_img.adjust_brightness with -80
+        when ImageProcess.ProcessGaussianBlur ->
+            calling copy_img.blur_gaussian with 10
+        when ImageProcess.ProcessFlipVertical ->
+            calling copy_img.flip_vertical
+        when ImageProcess.ProcessFlipHorizontal ->
+            calling copy_img.flip_horizontal
+    return copy_img
+
+# --- Entry point --------------------------------------------------------
+## Main program function.
+##
+## ## Returns
+## Exit code (0 for success).
+weave main into int:
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - image processing"
+    defer calling raylib.CloseWindow
+
+    var im_origin as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_origin as raylib.Image is calling images.load_image with "examples/textures/resources/parrots.png":
+        set im_origin is loaded_origin
+    defer calling images.unload_image with im_origin
+
+    calling im_origin.to_format with raylib.PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
+
+    var texture as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture is calling textures.load_texture_from_image with im_origin:
+        set texture is loaded_tex
+    defer calling textures.unload_texture with texture
+
+    var current_process as ImageProcess is ImageProcess.ProcessNone
+    var im_copy as raylib.Image is calling apply_process with im_origin, current_process
+
+    var texture_reload as bool is false
+
+    var toggle_recs as list of raylib.Rectangle is []
+    var i as int is 0
+    while i < NUM_PROCESSES:
+        let rec as raylib.Rectangle is with x is 40.0, y is (50 + 32 * i) to f32, width is 150.0, height is 30.0
+        calling toggle_recs.append with rec
+        set i is i + 1
+
+    var mouse_hover_rec as int is -1
+
+    calling raylib.SetTargetFPS with 60
+
+    while not calling raylib.WindowShouldClose:
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+        set mouse_hover_rec is -1
+
+        var idx as int is 0
+        while idx < NUM_PROCESSES:
+            let r as raylib.Rectangle is toggle_recs at idx
+            if calling raylib.CheckCollisionPointRec with mouse_pos, r:
+                set mouse_hover_rec is idx
+                if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+                    set current_process is calling process_from_index with idx
+                    set texture_reload is true
+                set idx is NUM_PROCESSES
+            else:
+                set idx is idx + 1
+
+        if calling input.is_key_pressed with raylib.KEY_DOWN:
+            var next_idx as int is (calling process_to_index with current_process) + 1
+            if next_idx >= NUM_PROCESSES:
+                set next_idx is 0
+            set current_process is calling process_from_index with next_idx
+            set texture_reload is true
+        else if calling input.is_key_pressed with raylib.KEY_UP:
+            var prev_idx as int is (calling process_to_index with current_process) - 1
+            if prev_idx < 0:
+                set prev_idx is NUM_PROCESSES - 1
+            set current_process is calling process_from_index with prev_idx
+            set texture_reload is true
+
+        if texture_reload:
+            calling images.unload_image with im_copy
+            set im_copy is calling apply_process with im_origin, current_process
+            calling raylib.UpdateTexture with texture, im_copy.data
+            set texture_reload is false
+
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "IMAGE PROCESSING:", 40, 30, 10, raylib.DARKGRAY
+
+        var p_idx as int is 0
+        while p_idx < NUM_PROCESSES:
+            let rec as raylib.Rectangle is toggle_recs at p_idx
+            let cur_proc_idx as int is calling process_to_index with current_process
+            let is_active as bool is (p_idx == cur_proc_idx) or (p_idx == mouse_hover_rec)
+
+            let fill_color as raylib.Color is if is_active then raylib.SKYBLUE else raylib.LIGHTGRAY
+            calling rec.draw with fill_color
+
+            let line_color as raylib.Color is if is_active then raylib.BLUE else raylib.GRAY
+            calling shapes.draw_rectangle_lines with (rec.x to int), (rec.y to int), (rec.width to int), (rec.height to int), line_color
+
+            let p_enum as ImageProcess is calling process_from_index with p_idx
+            let p_name as string is calling process_name with p_enum
+            let text_w as int is calling txt.measure_text with p_name, 10
+            let text_x as int is ((rec.x + (rec.width / 2.0)) to int) - (text_w / 2)
+            let text_y as int is (rec.y to int) + 11
+            let text_color as raylib.Color is if is_active then raylib.DARKBLUE else raylib.DARKGRAY
+            calling txt.draw_text with p_name, text_x, text_y, 10, text_color
+
+            set p_idx is p_idx + 1
+
+        let tex_x as int is screen_width - texture.width - 60
+        let tex_y as int is (screen_height / 2) - (texture.height / 2)
+        calling texture.draw with tex_x, tex_y, raylib.WHITE
+        calling shapes.draw_rectangle_lines with tex_x, tex_y, texture.width, texture.height, raylib.BLACK
+
+        calling drawing.end_drawing
+
+    calling images.unload_image with im_copy
+
+    return 0

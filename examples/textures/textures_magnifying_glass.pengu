@@ -1,0 +1,162 @@
+## examples/textures/textures_magnifying_glass.pengu
+## raylib [textures] example - magnifying glass
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 5.6, last time updated with raylib 5.6
+## Contributed by Luke Vaughan (@badram) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2026 Luke Vaughan (@badram)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/textures/textures_magnifying_glass.c` built on top of the
+## `raylibx` wrapper layer and `pengu.rlgl`. Demonstrates offscreen rendering with
+## a 2D camera, multi-layer rendering with custom blend modes, and mask clipping
+## using `rlgl.rlSetBlendFactorsSeparate`.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_magnifying_glass.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import pengu.rlgl as rlgl
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymathx
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Diameter and render texture size for the magnifying glass.
+const GLASS_SIZE as int is 256
+
+## Radius of the magnifying glass lens.
+const GLASS_RADIUS as int is 128
+
+# --- Entry point --------------------------------------------------------
+## Program main entry point. Renders the scene and a magnifying glass revealing
+## hidden bunnies when hovered over the image.
+##
+## ## Returns
+## Exit code 0 on success.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - magnifying glass"
+    defer calling raylib.CloseWindow
+
+    let maybe_bunny as maybe raylib.Texture is calling textures.load_texture with "examples/textures/resources/raybunny.png"
+    if bunny as raylib.Texture is maybe_bunny:
+        defer calling textures.unload_texture with bunny
+
+        let maybe_parrots as maybe raylib.Texture is calling textures.load_texture with "examples/textures/resources/parrots.png"
+        if parrots as raylib.Texture is maybe_parrots:
+            defer calling textures.unload_texture with parrots
+
+            # Use image draw to generate a mask texture instead of loading it from a file
+            var circle as raylib.Image is calling images.gen_image_color with GLASS_SIZE, GLASS_SIZE, raylib.BLANK
+            calling circle.draw_circle with GLASS_RADIUS, GLASS_RADIUS, GLASS_RADIUS, raylib.WHITE
+            let maybe_mask as maybe raylib.Texture is calling textures.load_texture_from_image with circle
+            calling images.unload_image with circle
+
+            if mask as raylib.Texture is maybe_mask:
+                defer calling textures.unload_texture with mask
+
+                let maybe_magnified as maybe raylib.RenderTexture is calling textures.load_render_texture with GLASS_SIZE, GLASS_SIZE
+                if magnified_world as raylib.RenderTexture is maybe_magnified:
+                    defer calling textures.unload_render_texture with magnified_world
+
+                    let glass_half as raylib.Vector2 is with x is (GLASS_RADIUS to f32), y is (GLASS_RADIUS to f32)
+                    let offset as raylib.Vector2 is calling glass_half.get_multiply with (calling raylib.GetWindowScaleDPI)
+
+                    var camera as raylib.Camera2D is with:
+                        set .offset is offset
+                        set .target is with x is 0.0, y is 0.0
+                        set .rotation is 0.0
+                        set .zoom is 2.0
+
+                    calling raylib.SetTargetFPS with TARGET_FPS
+                    # -----------------------------------------------------------------
+
+                    # Main game loop
+                    while not calling raylib.WindowShouldClose:
+                        # Update
+                        # -------------------------------------------------------------
+                        let m_pos as raylib.Vector2 is calling raylib.GetMousePosition
+                        set camera.target is m_pos
+                        # -------------------------------------------------------------
+
+                        # Draw
+                        # -------------------------------------------------------------
+                        calling drawing.begin_drawing
+
+                        calling drawing.clear_background with raylib.RAYWHITE
+
+                        # Draw the normal version of the world
+                        calling parrots.draw with 144, 33, raylib.WHITE
+                        calling txt.draw_text with "Use the magnifying glass to find hidden bunnies!", 154, 6, 20, raylib.BLACK
+
+                        # Render to the magnifying glass render texture
+                        calling drawing.begin_texture_mode with magnified_world
+                        calling drawing.clear_background with raylib.RAYWHITE
+
+                        calling drawing.begin_mode_2d with camera
+                        # Draw the same things in the magnified world as were in the normal version
+                        calling parrots.draw with 144, 33, raylib.WHITE
+                        calling txt.draw_text with "Use the magnifying glass to find hidden bunnies!", 154, 6, 20, raylib.BLACK
+
+                        # Draw bunnies only in the magnified world.
+                        # BLEND_MULTIPLIED lets them take on the color of the image below them.
+                        calling drawing.begin_blend_mode with raylib.BLEND_MULTIPLIED
+                        calling bunny.draw with 250, 350, raylib.WHITE
+                        calling bunny.draw with 500, 100, raylib.WHITE
+                        calling bunny.draw with 420, 300, raylib.WHITE
+                        calling bunny.draw with 650, 10, raylib.WHITE
+                        calling drawing.end_blend_mode
+                        calling drawing.end_mode_2d
+
+                        # Mask the magnifying glass view texture to a circle
+                        # To make the mask affect only alpha, a CUSTOM blend mode is used with SEPARATE color/alpha functions
+                        calling drawing.begin_blend_mode with raylib.BLEND_CUSTOM_SEPARATE
+                        calling rlgl.rlSetBlendFactorsSeparate with (rlgl.RL_ZERO to int), (rlgl.RL_ONE to int), (rlgl.RL_ONE to int), (rlgl.RL_ZERO to int), (rlgl.RL_FUNC_ADD to int), (rlgl.RL_FUNC_ADD to int)
+                        calling mask.draw with 0, 0, raylib.WHITE
+                        calling drawing.end_blend_mode
+                        calling drawing.end_texture_mode
+
+                        # Draw magnifiedWorld to screen, centered on cursor
+                        let mag_rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is (GLASS_SIZE to f32), height is (-(GLASS_SIZE to f32))
+                        let mag_pos as raylib.Vector2 is with x is (m_pos.x - (GLASS_RADIUS to f32)), y is (m_pos.y - (GLASS_RADIUS to f32))
+                        let mag_tex as raylib.Texture is magnified_world.texture
+                        calling mag_tex.draw_rec with mag_rec, mag_pos, raylib.WHITE
+
+                        # Draw the outer ring of the magnifying glass
+                        calling m_pos.draw_ring with 126.0, 130.0, 0.0, 360.0, 64, raylib.BLACK
+
+                        # Draw floating specular highlight on the glass
+                        let rx as f32 is m_pos.x / (SCREEN_WIDTH to f32)
+                        let ry as f32 is m_pos.y / (SCREEN_WIDTH to f32)
+                        let highlight_x as int is ((m_pos.x - (64.0 * rx)) to int) - 32
+                        let highlight_y as int is ((m_pos.y - (64.0 * ry)) to int) - 32
+                        let highlight_color as raylib.Color is calling colors.fade with raylib.WHITE, 0.5
+                        calling shapes.draw_circle with highlight_x, highlight_y, 4.0, highlight_color
+
+                        calling drawing.end_drawing
+                        # -------------------------------------------------------------
+
+    return 0

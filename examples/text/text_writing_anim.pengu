@@ -1,0 +1,64 @@
+## raylib [text] example - writing anim
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 1.4, last time updated with raylib 1.4
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2016-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript using raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_writing_anim.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+
+# --- Main entry point ---
+
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - writing anim"
+    defer calling raylib.CloseWindow
+
+    let message as string is "This sample illustrates a text writing\nanimation effect! Check it out! ;)"
+    var frames_counter as int is 0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling input.is_key_down with raylib.KEY_SPACE:
+            set frames_counter is frames_counter + 8
+        else:
+            set frames_counter is frames_counter + 1
+
+        if calling input.is_key_pressed with raylib.KEY_ENTER:
+            set frames_counter is 0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        var sub as string is calling txt.text_subtext with message, 0, (frames_counter / 10)
+        defer banish sub
+        calling txt.draw_text with sub, 210, 160, 20, raylib.MAROON
+
+        calling txt.draw_text with "PRESS [ENTER] to RESTART!", 240, 260, 20, raylib.LIGHTGRAY
+        calling txt.draw_text with "HOLD [SPACE] to SPEED UP!", 239, 300, 20, raylib.LIGHTGRAY
+
+        calling drawing.end_drawing
+
+    return 0

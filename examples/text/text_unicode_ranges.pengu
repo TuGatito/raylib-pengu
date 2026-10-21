@@ -1,0 +1,162 @@
+## ## PenguScript Port
+## Port of raylib [text] example - unicode ranges
+##
+## Demonstrates dynamically loading extended Unicode codepoint ranges
+## (ASCII, European, Greek, Cyrillic, CJK) into a single font texture atlas.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_unicode_ranges.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+
+# --- Constants ---
+
+const FONT_PATH as string is "examples/text/resources/NotoSansTC-Regular.ttf"
+
+# --- Helpers ---
+
+## Appends a contiguous range of codepoints [start..stop] to a codepoint list
+weave append_range with cps as ref to list of int, start as int, stop as int into void:
+    for c from start to stop + 1:
+        calling cps->push with c
+
+## Loads font with the specified accumulated Unicode range level (0..4)
+weave load_font_for_range with font_path as string, unicode_range as int into raylib.Font:
+    if unicode_range == 0:
+        var font_def as raylib.Font is calling txt.default_font
+        if loaded as raylib.Font is calling txt.load_font with font_path:
+            set font_def is loaded
+        return font_def
+
+    var cps as list of int is []
+    # Base ASCII
+    for c from 32 to 127:
+        calling cps.push with c
+
+    if unicode_range >= 1:
+        calling append_range with sigil of cps, 0xc0, 0x17f
+        calling append_range with sigil of cps, 0x180, 0x24f
+
+    if unicode_range >= 2:
+        calling append_range with sigil of cps, 0x370, 0x3ff
+        calling append_range with sigil of cps, 0x1f00, 0x1fff
+
+    if unicode_range >= 3:
+        calling append_range with sigil of cps, 0x400, 0x4ff
+        calling append_range with sigil of cps, 0x500, 0x52f
+        calling append_range with sigil of cps, 0x2de0, 0x2dff
+        calling append_range with sigil of cps, 0xa640, 0xa69f
+
+    if unicode_range >= 4:
+        calling append_range with sigil of cps, 0x4e00, 0x9fff
+        calling append_range with sigil of cps, 0x3400, 0x4dbf
+        calling append_range with sigil of cps, 0x3000, 0x303f
+        calling append_range with sigil of cps, 0x3040, 0x309f
+        calling append_range with sigil of cps, 0x30a0, 0x30ff
+        calling append_range with sigil of cps, 0x31f0, 0x31ff
+        calling append_range with sigil of cps, 0xff00, 0xffef
+        calling append_range with sigil of cps, 0xac00, 0xd7af
+        calling append_range with sigil of cps, 0x1100, 0x11ff
+
+    var font_out as raylib.Font is calling txt.default_font
+    if loaded as raylib.Font is calling txt.load_font_ex with font_path, 32, (cps at 0 to (cps.length)):
+        set font_out is loaded
+    banish cps
+    return font_out
+
+# --- Entry point ---
+
+## Program main entry point
+weave entry into int:
+    # Initialization
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - unicode ranges"
+    defer calling raylib.CloseWindow
+
+    # Load font with default Unicode range: Basic ASCII [32-127]
+    var font as raylib.Font is calling load_font_for_range with FONT_PATH, 0
+    defer calling raylib.UnloadFont with font
+    calling raylib.SetTextureFilter with font.texture, raylib.TEXTURE_FILTER_BILINEAR
+
+    var unicode_range as int is 0
+    var prev_unicode_range as int is 0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if unicode_range != prev_unicode_range:
+            calling raylib.UnloadFont with font
+            set font is calling load_font_for_range with FONT_PATH, unicode_range
+            calling raylib.SetTextureFilter with font.texture, raylib.TEXTURE_FILTER_BILINEAR
+            set prev_unicode_range is unicode_range
+
+        if calling input.is_key_pressed with raylib.KEY_ZERO:
+            set unicode_range is 0
+        else:
+            if calling input.is_key_pressed with raylib.KEY_ONE:
+                set unicode_range is 1
+            else:
+                if calling input.is_key_pressed with raylib.KEY_TWO:
+                    set unicode_range is 2
+                else:
+                    if calling input.is_key_pressed with raylib.KEY_THREE:
+                        set unicode_range is 3
+                    else:
+                        if calling input.is_key_pressed with raylib.KEY_FOUR:
+                            set unicode_range is 4
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "ADD CODEPOINTS: [1][2][3][4]", 20, 20, 20, raylib.MAROON
+
+        # Render test strings in different languages
+        calling font.draw with "> English: Hello World!", (with x is 50.0, y is 70.0), 32.0, 1.0, raylib.DARKGRAY
+        calling font.draw with "> Español: Hola mundo!", (with x is 50.0, y is 120.0), 32.0, 1.0, raylib.DARKGRAY
+        calling font.draw with "> Ελληνικά: Γειά σου κόσμε!", (with x is 50.0, y is 170.0), 32.0, 1.0, raylib.DARKGRAY
+        calling font.draw with "> Русский: Привет мир!", (with x is 50.0, y is 220.0), 32.0, 0.0, raylib.DARKGRAY
+        calling font.draw with "> 中文: 你好世界!", (with x is 50.0, y is 270.0), 32.0, 1.0, raylib.DARKGRAY
+        calling font.draw with "> 日本語: こんにちは世界!", (with x is 50.0, y is 320.0), 32.0, 1.0, raylib.DARKGRAY
+
+        # Draw font texture scaled to screen
+        let tw as f32 is font.texture.width to f32
+        let th as f32 is font.texture.height to f32
+        let atlas_scale as f32 is if tw > 0.0 then (380.0 / tw) else 1.0
+
+        let bg_rec as raylib.Rectangle is with x is 400.0, y is 16.0, width is (tw * atlas_scale), height is (th * atlas_scale)
+        calling bg_rec.draw with raylib.BLACK
+
+        let src_rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is tw, height is th
+        calling raylib.DrawTexturePro with font.texture, src_rec, bg_rec, (with x is 0.0, y is 0.0), 0.0, raylib.WHITE
+
+        calling shapes.draw_rectangle_lines with 400, 16, 380, 380, raylib.RED
+
+        let tw_int as int is font.texture.width
+        let th_int as int is font.texture.height
+        let atlas_info as string is "ATLAS SIZE: {tw_int}x{th_int} px"
+        defer banish atlas_info
+        calling txt.draw_text with atlas_info, 20, 380, 20, raylib.BLUE
+
+        let g_count as int is font.glyphCount
+        let glyph_info as string is "CODEPOINTS GLYPHS LOADED: {g_count}"
+        defer banish glyph_info
+        calling txt.draw_text with glyph_info, 20, 410, 20, raylib.LIME
+
+        # Display font attribution
+        calling txt.draw_text with "Font: Noto Sans TC. License: SIL Open Font License 1.1", screen_width - 300, screen_height - 20, 10, raylib.GRAY
+
+        calling drawing.end_drawing
+
+    return 0

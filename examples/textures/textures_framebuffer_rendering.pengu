@@ -1,0 +1,271 @@
+## examples/textures/textures_framebuffer_rendering.pengu
+## raylib [textures] example - framebuffer rendering
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.6, last time updated with raylib 5.6
+##
+## Example contributed by Jack Boakes (@jackboakes) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2026 Jack Boakes (@jackboakes)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/textures/textures_framebuffer_rendering.c` using the
+## `raylibx` and `raymathx` wrapper layers. Renders 3D scenes to offscreen framebuffers
+## with split-screen and picture-in-picture crop views, including a 3D camera prism.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_framebuffer_rendering.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.shapes3d as shapes3d
+import raylibx.text as txt
+import raylibx.textures as textures
+import raymath
+import raymathx
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Half-screen split width in pixels.
+const SPLIT_WIDTH as int is 400
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Size in pixels of the picture-in-picture center crop overlay.
+const CAPTURE_SIZE as f32 is 128.0
+
+# --- Helpers ------------------------------------------------------------
+## Draws a 3D wireframe viewing prism representing the subject camera's frustum.
+##
+## ## Parameters
+## - `camera`: The subject camera whose frustum is visualized.
+## - `aspect`: Aspect ratio of the camera view.
+## - `color`: Line color for the viewing frustum prism.
+weave draw_camera_prism with camera as raylib.Camera3D, aspect as f32, color as raylib.Color into void:
+    let length as f32 is calling camera.position.distance_to with camera.target
+
+    let view as raylib.Matrix is calling raylib.GetCameraMatrix with camera
+    let proj as raylib.Matrix is calling raymath.MatrixPerspective with ((camera.fovy to f64) * raylib.DEG2RAD), (aspect to f64), 0.05, (length to f64)
+    let view_proj as raylib.Matrix is calling raymath.MatrixMultiply with view, proj
+    let inv_mat as raylib.Matrix is calling raymath.MatrixInvert with view_proj
+
+    # 4 plane corners in NDC space:
+    # 0: (-1.0, -1.0, 1.0) Bottom Left
+    # 1: ( 1.0, -1.0, 1.0) Bottom Right
+    # 2: ( 1.0,  1.0, 1.0) Top Right
+    # 3: (-1.0,  1.0, 1.0) Top Left
+    var corners as list of raylib.Vector3 is list of raylib.Vector3
+    defer banish corners
+
+    # Corner 0: (-1, -1, 1)
+    let vx0 as f32 is (-inv_mat.m0) - inv_mat.m4 + inv_mat.m8 + inv_mat.m12
+    let vy0 as f32 is (-inv_mat.m1) - inv_mat.m5 + inv_mat.m9 + inv_mat.m13
+    let vz0 as f32 is (-inv_mat.m2) - inv_mat.m6 + inv_mat.m10 + inv_mat.m14
+    let vw0 as f32 is (-inv_mat.m3) - inv_mat.m7 + inv_mat.m11 + inv_mat.m15
+    calling corners.append with (with x is (vx0 / vw0), y is (vy0 / vw0), z is (vz0 / vw0))
+
+    # Corner 1: (1, -1, 1)
+    let vx1 as f32 is inv_mat.m0 - inv_mat.m4 + inv_mat.m8 + inv_mat.m12
+    let vy1 as f32 is inv_mat.m1 - inv_mat.m5 + inv_mat.m9 + inv_mat.m13
+    let vz1 as f32 is inv_mat.m2 - inv_mat.m6 + inv_mat.m10 + inv_mat.m14
+    let vw1 as f32 is inv_mat.m3 - inv_mat.m7 + inv_mat.m11 + inv_mat.m15
+    calling corners.append with (with x is (vx1 / vw1), y is (vy1 / vw1), z is (vz1 / vw1))
+
+    # Corner 2: (1, 1, 1)
+    let vx2 as f32 is inv_mat.m0 + inv_mat.m4 + inv_mat.m8 + inv_mat.m12
+    let vy2 as f32 is inv_mat.m1 + inv_mat.m5 + inv_mat.m9 + inv_mat.m13
+    let vz2 as f32 is inv_mat.m2 + inv_mat.m6 + inv_mat.m10 + inv_mat.m14
+    let vw2 as f32 is inv_mat.m3 + inv_mat.m7 + inv_mat.m11 + inv_mat.m15
+    calling corners.append with (with x is (vx2 / vw2), y is (vy2 / vw2), z is (vz2 / vw2))
+
+    # Corner 3: (-1, 1, 1)
+    let vx3 as f32 is (-inv_mat.m0) + inv_mat.m4 + inv_mat.m8 + inv_mat.m12
+    let vy3 as f32 is (-inv_mat.m1) + inv_mat.m5 + inv_mat.m9 + inv_mat.m13
+    let vz3 as f32 is (-inv_mat.m2) + inv_mat.m6 + inv_mat.m10 + inv_mat.m14
+    let vw3 as f32 is (-inv_mat.m3) + inv_mat.m7 + inv_mat.m11 + inv_mat.m15
+    calling corners.append with (with x is (vx3 / vw3), y is (vy3 / vw3), z is (vz3 / vw3))
+
+    let c0 as raylib.Vector3 is corners at 0
+    let c1 as raylib.Vector3 is corners at 1
+    let c2 as raylib.Vector3 is corners at 2
+    let c3 as raylib.Vector3 is corners at 3
+
+    # Draw the far plane sliced at the target
+    calling shapes3d.draw_line_3d with c0, c1, color
+    calling shapes3d.draw_line_3d with c1, c2, color
+    calling shapes3d.draw_line_3d with c2, c3, color
+    calling shapes3d.draw_line_3d with c3, c0, color
+
+    # Draw the prism lines from the far plane to the camera position
+    calling shapes3d.draw_line_3d with camera.position, c0, color
+    calling shapes3d.draw_line_3d with camera.position, c1, color
+    calling shapes3d.draw_line_3d with camera.position, c2, color
+    calling shapes3d.draw_line_3d with camera.position, c3, color
+
+# --- Entry point --------------------------------------------------------
+## Main program entry point.
+##
+## ## Returns
+## Exit code `0` on normal termination.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - framebuffer rendering"
+    defer calling raylib.CloseWindow
+
+    # Camera to look at the 3D world
+    var subject_camera as raylib.Camera3D is with:
+        set .position is with x is 5.0, y is 5.0, z is 5.0
+        set .target is with x is 0.0, y is 0.0, z is 0.0
+        set .up is with x is 0.0, y is 1.0, z is 0.0
+        set .fovy is 45.0
+        set .projection is raylib.CAMERA_PERSPECTIVE to int
+
+    # Camera to observe the subject camera and 3D world
+    var observer_camera as raylib.Camera3D is with:
+        set .position is with x is 10.0, y is 10.0, z is 10.0
+        set .target is with x is 0.0, y is 0.0, z is 0.0
+        set .up is with x is 0.0, y is 1.0, z is 0.0
+        set .fovy is 45.0
+        set .projection is raylib.CAMERA_PERSPECTIVE to int
+
+    # Set up render textures
+    var observer_target as raylib.RenderTexture is with:
+        set .id is 0
+        set .texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+        set .depth is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_obs as raylib.RenderTexture is calling textures.load_render_texture with SPLIT_WIDTH, SCREEN_HEIGHT:
+        set observer_target is loaded_obs
+    defer calling textures.unload_render_texture with observer_target
+
+    let obs_w as f32 is observer_target.texture.width to f32
+    let obs_h as f32 is observer_target.texture.height to f32
+    let observer_source as raylib.Rectangle is with x is 0.0, y is 0.0, width is obs_w, height is -obs_h
+    let observer_dest as raylib.Rectangle is with x is 0.0, y is 0.0, width is (SPLIT_WIDTH to f32), height is (SCREEN_HEIGHT to f32)
+
+    var subject_target as raylib.RenderTexture is with:
+        set .id is 0
+        set .texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+        set .depth is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_sub as raylib.RenderTexture is calling textures.load_render_texture with SPLIT_WIDTH, SCREEN_HEIGHT:
+        set subject_target is loaded_sub
+    defer calling textures.unload_render_texture with subject_target
+
+    let sub_w as f32 is subject_target.texture.width to f32
+    let sub_h as f32 is subject_target.texture.height to f32
+    let subject_source as raylib.Rectangle is with x is 0.0, y is 0.0, width is sub_w, height is -sub_h
+    let subject_dest as raylib.Rectangle is with x is (SPLIT_WIDTH to f32), y is 0.0, width is (SPLIT_WIDTH to f32), height is (SCREEN_HEIGHT to f32)
+    let texture_aspect_ratio as f32 is sub_w / sub_h
+
+    # Rectangles for cropping render texture
+    let crop_source as raylib.Rectangle is with:
+        set .x is (sub_w - CAPTURE_SIZE) / 2.0
+        set .y is (sub_h - CAPTURE_SIZE) / 2.0
+        set .width is CAPTURE_SIZE
+        set .height is -CAPTURE_SIZE
+
+    let crop_dest as raylib.Rectangle is with:
+        set .x is (SPLIT_WIDTH to f32) + 20.0
+        set .y is 20.0
+        set .width is CAPTURE_SIZE
+        set .height is CAPTURE_SIZE
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    calling raylib.DisableCursor
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        calling raylib.UpdateCamera with (sigil of observer_camera), (raylib.CAMERA_FREE to int)
+        calling raylib.UpdateCamera with (sigil of subject_camera), (raylib.CAMERA_ORBITAL to int)
+
+        if calling input.is_key_pressed with raylib.KEY_R:
+            set observer_camera.target is with x is 0.0, y is 0.0, z is 0.0
+
+        let cube_pos as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+
+        # Build LHS observer view texture
+        calling drawing.begin_texture_mode with observer_target
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with observer_camera
+
+        calling shapes3d.draw_grid with 10, 1.0
+        calling shapes3d.draw_cube with cube_pos, 2.0, 2.0, 2.0, raylib.GOLD
+        calling shapes3d.draw_cube_wires with cube_pos, 2.0, 2.0, 2.0, raylib.PINK
+        calling draw_camera_prism with subject_camera, texture_aspect_ratio, raylib.GREEN
+
+        calling drawing.end_mode_3d
+
+        calling txt.draw_text with "Observer View", 10, observer_target.texture.height - 30, 20, raylib.BLACK
+        calling txt.draw_text with "WASD + Mouse to Move", 10, 10, 20, raylib.DARKGRAY
+        calling txt.draw_text with "Scroll to Zoom", 10, 30, 20, raylib.DARKGRAY
+        calling txt.draw_text with "R to Reset Observer Target", 10, 50, 20, raylib.DARKGRAY
+
+        calling drawing.end_texture_mode
+
+        # Build RHS subject view texture
+        calling drawing.begin_texture_mode with subject_target
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with subject_camera
+
+        calling shapes3d.draw_cube with cube_pos, 2.0, 2.0, 2.0, raylib.GOLD
+        calling shapes3d.draw_cube_wires with cube_pos, 2.0, 2.0, 2.0, raylib.PINK
+        calling shapes3d.draw_grid with 10, 1.0
+
+        calling drawing.end_mode_3d
+
+        let rect_x as int is ((sub_w - CAPTURE_SIZE) / 2.0) to int
+        let rect_y as int is ((sub_h - CAPTURE_SIZE) / 2.0) to int
+        let rect_size as int is CAPTURE_SIZE to int
+        calling shapes.draw_rectangle_lines with rect_x, rect_y, rect_size, rect_size, raylib.GREEN
+        calling txt.draw_text with "Subject View", 10, subject_target.texture.height - 30, 20, raylib.BLACK
+
+        calling drawing.end_texture_mode
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.BLACK
+
+        let zero_origin as raylib.Vector2 is with x is 0.0, y is 0.0
+
+        # Draw observer texture LHS
+        calling observer_target.texture.draw_pro with observer_source, observer_dest, zero_origin, 0.0, raylib.WHITE
+
+        # Draw subject texture RHS
+        calling subject_target.texture.draw_pro with subject_source, subject_dest, zero_origin, 0.0, raylib.WHITE
+
+        # Draw the small crop overlay on top
+        calling subject_target.texture.draw_pro with crop_source, crop_dest, zero_origin, 0.0, raylib.WHITE
+        calling crop_dest.draw_outline with 2.0, raylib.BLACK
+
+        # Draw split screen divider line
+        calling shapes.draw_line with SPLIT_WIDTH, 0, SPLIT_WIDTH, SCREEN_HEIGHT, raylib.BLACK
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

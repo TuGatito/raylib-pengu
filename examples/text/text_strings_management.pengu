@@ -1,0 +1,357 @@
+## ## PenguScript Port
+## Port of raylib [text] example - strings management
+##
+## Demonstrates interactive string operations (slicing, shattering, gluing, case conversions)
+## mapped to physical bouncing text particles.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_strings_management.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.random as random
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+
+# --- Constants ---
+
+const FONT_SIZE as int is 30
+const MAX_TEXT_PARTICLES as int is 100
+
+# --- Types ---
+
+## Represents a draggable, bouncing text particle
+rune TextParticle:
+    text as string
+    rect as raylib.Rectangle
+    vel as raylib.Vector2
+    ppos as raylib.Vector2
+    padding as f32
+    border_width as f32
+    friction as f32
+    elasticity as f32
+    color as raylib.Color
+    grabbed as bool
+
+# --- Helpers ---
+
+## Creates a new text particle initialized with physics properties
+weave create_text_particle with text as string, x as f32, y as f32, color as raylib.Color into TextParticle:
+    let pad as f32 is 5.0
+    let text_w as int is calling txt.measure_text with text, FONT_SIZE
+    let w as f32 is (text_w to f32) + (pad * 2.0)
+    let h as f32 is (FONT_SIZE to f32) + (pad * 2.0)
+    let vx as int is calling random.between with -200, 200
+    let vy as int is calling random.between with -200, 200
+    var tp as TextParticle with:
+        set .text is text
+        set .rect is with x is x, y is y, width is w, height is h
+        set .vel is with x is (vx to f32), y is (vy to f32)
+        set .ppos is with x is x, y is y
+        set .padding is pad
+        set .border_width is 5.0
+        set .friction is 0.99
+        set .elasticity is 0.9
+        set .color is color
+        set .grabbed is false
+    return tp
+
+## Prepares a new particle list containing a single text particle at the center of the screen
+weave prepare_first_particle with text as string, screen_w as int, screen_h as int into list of TextParticle:
+    var tps as list of TextParticle is []
+    let center_x as f32 is (screen_w to f32) / 2.0
+    let center_y as f32 is (screen_h to f32) / 2.0
+    let first as TextParticle is calling create_text_particle with text, center_x, center_y, raylib.RAYWHITE
+    calling tps.push with first
+    return tps
+
+## Slices a particle into smaller text particle chunks
+weave slice_particle with tps as list of TextParticle, idx as int, slice_len as int into list of TextParticle:
+    let tp as TextParticle is tps at idx
+    let length as int is tp.text.length
+    if (length <= 1) or (((tps.length) + length) >= MAX_TEXT_PARTICLES):
+        return tps
+
+    var result as list of TextParticle is []
+    for j from 0 to tps.length:
+        if j != idx:
+            calling result.push with (tps at j)
+
+    var i as int is 0
+    let step as int is if slice_len < 1 then 1 else slice_len
+    while i < length:
+        let cur_len as int is if (i + step) > length then (length - i) else step
+        let sub as string is calling txt.text_subtext with tp.text, i, cur_len
+        let r as int is calling random.between with 0, 255
+        let g as int is calling random.between with 0, 255
+        let b as int is calling random.between with 0, 255
+        let col as raylib.Color is with r is (r to byte), g is (g to byte), b is (b to byte), a is (255 to byte)
+        let px as f32 is tp.rect.x + (((i to f32) * tp.rect.width) / (length to f32))
+        let new_tp as TextParticle is calling create_text_particle with sub, px, tp.rect.y, col
+        calling result.push with new_tp
+        banish sub
+        set i is i + step
+
+    banish tps
+    return result
+
+## Slices a single text particle by splitting on occurrences of a character
+weave slice_particle_by_char with tps as list of TextParticle, char_pressed as int into list of TextParticle:
+    if (tps.length) != 1:
+        return tps
+    let tp as TextParticle is tps at 0
+    let ch_delim as char is char_pressed to char
+    let ch_str as string is calling txt.codepoint_to_text with char_pressed
+    defer banish ch_str
+    let parts as list of string is calling txt.split_text with tp.text, ch_delim
+    defer banish parts
+
+    if (parts.length) <= 1:
+        return tps
+
+    var result as list of TextParticle is []
+    let text_len as int is tp.text.length
+
+    for i from 0 to text_len:
+        if (tp.text at i) == ch_str:
+            let r as int is calling random.between with 0, 255
+            let g as int is calling random.between with 0, 255
+            let b as int is calling random.between with 0, 255
+            let col as raylib.Color is with r is (r to byte), g is (g to byte), b is (b to byte), a is (255 to byte)
+            let new_tp as TextParticle is calling create_text_particle with ch_str, tp.rect.x, tp.rect.y, col
+            calling result.push with new_tp
+
+    for k from 0 to parts.length:
+        let part_str as string is parts at k
+        let part_len as int is part_str.length
+        if part_len > 0:
+            let r as int is calling random.between with 0, 255
+            let g as int is calling random.between with 0, 255
+            let b as int is calling random.between with 0, 255
+            let col as raylib.Color is with r is (r to byte), g is (g to byte), b is (b to byte), a is (255 to byte)
+            let px as f32 is tp.rect.x + (((k to f32) * tp.rect.width) / (part_len to f32))
+            let new_tp as TextParticle is calling create_text_particle with part_str, px, tp.rect.y, col
+            calling result.push with new_tp
+
+    banish tps
+    return result
+
+# --- Entry point ---
+
+## Program main entry point
+weave entry into int:
+    # Initialization
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - strings management"
+    defer calling raylib.CloseWindow
+
+    var text_particles as list of TextParticle is calling prepare_first_particle with "raylib => fun videogames programming!", screen_width, screen_height
+
+    var grabbed_idx as int is -1
+    var press_offset as raylib.Vector2 is with x is 0.0, y is 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let delta as f32 is calling raylib.GetFrameTime
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+
+        # Checks if a text particle was grabbed
+        if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT:
+            var i as int is (text_particles.length) - 1
+            while i >= 0:
+                var tp as TextParticle is text_particles at i
+                if calling raylib.CheckCollisionPointRec with mouse_pos, tp.rect:
+                    set press_offset.x is mouse_pos.x - tp.rect.x
+                    set press_offset.y is mouse_pos.y - tp.rect.y
+                    set tp.grabbed is true
+                    set text_particles at i is tp
+                    set grabbed_idx is i
+                    set i is -1    # break
+                else:
+                    set i is i - 1
+
+        # Releases grabbed text particle
+        if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+            if grabbed_idx >= 0:
+                var tp as TextParticle is text_particles at grabbed_idx
+                set tp.grabbed is false
+                set text_particles at grabbed_idx is tp
+                set grabbed_idx is -1
+
+        # Slice or shatter a text particle
+        if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_RIGHT:
+            var i as int is (text_particles.length) - 1
+            while i >= 0:
+                let tp as TextParticle is text_particles at i
+                if calling raylib.CheckCollisionPointRec with mouse_pos, tp.rect:
+                    if calling input.is_key_down with raylib.KEY_LEFT_SHIFT:
+                        set text_particles is calling slice_particle with text_particles, i, 1
+                    else:
+                        let half_len as int is (tp.text.length) / 2
+                        let slice_w as int is if half_len < 1 then 1 else half_len
+                        set text_particles is calling slice_particle with text_particles, i, slice_w
+                    set grabbed_idx is -1
+                    set i is -1    # break
+                else:
+                    set i is i - 1
+
+        # Shake text particles
+        if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_MIDDLE:
+            for i from 0 to text_particles.length:
+                var tp as TextParticle is text_particles at i
+                if not tp.grabbed:
+                    let rand_vx as int is calling random.between with -2000, 2000
+                    let rand_vy as int is calling random.between with -2000, 2000
+                    set tp.vel.x is rand_vx to f32
+                    set tp.vel.y is rand_vy to f32
+                    set text_particles at i is tp
+
+        # Reset using TextTo* functions
+        if calling input.is_key_pressed with raylib.KEY_ONE:
+            banish text_particles
+            set text_particles is calling prepare_first_particle with "raylib => fun videogames programming!", screen_width, screen_height
+            set grabbed_idx is -1
+
+        if calling input.is_key_pressed with raylib.KEY_TWO:
+            banish text_particles
+            let upper_s as string is calling txt.text_upper with "raylib => fun videogames programming!"
+            set text_particles is calling prepare_first_particle with upper_s, screen_width, screen_height
+            banish upper_s
+            set grabbed_idx is -1
+
+        if calling input.is_key_pressed with raylib.KEY_THREE:
+            banish text_particles
+            let lower_s as string is calling txt.text_lower with "raylib => fun videogames programming!"
+            set text_particles is calling prepare_first_particle with lower_s, screen_width, screen_height
+            banish lower_s
+            set grabbed_idx is -1
+
+        if calling input.is_key_pressed with raylib.KEY_FOUR:
+            banish text_particles
+            let pascal_s as string is calling txt.text_pascal with "raylib_fun_videogames_programming"
+            set text_particles is calling prepare_first_particle with pascal_s, screen_width, screen_height
+            banish pascal_s
+            set grabbed_idx is -1
+
+        if calling input.is_key_pressed with raylib.KEY_FIVE:
+            banish text_particles
+            let snake_s as string is calling txt.text_snake with "RaylibFunVideogamesProgramming"
+            set text_particles is calling prepare_first_particle with snake_s, screen_width, screen_height
+            banish snake_s
+            set grabbed_idx is -1
+
+        if calling input.is_key_pressed with raylib.KEY_SIX:
+            banish text_particles
+            let camel_s as string is calling txt.text_camel with "raylib_fun_videogames_programming"
+            set text_particles is calling prepare_first_particle with camel_s, screen_width, screen_height
+            banish camel_s
+            set grabbed_idx is -1
+
+        # Slice by char pressed only when single particle
+        let char_pressed as int is calling raylib.GetCharPressed
+        if (char_pressed >= 65) and (char_pressed <= 122) and ((text_particles.length) == 1):
+            set text_particles is calling slice_particle_by_char with text_particles, char_pressed
+            set grabbed_idx is -1
+
+        # Updates each text particle state
+        for i from 0 to text_particles.length:
+            var tp as TextParticle is text_particles at i
+
+            if not tp.grabbed:
+                set tp.rect.x is tp.rect.x + (tp.vel.x * delta)
+                set tp.rect.y is tp.rect.y + (tp.vel.y * delta)
+
+                # Screen boundary checks
+                if (tp.rect.x + tp.rect.width) >= (screen_width to f32):
+                    set tp.rect.x is (screen_width to f32) - tp.rect.width
+                    set tp.vel.x is 0.0 - (tp.vel.x * tp.elasticity)
+                else:
+                    if tp.rect.x <= 0.0:
+                        set tp.rect.x is 0.0
+                        set tp.vel.x is 0.0 - (tp.vel.x * tp.elasticity)
+
+                if (tp.rect.y + tp.rect.height) >= (screen_height to f32):
+                    set tp.rect.y is (screen_height to f32) - tp.rect.height
+                    set tp.vel.y is 0.0 - (tp.vel.y * tp.elasticity)
+                else:
+                    if tp.rect.y <= 0.0:
+                        set tp.rect.y is 0.0
+                        set tp.vel.y is 0.0 - (tp.vel.y * tp.elasticity)
+
+                set tp.vel.x is tp.vel.x * tp.friction
+                set tp.vel.y is tp.vel.y * tp.friction
+            else:
+                set tp.rect.x is mouse_pos.x - press_offset.x
+                set tp.rect.y is mouse_pos.y - press_offset.y
+
+                if delta > 0.0:
+                    set tp.vel.x is (tp.rect.x - tp.ppos.x) / delta
+                    set tp.vel.y is (tp.rect.y - tp.ppos.y) / delta
+
+                set tp.ppos.x is tp.rect.x
+                set tp.ppos.y is tp.rect.y
+
+            set text_particles at i is tp
+
+        # Glue text particles when dragging and pressing Left Control
+        if (calling input.is_key_down with raylib.KEY_LEFT_CONTROL) and (grabbed_idx >= 0):
+            let p_grabbed as TextParticle is text_particles at grabbed_idx
+            var glued_target_idx as int is -1
+            for j from 0 to text_particles.length:
+                if j != grabbed_idx:
+                    let other_p as TextParticle is text_particles at j
+                    if calling raylib.CheckCollisionRecs with p_grabbed.rect, other_p.rect:
+                        set glued_target_idx is j
+
+            if glued_target_idx >= 0:
+                let p_target as TextParticle is text_particles at glued_target_idx
+                let combined_text as string is "{p_grabbed.text}{p_target.text}"
+                var glued_tp as TextParticle is calling create_text_particle with combined_text, p_grabbed.rect.x, p_grabbed.rect.y, raylib.RAYWHITE
+                set glued_tp.grabbed is true
+                banish combined_text
+
+                var new_list as list of TextParticle is []
+                for k from 0 to text_particles.length:
+                    if (k != grabbed_idx) and (k != glued_target_idx):
+                        calling new_list.push with (text_particles at k)
+                calling new_list.push with glued_tp
+                banish text_particles
+                set text_particles is new_list
+                set grabbed_idx is (text_particles.length) - 1
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        for i from 0 to text_particles.length:
+            let tp as TextParticle is text_particles at i
+            let border_rec as raylib.Rectangle is with x is (tp.rect.x - tp.border_width), y is (tp.rect.y - tp.border_width), width is (tp.rect.width + (tp.border_width * 2.0)), height is (tp.rect.height + (tp.border_width * 2.0))
+            calling border_rec.draw with raylib.BLACK
+            calling tp.rect.draw with tp.color
+            calling txt.draw_text with tp.text, ((tp.rect.x + tp.padding) to int), ((tp.rect.y + tp.padding) to int), FONT_SIZE, raylib.BLACK
+
+        calling txt.draw_text with "grab a text particle by pressing with the mouse and throw it by releasing", 10, 10, 10, raylib.DARKGRAY
+        calling txt.draw_text with "slice a text particle by pressing it with the mouse right button", 10, 30, 10, raylib.DARKGRAY
+        calling txt.draw_text with "shatter a text particle keeping left shift pressed and pressing it with the mouse right button", 10, 50, 10, raylib.DARKGRAY
+        calling txt.draw_text with "glue text particles by grabbing than and keeping left control pressed", 10, 70, 10, raylib.DARKGRAY
+        calling txt.draw_text with "1 to 6 to reset", 10, 90, 10, raylib.DARKGRAY
+        calling txt.draw_text with "when you have only one text particle, you can slice it by pressing a char", 10, 110, 10, raylib.DARKGRAY
+
+        let p_count as int is text_particles.length
+        let count_str as string is "TEXT PARTICLE COUNT: {p_count}"
+        defer banish count_str
+        calling txt.draw_text with count_str, 10, (calling raylib.GetScreenHeight) - 30, 20, raylib.BLACK
+
+        calling drawing.end_drawing
+
+    banish text_particles
+    return 0

@@ -1,0 +1,137 @@
+## examples/textures/textures_blend_modes.pengu
+## raylib [textures] example - blend modes
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## NOTE: Images are loaded in CPU memory (RAM); textures are loaded in GPU memory (VRAM)
+##
+## Example originally created with raylib 3.5, last time updated with raylib 3.5
+##
+## Example contributed by Karlo Licudine (@accidentalrebel) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2020-2025 Karlo Licudine (@accidentalrebel)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/textures/textures_blend_modes.c` using the
+## `raylibx` wrapper layer. Demonstrates cycling through various blend modes
+## (`BLEND_ALPHA`, `BLEND_ADDITIVE`, `BLEND_MULTIPLIED`, `BLEND_ADD_COLORS`).
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_blend_modes.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Total number of blend modes supported in the demo.
+const BLEND_COUNT_MAX as int is 4
+
+# --- Helpers ------------------------------------------------------------
+## Converts an integer index to the corresponding `raylib.BlendMode`.
+##
+## ## Parameters
+## - `index`: The zero-based blend mode index.
+##
+## ## Returns
+## The `raylib.BlendMode` value.
+weave get_blend_mode with index as int into raylib.BlendMode:
+    judge index:
+        when 0 -> raylib.BLEND_ALPHA
+        when 1 -> raylib.BLEND_ADDITIVE
+        when 2 -> raylib.BLEND_MULTIPLIED
+        when 3 -> raylib.BLEND_ADD_COLORS
+        else -> raylib.BLEND_ALPHA
+
+# --- Entry point --------------------------------------------------------
+## Main program entry point.
+##
+## ## Returns
+## Exit code `0` on normal termination.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - blend modes"
+    defer calling raylib.CloseWindow
+
+    # NOTE: Textures MUST be loaded after Window initialization (OpenGL context is required)
+    var bg_texture as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if bg_image as raylib.Image is calling images.load_image with "examples/textures/resources/cyberpunk_street_background.png":
+        if loaded_bg as raylib.Texture is calling textures.load_texture_from_image with bg_image:
+            set bg_texture is loaded_bg
+        calling images.unload_image with bg_image
+    defer calling textures.unload_texture with bg_texture
+
+    var fg_texture as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if fg_image as raylib.Image is calling images.load_image with "examples/textures/resources/cyberpunk_street_foreground.png":
+        if loaded_fg as raylib.Texture is calling textures.load_texture_from_image with fg_image:
+            set fg_texture is loaded_fg
+        calling images.unload_image with fg_image
+    defer calling textures.unload_texture with fg_texture
+
+    var blend_mode as int is 0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            if blend_mode >= (BLEND_COUNT_MAX - 1):
+                set blend_mode is 0
+            else:
+                set blend_mode is blend_mode + 1
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling bg_texture.draw with (SCREEN_WIDTH / 2) - (bg_texture.width / 2), (SCREEN_HEIGHT / 2) - (bg_texture.height / 2), raylib.WHITE
+
+        # Apply the blend mode and then draw the foreground texture
+        let mode as raylib.BlendMode is calling get_blend_mode with blend_mode
+        calling drawing.begin_blend_mode with mode
+        calling fg_texture.draw with (SCREEN_WIDTH / 2) - (fg_texture.width / 2), (SCREEN_HEIGHT / 2) - (fg_texture.height / 2), raylib.WHITE
+        calling drawing.end_blend_mode
+
+        # Draw the texts
+        calling txt.draw_text with "Press SPACE to change blend modes.", 310, 350, 10, raylib.GRAY
+
+        # Draw current blend mode text
+        let blend_text as string is judge blend_mode:
+            when 0 -> "Current: BLEND_ALPHA"
+            when 1 -> "Current: BLEND_ADDITIVE"
+            when 2 -> "Current: BLEND_MULTIPLIED"
+            when 3 -> "Current: BLEND_ADD_COLORS"
+            else -> "Current: BLEND_ALPHA"
+        calling txt.draw_text with blend_text, (SCREEN_WIDTH / 2) - 60, 370, 10, raylib.GRAY
+
+        calling txt.draw_text with "(c) Cyberpunk Street Environment by Luis Zuno (@ansimuz)", SCREEN_WIDTH - 330, SCREEN_HEIGHT - 20, 10, raylib.GRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

@@ -1,0 +1,108 @@
+## raylib [text] example - format text
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.1, last time updated with raylib 3.0
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript using native string interpolation and raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_format_text.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+
+# --- Helpers ---
+
+## Formats an integer with leading zeroes up to a specified width
+##
+## ## Parameters
+## - `val`: integer value to format
+## - `width`: minimum character width with zero padding
+##
+## ## Returns
+## Zero-padded string representation of `val`
+weave pad_int with val as int, width as int into string:
+    var s as string is "{val}"
+    var len as int is s.length
+    while len < width:
+        var next_s as string is "0{s}"
+        banish s
+        set s is next_s
+        set len is s.length
+    return s
+
+## Formats elapsed time in milliseconds matching C's TextFormat("%02.02f ms")
+##
+## ## Parameters
+## - `ms`: elapsed time in milliseconds
+##
+## ## Returns
+## Formatted millisecond string with two decimal places
+weave format_elapsed_ms with ms as f32 into string:
+    let total_centis as int is (ms * 100.0) to int
+    let whole as int is total_centis / 100
+    let frac as int is total_centis % 100
+    let frac_str as string is if frac < 10 then "0{frac}" else "{frac}"
+    defer banish frac_str
+    let whole_str as string is if whole < 10 then "0{whole}" else "{whole}"
+    defer banish whole_str
+    return "Elapsed Time: {whole_str}.{frac_str} ms"
+
+# --- Main entry point ---
+
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - format text"
+    defer calling raylib.CloseWindow
+
+    let score as int is 100020
+    let hiscore as int is 200450
+    let lives as int is 5
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        var score_pad as string is calling pad_int with score, 8
+        defer banish score_pad
+        var score_text as string is "Score: {score_pad}"
+        defer banish score_text
+        calling txt.draw_text with score_text, 200, 80, 20, raylib.RED
+
+        var hiscore_pad as string is calling pad_int with hiscore, 8
+        defer banish hiscore_pad
+        var hiscore_text as string is "HiScore: {hiscore_pad}"
+        defer banish hiscore_text
+        calling txt.draw_text with hiscore_text, 200, 120, 20, raylib.GREEN
+
+        var lives_pad as string is calling pad_int with lives, 2
+        defer banish lives_pad
+        var lives_text as string is "Lives: {lives_pad}"
+        defer banish lives_text
+        calling txt.draw_text with lives_text, 200, 160, 40, raylib.BLUE
+
+        let dt as f32 is calling raylib.GetFrameTime
+        var time_text as string is calling format_elapsed_ms with (dt * 1000.0)
+        defer banish time_text
+        calling txt.draw_text with time_text, 200, 220, 20, raylib.BLACK
+
+        calling drawing.end_drawing
+
+    return 0

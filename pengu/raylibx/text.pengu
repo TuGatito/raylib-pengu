@@ -256,7 +256,7 @@ weave load_font_ex with path as string, font_size as int, codepoints as slice of
     let c_path as ref to frozen char is calling ffi.cstr_from_string with path
     var raw as ref to void is calling ffi.null_void
     if (codepoints.length) > 0:
-        let raw as ref to void is transmute (sigil of (codepoints at 0)) to (ref to void)
+        set raw is transmute (sigil of (codepoints at 0)) to (ref to void)
     var font as raylib.Font is calling raylib.LoadFontEx with c_path, font_size, transmute raw to ref to frozen int, (codepoints.length)
     if calling raylib.IsFontValid with font:
         return some font
@@ -317,7 +317,7 @@ weave load_font_from_memory with file_type as string, data as slice of byte, fon
     let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
     var cps as ref to void is calling ffi.null_void
     if (codepoints.length) > 0:
-        let cps as ref to void is transmute (sigil of (codepoints at 0)) to (ref to void)
+        set cps is transmute (sigil of (codepoints at 0)) to (ref to void)
     var font as raylib.Font is calling raylib.LoadFontFromMemory with c_type, raw, (data.length), font_size, transmute cps to ref to frozen int, (codepoints.length)
     if calling raylib.IsFontValid with font:
         return some font
@@ -488,7 +488,7 @@ weave load_font_data with data as slice of byte, font_size as int, codepoints as
     let raw as ref to frozen byte is transmute (sigil of (data at 0)) to ref to frozen byte
     var cps as ref to void is calling ffi.null_void
     if (codepoints.length) > 0:
-        let cps as ref to void is transmute (sigil of (codepoints at 0)) to (ref to void)
+        set cps is transmute (sigil of (codepoints at 0)) to (ref to void)
     var n as int is 0
     var glyphs as ref to raylib.GlyphInfo is calling raylib.LoadFontData with raw, (data.length), font_size, transmute cps to ref to frozen int, (codepoints.length), kind, sigil of n
     if calling ffi.is_null with (transmute glyphs to ref to void):

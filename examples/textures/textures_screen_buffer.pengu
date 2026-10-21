@@ -1,0 +1,164 @@
+## raylib [textures] example - screen buffer
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.5, last time updated with raylib 5.5
+##
+## Example contributed by Agnis Aldiņš (@nezvers) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Agnis Aldiņš (@nezvers)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with direct memory allocation and raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/textures/textures_screen_buffer.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.textures as textures
+import pengu.raylibx.images as images
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.random as random
+
+# --- Constants ---
+
+## Maximum number of colors in the procedural fire palette.
+const MAX_COLORS as int is 256
+
+## Scaling factor to blow up the low-resolution fire simulation buffer.
+const SCALE_FACTOR as int is 2
+
+# --- Entry point ---
+
+## Application main entry point.
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - screen buffer"
+    defer calling raylib.CloseWindow
+
+    let image_width as int is screen_width / SCALE_FACTOR
+    let image_height as int is screen_height / SCALE_FACTOR
+    let flame_width as int is screen_width / SCALE_FACTOR
+
+    # Palette generation
+    var palette as list of raylib.Color is list of raylib.Color
+    defer banish palette
+
+    for i from 0 to MAX_COLORS - 1:
+        let t as f32 is (i to f32) / ((MAX_COLORS - 1) to f32)
+        let hue as f32 is t * t
+        let saturation as f32 is t
+        let value as f32 is t
+
+        let col as raylib.Color is calling raylib.ColorFromHSV with (250.0 + (150.0 * hue)), saturation, value
+        calling palette.push with col
+
+    # Allocate index and flame buffers using raylib.MemAlloc
+    let index_buf_len as u32 is ((image_width * image_height) to u32)
+    let index_buffer as ref to byte is transmute (calling raylib.MemAlloc with index_buf_len) to (ref to byte)
+    defer calling raylib.MemFree with (transmute index_buffer to (ref to void))
+
+    let flame_buf_len as u32 is (flame_width to u32)
+    let flame_root_buffer as ref to byte is transmute (calling raylib.MemAlloc with flame_buf_len) to (ref to byte)
+    defer calling raylib.MemFree with (transmute flame_root_buffer to (ref to void))
+
+    # Initialize buffers to zero
+    for k from 0 to (image_width * image_height) - 1:
+        set index_buffer at k is (0 to byte)
+
+    for k from 0 to flame_width - 1:
+        set flame_root_buffer at k is (0 to byte)
+
+    var screen_image as raylib.Image is calling images.gen_image_color with image_width, image_height, raylib.BLACK
+    defer calling images.unload_image with screen_image
+
+    var screen_texture as raylib.Texture2D is with id is 0
+    if loaded_tex as raylib.Texture2D is calling textures.load_texture_from_image with screen_image:
+        set screen_texture is loaded_tex
+    else:
+        return 1
+    defer calling textures.unload_texture with screen_texture
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        # Grow flameRoot
+        for x from 2 to flame_width - 1:
+            var flame as int is (flame_root_buffer at x) to int
+            set flame is flame + (calling random.between with 0, 2)
+            if flame > 255:
+                set flame is 255
+            set flame_root_buffer at x is (flame to byte)
+
+        # Transfer flameRoot to indexBuffer
+        let base_row as int is (image_height - 1) * image_width
+        for x from 0 to flame_width - 1:
+            let i as int is x + base_row
+            set index_buffer at i is flame_root_buffer at x
+
+        # Clear top row, because it can't move any higher
+        for x from 0 to image_width - 1:
+            if (index_buffer at x) != (0 to byte):
+                set index_buffer at x is (0 to byte)
+
+        # Skip top row, it is already cleared
+        for y from 1 to image_height - 1:
+            let row_start as int is y * image_width
+            for x from 0 to image_width - 1:
+                let i as int is x + row_start
+                var color_index as int is (index_buffer at i) to int
+
+                if color_index != 0:
+                    # Move pixel a row above
+                    set index_buffer at i is (0 to byte)
+                    let move_x as int is (calling random.between with 0, 2) - 1
+                    let new_x as int is x + move_x
+
+                    if (new_x > 0) and (new_x < image_width):
+                        let iabove as int is (i - image_width) + move_x
+                        let decay as int is calling random.between with 0, 3
+                        if decay < color_index:
+                            set color_index is color_index - decay
+                        else:
+                            set color_index is 0
+                        set index_buffer at iabove is (color_index to byte)
+
+        # Update screenImage with palette colors
+        for y from 1 to image_height - 1:
+            let row_start as int is y * image_width
+            for x from 0 to image_width - 1:
+                let i as int is x + row_start
+                let color_index as int is (index_buffer at i) to int
+                let col as raylib.Color is palette at color_index
+
+                calling screen_image.draw_pixel with x, y, col
+
+        calling raylib.UpdateTexture with screen_texture, (transmute screen_image.data to (ref to frozen void))
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let pos as raylib.Vector2 is with x is 0.0, y is 0.0
+        calling screen_texture.draw_ex with pos, 0.0, 2.0, raylib.WHITE
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

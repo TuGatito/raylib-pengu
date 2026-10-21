@@ -1,0 +1,131 @@
+## ## PenguScript Port
+## Translated from raylib [textures] example - gif player
+##
+## Original example complexity rating: [★★★☆] 3/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to load an animated GIF as a sequence of frames
+## in a single CPU image and stream the frame pixel data into a GPU texture.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_gif_player.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Maximum frame delay allowed between animation frames.
+const MAX_FRAME_DELAY as int is 20
+
+## Minimum frame delay allowed between animation frames.
+const MIN_FRAME_DELAY as int is 1
+
+# --- Helpers ------------------------------------------------------------
+## Formats an integer as a two-digit zero-padded string.
+##
+## ## Parameters
+## - `value`: number to format.
+##
+## ## Returns
+## Formatted string with at least two digits.
+##
+## ## Memory
+## Returns an owned PenguScript string.
+weave pad_two_digits with value as int into string:
+    if value < 10 and value >= 0:
+        return "0{value}"
+    return "{value}"
+
+# --- Entry point --------------------------------------------------------
+## Main program function.
+##
+## ## Returns
+## Exit code (0 for success).
+weave main into int:
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - gif player"
+    defer calling raylib.CloseWindow
+
+    var anim_frames as int is 0
+    var im_scarfy_anim as raylib.Image is calling raylib.LoadImageAnim with "examples/textures/resources/scarfy_run.gif", (sigil of anim_frames)
+    defer calling images.unload_image with im_scarfy_anim
+
+    var tex_scarfy_anim as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture is calling textures.load_texture_from_image with im_scarfy_anim:
+        set tex_scarfy_anim is loaded_tex
+    defer calling textures.unload_texture with tex_scarfy_anim
+
+    var next_frame_data_offset as int is 0
+    var current_anim_frame as int is 0
+    var frame_delay as int is 8
+    var frame_counter as int is 0
+
+    calling raylib.SetTargetFPS with 60
+
+    while not calling raylib.WindowShouldClose:
+        set frame_counter is frame_counter + 1
+        if frame_counter >= frame_delay:
+            set current_anim_frame is current_anim_frame + 1
+            if current_anim_frame >= anim_frames:
+                set current_anim_frame is 0
+
+            set next_frame_data_offset is im_scarfy_anim.width * im_scarfy_anim.height * 4 * current_anim_frame
+
+            let bytes_ptr as ref to byte is transmute im_scarfy_anim.data to ref to byte
+            let frame_ptr as ref to void is transmute (sigil of (bytes_ptr at next_frame_data_offset)) to ref to void
+            calling raylib.UpdateTexture with tex_scarfy_anim, frame_ptr
+
+            set frame_counter is 0
+
+        if calling input.is_key_pressed with raylib.KEY_RIGHT:
+            set frame_delay is frame_delay + 1
+        else if calling input.is_key_pressed with raylib.KEY_LEFT:
+            set frame_delay is frame_delay - 1
+
+        if frame_delay > MAX_FRAME_DELAY:
+            set frame_delay is MAX_FRAME_DELAY
+        else if frame_delay < MIN_FRAME_DELAY:
+            set frame_delay is MIN_FRAME_DELAY
+
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let frames_str as string is calling pad_two_digits with anim_frames
+        calling txt.draw_text with "TOTAL GIF FRAMES:  {frames_str}", 50, 30, 20, raylib.LIGHTGRAY
+
+        let cur_frame_str as string is calling pad_two_digits with current_anim_frame
+        calling txt.draw_text with "CURRENT FRAME: {cur_frame_str}", 50, 60, 20, raylib.GRAY
+
+        let offset_str as string is calling pad_two_digits with next_frame_data_offset
+        calling txt.draw_text with "CURRENT FRAME IMAGE.DATA OFFSET: {offset_str}", 50, 90, 20, raylib.GRAY
+
+        calling txt.draw_text with "FRAMES DELAY: ", 100, 305, 10, raylib.DARKGRAY
+        let delay_str as string is calling pad_two_digits with frame_delay
+        calling txt.draw_text with "{delay_str} frames", 620, 305, 10, raylib.DARKGRAY
+        calling txt.draw_text with "PRESS RIGHT/LEFT KEYS to CHANGE SPEED!", 290, 350, 10, raylib.DARKGRAY
+
+        var i as int is 0
+        while i < MAX_FRAME_DELAY:
+            if i < frame_delay:
+                calling shapes.draw_rectangle with (190 + 21 * i), 300, 20, 20, raylib.RED
+            calling shapes.draw_rectangle_lines with (190 + 21 * i), 300, 20, 20, raylib.MAROON
+            set i is i + 1
+
+        let draw_x as int is (calling raylib.GetScreenWidth / 2) - (tex_scarfy_anim.width / 2)
+        calling tex_scarfy_anim.draw with draw_x, 140, raylib.WHITE
+
+        calling txt.draw_text with "(c) Scarfy sprite by Eiden Marsal", (screen_width - 200), (screen_height - 20), 10, raylib.GRAY
+
+        calling drawing.end_drawing
+
+    return 0

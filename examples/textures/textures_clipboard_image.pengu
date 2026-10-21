@@ -1,0 +1,125 @@
+## examples/textures/textures_clipboard_image.pengu
+## raylib [textures] example - clipboard image
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example contributed by Maicon Santana (@maiconpintoabreu) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2026 Maicon Santana (@maiconpintoabreu)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/textures/textures_clipboard_image.c` using the
+## `raylibx` wrapper layer. Retrieves images from the system clipboard, converts
+## them to GPU textures, and renders them at the mouse cursor position.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_clipboard_image.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+import raylibx.window as window
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+## Maximum number of clipboard textures preserved at once.
+const MAX_TEXTURE_COLLECTION as int is 20
+
+# --- Types --------------------------------------------------------------
+## Pairs an uploaded clipboard texture with its render position.
+rune TextureCollection:
+    texture as raylib.Texture
+    position as raylib.Vector2
+
+# --- Entry point --------------------------------------------------------
+## Main program entry point.
+##
+## ## Returns
+## Exit code `0` on normal termination.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - clipboard image"
+    defer calling raylib.CloseWindow
+
+    var collection as list of TextureCollection is list of TextureCollection
+    defer banish collection
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling input.is_key_pressed with raylib.KEY_R:
+            # Unload textures to avoid memory leaks
+            for i from 0 to collection.length:
+                let item as TextureCollection is collection at i
+                calling textures.unload_texture with item.texture
+            banish collection
+            set collection is list of TextureCollection
+
+        if (calling input.is_key_down with raylib.KEY_LEFT_CONTROL) and (calling input.is_key_pressed with raylib.KEY_V) and (collection.length < MAX_TEXTURE_COLLECTION):
+            let maybe_img as maybe raylib.Image is calling window.get_clipboard_image
+            if img as raylib.Image is maybe_img:
+                let maybe_tex as maybe raylib.Texture is calling textures.load_texture_from_image with img
+                calling images.unload_image with img
+                if tex as raylib.Texture is maybe_tex:
+                    var item as TextureCollection is with:
+                        set .texture is tex
+                        set .position is (calling raylib.GetMousePosition)
+                    calling collection.append with item
+            else:
+                calling raylib.TraceLog with (raylib.LOG_INFO to int), "IMAGE: Could not retrieve image from clipboard"
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        for i from 0 to collection.length:
+            let item as TextureCollection is collection at i
+            if calling raylib.IsTextureValid with item.texture:
+                let tex_w as f32 is item.texture.width to f32
+                let tex_h as f32 is item.texture.height to f32
+                let src_rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is tex_w, height is tex_h
+                let dst_rec as raylib.Rectangle is with x is item.position.x, y is item.position.y, width is tex_w, height is tex_h
+                let origin as raylib.Vector2 is with x is (tex_w * 0.5), y is (tex_h * 0.5)
+                calling item.texture.draw_pro with src_rec, dst_rec, origin, 0.0, raylib.WHITE
+
+        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, 40, raylib.BLACK
+        calling txt.draw_text with "Clipboard Image - Ctrl+V to Paste and R to Reset ", 120, 10, 20, raylib.LIGHTGRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    # De-Initialization
+    # ---------------------------------------------------------------------
+    for i from 0 to collection.length:
+        let item as TextureCollection is collection at i
+        calling textures.unload_texture with item.texture
+
+    return 0

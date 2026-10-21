@@ -1,0 +1,261 @@
+## ## PenguScript Port
+## Port of raylib [text] example - inline styling
+##
+## Demonstrates parsing inline markup within strings to change text foreground and
+## background colors dynamically ([cRRGGBBAA], [bRRGGBBAA], [r]).
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_inline_styling.pengu
+## ```
+
+import std.ffi as ffi
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.random as random
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+
+# --- Helpers ---
+
+## Converts a single hexadecimal ASCII character to its integer value (0..15)
+weave parse_hex_digit with ch as frozen char into int:
+    let code as int is ch to int
+    if (code >= 48) and (code <= 57):
+        return code - 48
+    if (code >= 65) and (code <= 70):
+        return code - 65 + 10
+    if (code >= 97) and (code <= 102):
+        return code - 97 + 10
+    return 0
+
+## Parses a hexadecimal color value from a C string buffer into an unsigned 32-bit integer
+weave parse_hex_color with c_str as ref to frozen char, start as int, count as int into u32:
+    var val as u32 is 0
+    for k from 0 to count:
+        let d as int is calling parse_hex_digit with (c_str at (start + k))
+        set val is (val * 16) + (d to u32)
+    return val
+
+## Formats an integer byte (0..255) as a two-character lowercase hexadecimal string
+weave to_hex_byte with val as int into string:
+    let hex_chars as string is "0123456789abcdef"
+    let hi as int is (val / 16) % 16
+    let lo as int is val % 16
+    let hi_sub as string is calling txt.text_subtext with hex_chars, hi, 1
+    defer banish hi_sub
+    let lo_sub as string is calling txt.text_subtext with hex_chars, lo, 1
+    defer banish lo_sub
+    return "{hi_sub}{lo_sub}"
+
+## Draws text using inline markup formatting tags ([cRRGGBBAA], [bRRGGBBAA], [r])
+weave draw_text_styled with font_in as raylib.Font, text as string, position as raylib.Vector2, font_size as f32, spacing as f32, base_color as raylib.Color into void:
+    var font as raylib.Font is if font_in.texture.id == 0 then (calling txt.default_font) else font_in
+    let text_len as int is text.length
+    if text_len == 0:
+        return
+
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+
+    var col_front as raylib.Color is base_color
+    var col_back as raylib.Color is raylib.BLANK
+    let back_rec_padding as f32 is 4.0
+
+    var text_offset_y as f32 is 0.0
+    var text_offset_x as f32 is 0.0
+    let text_line_spacing as f32 is 0.0
+    let scale_factor as f32 is font_size / (font.baseSize to f32)
+
+    var i as int is 0
+    while i < text_len:
+        var codepoint_byte_count as int is 0
+        let ptr as ref to frozen char is sigil of (c_text at i)
+        let codepoint as int is calling raylib.GetCodepointNext with ptr, sigil of codepoint_byte_count
+
+        var is_tag as bool is false
+        if codepoint == 91:    # '['
+            if ((i + 2) < text_len) and ((c_text at (i + 1)) == ('r' to char)) and ((c_text at (i + 2)) == (']' to char)):
+                set col_front is base_color
+                set col_back is raylib.BLANK
+                set i is i + 3
+                set is_tag is true
+            else:
+                if ((i + 1) < text_len) and (((c_text at (i + 1)) == ('c' to char)) or ((c_text at (i + 1)) == ('b' to char))):
+                    let mode_char as frozen char is c_text at (i + 1)
+                    set i is i + 2
+
+                    var col_hex_count as int is 0
+                    var scanning as bool is true
+                    while scanning and ((i + col_hex_count) < text_len):
+                        let ch as frozen char is c_text at (i + col_hex_count)
+                        if ch == (']' to char):
+                            set scanning is false
+                        else:
+                            let code as int is ch to int
+                            if ((code >= 48) and (code <= 57)) or ((code >= 65) and (code <= 70)) or ((code >= 97) and (code <= 102)):
+                                set col_hex_count is col_hex_count + 1
+                            else:
+                                set scanning is false
+
+                    let hex_val as u32 is calling parse_hex_color with c_text, i, col_hex_count
+                    if mode_char == ('c' to char):
+                        set col_front is calling raylib.GetColor with hex_val
+                    else:
+                        if mode_char == ('b' to char):
+                            set col_back is calling raylib.GetColor with hex_val
+
+                    set i is i + col_hex_count + 1
+                    set is_tag is true
+
+        if not is_tag:
+            if codepoint == 10:    # '\n'
+                set text_offset_y is text_offset_y + font_size + text_line_spacing
+                set text_offset_x is 0.0
+            else:
+                let index as int is calling raylib.GetGlyphIndex with font, codepoint
+                let glyph as raylib.GlyphInfo is font.glyphs at index
+                let rec as raylib.Rectangle is font.recs at index
+
+                var increase_x as f32 is 0.0
+                if glyph.advanceX == 0:
+                    set increase_x is (rec.width * scale_factor) + spacing
+                else:
+                    set increase_x is ((glyph.advanceX to f32) * scale_factor) + spacing
+
+                # Draw background rectangle color (if required)
+                if col_back.a > (0 to byte):
+                    let bg_rec as raylib.Rectangle is with x is (position.x + text_offset_x), y is (position.y + text_offset_y - back_rec_padding), width is increase_x, height is (font_size + (2.0 * back_rec_padding))
+                    calling bg_rec.draw with col_back
+
+                if (codepoint != 32) and (codepoint != 9):
+                    calling font.draw_codepoint with codepoint, (with x is (position.x + text_offset_x), y is (position.y + text_offset_y)), font_size, col_front
+
+                set text_offset_x is text_offset_x + increase_x
+
+            set i is i + codepoint_byte_count
+
+## Measures dimensions of inline styled text skipping formatting tags
+weave measure_text_styled with font_in as raylib.Font, text as string, font_size as f32, spacing as f32 into raylib.Vector2:
+    if (font_in.texture.id == 0) or ((text.length) == 0):
+        return with x is 0.0, y is 0.0
+
+    var font as raylib.Font is font_in
+    let text_len as int is text.length
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+
+    var text_width as f32 is 0.0
+    let text_height as f32 is font_size
+    let scale_factor as f32 is font_size / (font.baseSize to f32)
+
+    var valid_codepoint_counter as int is 0
+    var i as int is 0
+
+    while i < text_len:
+        var codepoint_byte_count as int is 0
+        let ptr as ref to frozen char is sigil of (c_text at i)
+        let codepoint as int is calling raylib.GetCodepointNext with ptr, sigil of codepoint_byte_count
+
+        var is_tag as bool is false
+        if codepoint == 91:    # '['
+            if ((i + 2) < text_len) and ((c_text at (i + 1)) == ('r' to char)) and ((c_text at (i + 2)) == (']' to char)):
+                set i is i + 3
+                set is_tag is true
+            else:
+                if ((i + 1) < text_len) and (((c_text at (i + 1)) == ('c' to char)) or ((c_text at (i + 1)) == ('b' to char))):
+                    set i is i + 2
+                    var col_hex_count as int is 0
+                    var scanning as bool is true
+                    while scanning and ((i + col_hex_count) < text_len):
+                        let ch as frozen char is c_text at (i + col_hex_count)
+                        if ch == (']' to char):
+                            set scanning is false
+                        else:
+                            let code as int is ch to int
+                            if ((code >= 48) and (code <= 57)) or ((code >= 65) and (code <= 70)) or ((code >= 97) and (code <= 102)):
+                                set col_hex_count is col_hex_count + 1
+                            else:
+                                set scanning is false
+                    set i is i + col_hex_count + 1
+                    set is_tag is true
+
+        if not is_tag:
+            if codepoint != 10:
+                let index as int is calling raylib.GetGlyphIndex with font, codepoint
+                let glyph as raylib.GlyphInfo is font.glyphs at index
+                let rec as raylib.Rectangle is font.recs at index
+
+                if glyph.advanceX > 0:
+                    set text_width is text_width + (glyph.advanceX to f32)
+                else:
+                    set text_width is text_width + rec.width + (glyph.offsetX to f32)
+
+                set valid_codepoint_counter is valid_codepoint_counter + 1
+
+            set i is i + codepoint_byte_count
+
+    let res_x as f32 is (text_width * scale_factor) + (((valid_codepoint_counter - 1) to f32) * spacing)
+    return with x is res_x, y is text_height
+
+# --- Entry point ---
+
+## Program main entry point
+weave entry into int:
+    # Initialization
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - inline styling"
+    defer calling raylib.CloseWindow
+
+    var text_size as raylib.Vector2 is with x is 0.0, y is 0.0
+    var col_random as raylib.Color is raylib.RED
+    var frame_counter as int is 0
+
+    let font_default as raylib.Font is calling txt.default_font
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set frame_counter is frame_counter + 1
+
+        if (frame_counter % 20) == 0:
+            let r_rand as int is calling random.between with 0, 255
+            let g_rand as int is calling random.between with 0, 255
+            let b_rand as int is calling random.between with 0, 255
+            set col_random is with r is (r_rand to byte), g is (g_rand to byte), b is (b_rand to byte), a is (255 to byte)
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling draw_text_styled with font_default, "This changes the [cFF0000FF]foreground color[r] of provided text!!!", (with x is 100.0, y is 80.0), 20.0, 2.0, raylib.BLACK
+
+        calling draw_text_styled with font_default, "This changes the [bFF00FFFF]background color[r] of provided text!!!", (with x is 100.0, y is 120.0), 20.0, 2.0, raylib.BLACK
+
+        calling draw_text_styled with font_default, "This changes the [c00ff00ff][bff0000ff]foreground and background colors[r]!!!", (with x is 100.0, y is 160.0), 20.0, 2.0, raylib.BLACK
+
+        let col_alpha_base as raylib.Color is with r is (0 to byte), g is (0 to byte), b is (0 to byte), a is (100 to byte)
+        calling draw_text_styled with font_default, "This changes the [c00ff00ff]alpha[r] relative [cffffffff][b000000ff]from source[r] [cff000088]color[r]!!!", (with x is 100.0, y is 200.0), 20.0, 2.0, col_alpha_base
+
+        let r_hex as string is calling to_hex_byte with (col_random.r to int)
+        defer banish r_hex
+        let g_hex as string is calling to_hex_byte with (col_random.g to int)
+        defer banish g_hex
+        let b_hex as string is calling to_hex_byte with (col_random.b to int)
+        defer banish b_hex
+        let text_creative as string is "Let's be [c{r_hex}{g_hex}{b_hex}ff]CREATIVE[r] !!!"
+        defer banish text_creative
+
+        calling draw_text_styled with font_default, text_creative, (with x is 100.0, y is 240.0), 40.0, 2.0, raylib.BLACK
+
+        set text_size is calling measure_text_styled with font_default, text_creative, 40.0, 2.0
+        calling shapes.draw_rectangle_lines with 100, 240, (text_size.x to int), (text_size.y to int), raylib.GREEN
+
+        calling drawing.end_drawing
+
+    return 0

@@ -1,0 +1,132 @@
+## raylib [textures] example - sprite explosion
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 3.5
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2019-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers (`textures`, `audio`, `drawing`, `input`).
+##
+## ## Example
+## ```shell
+## pengu run examples/textures/textures_sprite_explosion.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.audio as audio
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.textures as textures
+
+# --- Constants ---
+
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Number of frames per horizontal line in the explosion spritesheet.
+const NUM_FRAMES_PER_LINE as int is 5
+
+## Number of vertical lines in the explosion spritesheet.
+const NUM_LINES as int is 5
+
+# --- Entry point ---
+
+## Application main entry point.
+##
+## Initializes the window and audio system, loads explosion spritesheet texture and sound,
+## triggers an explosion animation at the mouse cursor on click, and advances frames across rows.
+##
+## ## Returns
+## Exit code `0` on successful execution, or `1` if resource loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - sprite explosion"
+    defer calling raylib.CloseWindow
+
+    calling raylib.InitAudioDevice
+    defer calling raylib.CloseAudioDevice
+
+    # Load explosion sound
+    let loaded_sound as maybe raylib.Sound is calling audio.load_sound with "examples/textures/resources/boom.wav"
+    if fx_boom as raylib.Sound is loaded_sound:
+        defer calling audio.unload_sound with fx_boom
+
+        # Load explosion texture
+        let loaded_texture as maybe raylib.Texture2D is calling textures.load_texture with "examples/textures/resources/explosion.png"
+        if explosion as raylib.Texture2D is loaded_texture:
+            defer calling textures.unload_texture with explosion
+
+            # Init variables for animation
+            let frame_width as f32 is (explosion.width to f32) / (NUM_FRAMES_PER_LINE to f32)
+            let frame_height as f32 is (explosion.height to f32) / (NUM_LINES to f32)
+            var current_frame as int is 0
+            var current_line as int is 0
+
+            var frame_rec as raylib.Rectangle is with:
+                set .x is 0.0
+                set .y is 0.0
+                set .width is frame_width
+                set .height is frame_height
+
+            var position as raylib.Vector2 is with:
+                set .x is 0.0
+                set .y is 0.0
+
+            var active as bool is false
+            var frames_counter as int is 0
+
+            calling raylib.SetTargetFPS with 60
+
+            # Main game loop
+            while not calling raylib.WindowShouldClose:
+                # Update
+                if (calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT) and (not active):
+                    let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+                    set position.x is mouse_pos.x - (frame_width / 2.0)
+                    set position.y is mouse_pos.y - (frame_height / 2.0)
+                    set active is true
+                    calling fx_boom.play
+
+                # Compute explosion animation frames
+                if active:
+                    set frames_counter is frames_counter + 1
+
+                    if frames_counter > 2:
+                        set current_frame is current_frame + 1
+
+                        if current_frame >= NUM_FRAMES_PER_LINE:
+                            set current_frame is 0
+                            set current_line is current_line + 1
+
+                            if current_line >= NUM_LINES:
+                                set current_line is 0
+                                set active is false
+
+                        set frames_counter is 0
+
+                set frame_rec.x is frame_width * (current_frame to f32)
+                set frame_rec.y is frame_height * (current_line to f32)
+
+                # Draw
+                calling drawing.begin_drawing
+                calling drawing.clear_background with raylib.RAYWHITE
+
+                if active:
+                    calling explosion.draw_rec with frame_rec, position, raylib.WHITE
+
+                calling drawing.end_drawing
+
+            return 0
+        else:
+            return 1
+    else:
+        return 1

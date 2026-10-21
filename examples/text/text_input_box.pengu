@@ -1,0 +1,118 @@
+## ## PenguScript Port
+## Port of raylib [text] example - input box
+##
+## Demonstrates a simple text input field handling cursor focus, character typing,
+## backspace deletion, and blinking cursor rendering.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_input_box.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+
+# --- Constants ---
+
+## Maximum allowed characters in the input field
+const MAX_INPUT_CHARS as int is 9
+
+# --- Entry point ---
+
+## Program main entry point
+weave entry into int:
+    # Initialization
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - input box"
+    defer calling raylib.CloseWindow
+
+    var name as string is ""
+    var letter_count as int is 0
+
+    let text_box as raylib.Rectangle is with x is (((screen_width to f32) / 2.0) - 100.0), y is 180.0, width is 225.0, height is 50.0
+
+    var mouse_on_text as bool is false
+    var frames_counter as int is 0
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+        if calling raylib.CheckCollisionPointRec with mouse_pos, text_box:
+            set mouse_on_text is true
+        else:
+            set mouse_on_text is false
+
+        if mouse_on_text:
+            # Set the window's cursor to the I-Beam
+            calling input.set_mouse_cursor with raylib.MOUSE_CURSOR_IBEAM
+
+            # Get char pressed (unicode character) on the queue
+            var key as int is calling raylib.GetCharPressed
+
+            # Check if more characters have been pressed on the same frame
+            while key > 0:
+                # NOTE: Only allow keys in range [32..125]
+                if (key >= 32) and (key <= 125) and (letter_count < MAX_INPUT_CHARS):
+                    let ch_str as string is calling txt.codepoint_to_text with key
+                    let prev as string is name
+                    set name is "{name}{ch_str}"
+                    banish ch_str
+                    if (prev.length) > 0:
+                        banish prev
+                    set letter_count is name.length
+                set key is calling raylib.GetCharPressed
+
+            if calling input.is_key_pressed with raylib.KEY_BACKSPACE:
+                if letter_count > 0:
+                    let prev_del as string is name
+                    set name is calling txt.text_subtext with name, 0, letter_count - 1
+                    banish prev_del
+                    set letter_count is name.length
+        else:
+            calling input.set_mouse_cursor with raylib.MOUSE_CURSOR_DEFAULT
+
+        if mouse_on_text:
+            set frames_counter is frames_counter + 1
+        else:
+            set frames_counter is 0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "PLACE MOUSE OVER INPUT BOX!", 240, 140, 20, raylib.GRAY
+
+        calling text_box.draw with raylib.LIGHTGRAY
+        let border_col as raylib.Color is if mouse_on_text then raylib.RED else raylib.DARKGRAY
+        calling shapes.draw_rectangle_lines with (text_box.x to int), (text_box.y to int), (text_box.width to int), (text_box.height to int), border_col
+
+        calling txt.draw_text with name, (text_box.x to int) + 5, (text_box.y to int) + 8, 40, raylib.MAROON
+
+        let count_text as string is "INPUT CHARS: {letter_count}/{MAX_INPUT_CHARS}"
+        defer banish count_text
+        calling txt.draw_text with count_text, 315, 250, 20, raylib.DARKGRAY
+
+        if mouse_on_text:
+            if letter_count < MAX_INPUT_CHARS:
+                # Draw blinking underscore char
+                if ((frames_counter / 20) % 2) == 0:
+                    let text_w as int is calling txt.measure_text with name, 40
+                    calling txt.draw_text with "_", (text_box.x to int) + 8 + text_w, (text_box.y to int) + 12, 40, raylib.MAROON
+            else:
+                calling txt.draw_text with "Press BACKSPACE to delete chars...", 230, 300, 20, raylib.GRAY
+
+        calling drawing.end_drawing
+
+    if (name.length) > 0:
+        banish name
+
+    return 0

@@ -1,0 +1,161 @@
+## examples/textures/textures_npatch_drawing.pengu
+## raylib [textures] example - npatch drawing
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 2.0, last time updated with raylib 2.5
+## Contributed by Jorge A. Gomes (@overdev) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2018-2025 Jorge A. Gomes (@overdev) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/textures/textures_npatch_drawing.c` built on top of the
+## `raylibx` wrapper layer. Demonstrates dynamic 9-patch, horizontal 3-patch, and vertical
+## 3-patch texture drawing using `tex.draw_npatch`, dynamically resizing each patch
+## based on cursor position.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_npatch_drawing.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry point --------------------------------------------------------
+## Program main entry point. Renders resizable 9-patch and 3-patch textures.
+##
+## ## Returns
+## Exit code 0 on success.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - npatch drawing"
+    defer calling raylib.CloseWindow
+
+    # NOTE: Textures MUST be loaded after Window initialization (OpenGL context is required)
+    let maybe_npatch_texture as maybe raylib.Texture is calling textures.load_texture with "examples/textures/resources/ninepatch_button.png"
+    if npatch_texture as raylib.Texture is maybe_npatch_texture:
+        defer calling textures.unload_texture with npatch_texture
+
+        let origin as raylib.Vector2 is with x is 0.0, y is 0.0
+
+        # Position and size of the n-patches
+        var dst_rec1 as raylib.Rectangle is with x is 480.0, y is 160.0, width is 32.0, height is 32.0
+        var dst_rec2 as raylib.Rectangle is with x is 160.0, y is 160.0, width is 32.0, height is 32.0
+        var dst_rec_h as raylib.Rectangle is with x is 160.0, y is 93.0, width is 32.0, height is 32.0
+        var dst_rec_v as raylib.Rectangle is with x is 92.0, y is 160.0, width is 32.0, height is 32.0
+
+        # A 9-patch (NPATCH_NINE_PATCH) changes its sizes in both axis
+        let nine_patch_info1 as raylib.NPatchInfo is with:
+            set .source is with x is 0.0, y is 0.0, width is 64.0, height is 64.0
+            set .left is 12
+            set .top is 40
+            set .right is 12
+            set .bottom is 12
+            set .layout is (raylib.NPATCH_NINE_PATCH to int)
+
+        let nine_patch_info2 as raylib.NPatchInfo is with:
+            set .source is with x is 0.0, y is 128.0, width is 64.0, height is 64.0
+            set .left is 16
+            set .top is 16
+            set .right is 16
+            set .bottom is 16
+            set .layout is (raylib.NPATCH_NINE_PATCH to int)
+
+        # A horizontal 3-patch (NPATCH_THREE_PATCH_HORIZONTAL) changes its sizes along the x axis only
+        let h3_patch_info as raylib.NPatchInfo is with:
+            set .source is with x is 0.0, y is 64.0, width is 64.0, height is 64.0
+            set .left is 8
+            set .top is 8
+            set .right is 8
+            set .bottom is 8
+            set .layout is (raylib.NPATCH_THREE_PATCH_HORIZONTAL to int)
+
+        # A vertical 3-patch (NPATCH_THREE_PATCH_VERTICAL) changes its sizes along the y axis only
+        let v3_patch_info as raylib.NPatchInfo is with:
+            set .source is with x is 0.0, y is 192.0, width is 64.0, height is 64.0
+            set .left is 6
+            set .top is 6
+            set .right is 6
+            set .bottom is 6
+            set .layout is (raylib.NPATCH_THREE_PATCH_VERTICAL to int)
+
+        calling raylib.SetTargetFPS with TARGET_FPS
+        # -----------------------------------------------------------------
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            # -------------------------------------------------------------
+            let mouse_position as raylib.Vector2 is calling raylib.GetMousePosition
+
+            # Resize the n-patches based on mouse position
+            set dst_rec1.width is mouse_position.x - dst_rec1.x
+            set dst_rec1.height is mouse_position.y - dst_rec1.y
+            set dst_rec2.width is mouse_position.x - dst_rec2.x
+            set dst_rec2.height is mouse_position.y - dst_rec2.y
+            set dst_rec_h.width is mouse_position.x - dst_rec_h.x
+            set dst_rec_v.height is mouse_position.y - dst_rec_v.y
+
+            # Set a minimum width and/or height
+            if dst_rec1.width < 1.0:
+                set dst_rec1.width is 1.0
+            if dst_rec1.width > 300.0:
+                set dst_rec1.width is 300.0
+            if dst_rec1.height < 1.0:
+                set dst_rec1.height is 1.0
+
+            if dst_rec2.width < 1.0:
+                set dst_rec2.width is 1.0
+            if dst_rec2.width > 300.0:
+                set dst_rec2.width is 300.0
+            if dst_rec2.height < 1.0:
+                set dst_rec2.height is 1.0
+
+            if dst_rec_h.width < 1.0:
+                set dst_rec_h.width is 1.0
+            if dst_rec_v.height < 1.0:
+                set dst_rec_v.height is 1.0
+            # -------------------------------------------------------------
+
+            # Draw
+            # -------------------------------------------------------------
+            calling drawing.begin_drawing
+
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            # Draw the n-patches
+            calling npatch_texture.draw_npatch with nine_patch_info2, dst_rec2, origin, 0.0, raylib.WHITE
+            calling npatch_texture.draw_npatch with nine_patch_info1, dst_rec1, origin, 0.0, raylib.WHITE
+            calling npatch_texture.draw_npatch with h3_patch_info, dst_rec_h, origin, 0.0, raylib.WHITE
+            calling npatch_texture.draw_npatch with v3_patch_info, dst_rec_v, origin, 0.0, raylib.WHITE
+
+            # Draw the source texture
+            calling shapes.draw_rectangle_lines with 5, 88, 74, 266, raylib.BLUE
+            calling npatch_texture.draw with 10, 93, raylib.WHITE
+            calling txt.draw_text with "TEXTURE", 15, 360, 10, raylib.DARKGRAY
+
+            calling txt.draw_text with "Move the mouse to stretch or shrink the n-patches", 10, 20, 20, raylib.DARKGRAY
+
+            calling drawing.end_drawing
+            # -------------------------------------------------------------
+
+    return 0

@@ -1,0 +1,93 @@
+## raylib [text] example - font loading
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.4, last time updated with raylib 3.0
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2016-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript using raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_font_loading.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+
+# --- Main entry point ---
+
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - font loading"
+    defer calling raylib.CloseWindow
+
+    # Define characters to draw (UTF-8 encoded)
+    let msg as string is r"""!"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHI
+JKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklm
+nopqrstuvwxyz{|}~¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒ
+ÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö
+÷øùúûüýþÿ"""
+
+    # BMFont (AngelCode) : Font data and image atlas have been generated using external program
+    var font_bm as raylib.Font is calling txt.default_font
+    let maybe_bm as maybe raylib.Font is calling txt.load_font with "examples/text/resources/pixantiqua.fnt"
+    if loaded_bm as raylib.Font is maybe_bm:
+        set font_bm is loaded_bm
+    defer calling txt.unload_font with font_bm
+
+    # TTF font : Generate codepoints list (0 to 250) to include extended characters
+    var codepoints as list of int is list of int
+    defer banish codepoints
+    for i from 0 to 250:
+        calling codepoints.push with i
+
+    var font_ttf as raylib.Font is calling txt.default_font
+    let maybe_ttf as maybe raylib.Font is calling txt.load_font_ex with "examples/text/resources/pixantiqua.ttf", 32, (codepoints at 0 to 250)
+    if loaded_ttf as raylib.Font is maybe_ttf:
+        set font_ttf is loaded_ttf
+    defer calling txt.unload_font with font_ttf
+
+    calling txt.set_text_line_spacing with 16
+
+    var use_ttf as bool is false
+
+    calling raylib.SetTargetFPS with 60
+
+    let text_pos as raylib.Vector2 is with:
+        set .x is 20.0
+        set .y is 100.0
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set use_ttf is calling input.is_key_down with raylib.KEY_SPACE
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "Hold SPACE to use TTF generated font", 20, 20, 20, raylib.LIGHTGRAY
+
+        let sh as int is calling raylib.GetScreenHeight
+
+        if not use_ttf:
+            calling font_bm.draw with msg, text_pos, (font_bm.baseSize to f32), 2.0, raylib.MAROON
+            calling txt.draw_text with "Using BMFont (Angelcode) imported", 20, sh - 30, 20, raylib.GRAY
+        else:
+            calling font_ttf.draw with msg, text_pos, (font_ttf.baseSize to f32), 2.0, raylib.LIME
+            calling txt.draw_text with "Using TTF font generated", 20, sh - 30, 20, raylib.GRAY
+
+        calling drawing.end_drawing
+
+    return 0

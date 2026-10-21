@@ -1,0 +1,283 @@
+## raylib [textures] example - textured curve
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 4.5, last time updated with raylib 4.5
+## Example contributed by Jeffery Myers (@JeffM2501) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2022-2025 Jeffery Myers (@JeffM2501) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers (`textures`, `shapes`, `colors`, `drawing`, `input`, `text`), `pengu.rlgl`, and `pengu.raymathx`.
+##
+## ## Example
+## ```shell
+## pengu run examples/textures/textures_textured_curve.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import pengu.rlgl as rlgl
+import pengu.raymathx as raymathx
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ---
+
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## No control point selected.
+const SELECTED_NONE as int is 0
+
+## Curve start point selected.
+const SELECTED_START as int is 1
+
+## Curve start tangent control point selected.
+const SELECTED_START_TANGENT as int is 2
+
+## Curve end point selected.
+const SELECTED_END as int is 3
+
+## Curve end tangent control point selected.
+const SELECTED_END_TANGENT as int is 4
+
+# --- Helpers ---
+
+## Renders a textured cubic Bezier curve as connected triangle strip quads.
+##
+## ## Parameters
+## - `tex_road`: Road texture applied along the spline.
+## - `start_pos`: Curve starting endpoint.
+## - `start_tangent`: Tangent handle for the starting point.
+## - `end_pos`: Curve ending endpoint.
+## - `end_tangent`: Tangent handle for the ending point.
+## - `curve_width`: Half-width of the road band.
+## - `curve_segments`: Number of subdivisions along the curve.
+##
+## ## Returns
+## Nothing; renders directly via `rlgl` immediate mode commands.
+weave draw_textured_curve with tex_road as raylib.Texture2D, start_pos as raylib.Vector2, start_tangent as raylib.Vector2, end_pos as raylib.Vector2, end_tangent as raylib.Vector2, curve_width as f32, curve_segments as int into void:
+    let step as f32 is 1.0 / (curve_segments to f32)
+
+    var previous as raylib.Vector2 is start_pos
+    var previous_tangent as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+    var previous_v as f32 is 0.0
+
+    var tangent_set as bool is false
+    var current as raylib.Vector2 is with:
+        set .x is 0.0
+        set .y is 0.0
+
+    for i from 1 to curve_segments:
+        let t as f32 is step * (i to f32)
+        let u as f32 is 1.0 - t
+
+        let a as f32 is u * u * u
+        let b as f32 is 3.0 * u * u * t
+        let c as f32 is 3.0 * u * t * t
+        let d as f32 is t * t * t
+
+        # Compute endpoint for this segment on the cubic Bezier curve
+        set current.x is (a * start_pos.x) + (b * start_tangent.x) + (c * end_tangent.x) + (d * end_pos.x)
+        set current.y is (a * start_pos.y) + (b * start_tangent.y) + (c * end_tangent.y) + (d * end_pos.y)
+
+        # Delta vector from previous to current
+        var delta as raylib.Vector2 is with:
+            set .x is current.x - previous.x
+            set .y is current.y - previous.y
+
+        # Right-hand normal perpendicular to delta
+        var perp as raylib.Vector2 is with:
+            set .x is -delta.y
+            set .y is delta.x
+
+        let normal as raylib.Vector2 is calling perp.get_normalize
+        let seg_len as f32 is calling delta.length
+        let v as f32 is previous_v + (seg_len / ((tex_road.height to f32) * 2.0))
+
+        if not tangent_set:
+            set previous_tangent is normal
+            set tangent_set is true
+
+        # Extend out normals from previous and current points to generate quad geometry
+        let prev_pos_normal as raylib.Vector2 is calling previous.get_add with (calling previous_tangent.get_scale with curve_width)
+        let prev_neg_normal as raylib.Vector2 is calling previous.get_add with (calling previous_tangent.get_scale with -curve_width)
+
+        let current_pos_normal as raylib.Vector2 is calling current.get_add with (calling normal.get_scale with curve_width)
+        let current_neg_normal as raylib.Vector2 is calling current.get_add with (calling normal.get_scale with -curve_width)
+
+        # Draw segment as a triangle strip quad
+        calling rlgl.rlSetTexture with tex_road.id
+        calling rlgl.rlBegin with (rlgl.RL_TRIANGLE_STRIP to int)
+        calling rlgl.rlColor4ub with (255 to byte), (255 to byte), (255 to byte), (255 to byte)
+        calling rlgl.rlNormal3f with 0.0, 0.0, 1.0
+
+        calling rlgl.rlTexCoord2f with 0.0, previous_v
+        calling rlgl.rlVertex2f with prev_neg_normal.x, prev_neg_normal.y
+
+        calling rlgl.rlTexCoord2f with 1.0, previous_v
+        calling rlgl.rlVertex2f with prev_pos_normal.x, prev_pos_normal.y
+
+        calling rlgl.rlTexCoord2f with 0.0, v
+        calling rlgl.rlVertex2f with current_neg_normal.x, current_neg_normal.y
+
+        calling rlgl.rlTexCoord2f with 1.0, v
+        calling rlgl.rlVertex2f with current_pos_normal.x, current_pos_normal.y
+        calling rlgl.rlEnd
+
+        set previous is current
+        set previous_tangent is normal
+        set previous_v is v
+
+# --- Entry point ---
+
+## Application main entry point.
+##
+## Configures MSAA/VSync flags, initializes the window, loads and filters the road texture,
+## provides interactive manipulation of curve control points, and renders the textured spline.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if resource loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.SetConfigFlags with ((raylib.FLAG_VSYNC_HINT to u32) | (raylib.FLAG_MSAA_4X_HINT to u32))
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - textured curve"
+    defer calling raylib.CloseWindow
+
+    # Load road texture
+    let loaded_texture as maybe raylib.Texture2D is calling textures.load_texture with "examples/textures/resources/road.png"
+    if tex_road as raylib.Texture2D is loaded_texture:
+        defer calling textures.unload_texture with tex_road
+
+        calling tex_road.set_filter with raylib.TEXTURE_FILTER_BILINEAR
+
+        # Setup curve endpoints and tangents
+        var curve_start_pos as raylib.Vector2 is with:
+            set .x is 80.0
+            set .y is 100.0
+        var curve_start_pos_tangent as raylib.Vector2 is with:
+            set .x is 100.0
+            set .y is 300.0
+
+        var curve_end_pos as raylib.Vector2 is with:
+            set .x is 700.0
+            set .y is 350.0
+        var curve_end_pos_tangent as raylib.Vector2 is with:
+            set .x is 600.0
+            set .y is 100.0
+
+        var show_curve as bool is false
+        var curve_width as f32 is 50.0
+        var curve_segments as int is 24
+        var selected_point as int is SELECTED_NONE
+
+        calling raylib.SetTargetFPS with 60
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            if calling input.is_key_pressed with raylib.KEY_SPACE:
+                set show_curve is not show_curve
+            if calling input.is_key_pressed with raylib.KEY_EQUAL:
+                set curve_width is curve_width + 2.0
+            if calling input.is_key_pressed with raylib.KEY_MINUS:
+                set curve_width is curve_width - 2.0
+            if curve_width < 2.0:
+                set curve_width is 2.0
+
+            if calling input.is_key_pressed with raylib.KEY_LEFT:
+                set curve_segments is curve_segments - 2
+            if calling input.is_key_pressed with raylib.KEY_RIGHT:
+                set curve_segments is curve_segments + 2
+            if curve_segments < 2:
+                set curve_segments is 2
+
+            # Clear selection if mouse button is not held down
+            if not (calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT):
+                set selected_point is SELECTED_NONE
+
+            # Move currently selected control point
+            let delta as raylib.Vector2 is calling raylib.GetMouseDelta
+            if selected_point == SELECTED_START:
+                set curve_start_pos is calling curve_start_pos.get_add with delta
+            else if selected_point == SELECTED_START_TANGENT:
+                set curve_start_pos_tangent is calling curve_start_pos_tangent.get_add with delta
+            else if selected_point == SELECTED_END:
+                set curve_end_pos is calling curve_end_pos.get_add with delta
+            else if selected_point == SELECTED_END_TANGENT:
+                set curve_end_pos_tangent is calling curve_end_pos_tangent.get_add with delta
+
+            # Detect mouse pick on any of the control points
+            let mouse as raylib.Vector2 is calling raylib.GetMousePosition
+            if calling shapes.collision_point_circle with mouse, curve_start_pos, 6.0:
+                set selected_point is SELECTED_START
+            else if calling shapes.collision_point_circle with mouse, curve_start_pos_tangent, 6.0:
+                set selected_point is SELECTED_START_TANGENT
+            else if calling shapes.collision_point_circle with mouse, curve_end_pos, 6.0:
+                set selected_point is SELECTED_END
+            else if calling shapes.collision_point_circle with mouse, curve_end_pos_tangent, 6.0:
+                set selected_point is SELECTED_END_TANGENT
+
+            # Draw
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            # Draw textured spline cubic bezier
+            calling draw_textured_curve with tex_road, curve_start_pos, curve_start_pos_tangent, curve_end_pos, curve_end_pos_tangent, curve_width, curve_segments
+
+            # Draw spline for reference if toggled
+            if show_curve:
+                calling shapes.draw_spline_segment_bezier_cubic with curve_start_pos, curve_end_pos, curve_start_pos_tangent, curve_end_pos_tangent, 2.0, raylib.BLUE
+
+            # Draw tangent guide lines
+            calling curve_start_pos.draw_line_to with curve_start_pos_tangent, raylib.SKYBLUE
+            let faded_gray as raylib.Color is calling colors.fade with raylib.LIGHTGRAY, 0.4
+            calling curve_start_pos_tangent.draw_line_to with curve_end_pos_tangent, faded_gray
+            calling curve_end_pos.draw_line_to with curve_end_pos_tangent, raylib.PURPLE
+
+            # Draw control point handles with hover highlights
+            if calling shapes.collision_point_circle with mouse, curve_start_pos, 6.0:
+                calling curve_start_pos.draw_circle with 7.0, raylib.YELLOW
+            calling curve_start_pos.draw_circle with 5.0, raylib.RED
+
+            if calling shapes.collision_point_circle with mouse, curve_start_pos_tangent, 6.0:
+                calling curve_start_pos_tangent.draw_circle with 7.0, raylib.YELLOW
+            calling curve_start_pos_tangent.draw_circle with 5.0, raylib.MAROON
+
+            if calling shapes.collision_point_circle with mouse, curve_end_pos, 6.0:
+                calling curve_end_pos.draw_circle with 7.0, raylib.YELLOW
+            calling curve_end_pos.draw_circle with 5.0, raylib.GREEN
+
+            if calling shapes.collision_point_circle with mouse, curve_end_pos_tangent, 6.0:
+                calling curve_end_pos_tangent.draw_circle with 7.0, raylib.YELLOW
+            calling curve_end_pos_tangent.draw_circle with 5.0, raylib.DARKGREEN
+
+            # Draw usage info
+            calling txt.draw_text with "Drag points to move curve, press SPACE to show/hide base curve", 10, 10, 10, raylib.DARKGRAY
+
+            let width_label as string is "Curve width: {curve_width to int} (Use + and - to adjust)"
+            defer banish width_label
+            calling txt.draw_text with width_label, 10, 30, 10, raylib.DARKGRAY
+
+            let segs_label as string is "Curve segments: {curve_segments} (Use LEFT and RIGHT to adjust)"
+            defer banish segs_label
+            calling txt.draw_text with segs_label, 10, 50, 10, raylib.DARKGRAY
+
+            calling drawing.end_drawing
+
+        return 0
+    else:
+        return 1

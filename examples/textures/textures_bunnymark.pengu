@@ -1,0 +1,140 @@
+## examples/textures/textures_bunnymark.pengu
+## raylib [textures] example - bunnymark
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 1.6, last time updated with raylib 2.5
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/textures/textures_bunnymark.c` using the
+## `raylibx` wrapper layer and a dynamic `list of Bunny` instead of manual
+## malloc/free. Spawns up to 80,000 animated bunnies drawn in batched calls.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_bunnymark.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Maximum number of bunnies allowed in the simulation.
+const MAX_BUNNIES as int is 80000
+
+## Maximum amount of elements (quads) per batch before a draw call flush.
+const MAX_BATCH_ELEMENTS as int is 8192
+
+# --- Types --------------------------------------------------------------
+## Represents a single animated bunny with its position, speed vector, and color tint.
+rune Bunny:
+    position as raylib.Vector2
+    speed as raylib.Vector2
+    color as raylib.Color
+
+# --- Entry point --------------------------------------------------------
+## Main program entry point.
+##
+## ## Returns
+## Exit code `0` on normal termination.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - bunnymark"
+    defer calling raylib.CloseWindow
+
+    # Load bunny texture
+    var tex_bunny as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded as raylib.Texture is calling textures.load_texture with "examples/textures/resources/raybunny.png":
+        set tex_bunny is loaded
+    defer calling textures.unload_texture with tex_bunny
+
+    var bunnies as list of Bunny is list of Bunny
+    defer banish bunnies
+
+    var paused as bool is false
+
+    calling raylib.SetTargetFPS with 0 # Uncapped framerate
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        if calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT:
+            # Create more bunnies
+            let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+            for k from 0 to 100:
+                if bunnies.length < MAX_BUNNIES:
+                    var b as Bunny is with:
+                        set .position is mouse_pos
+                        set .speed is with:
+                            set .x is (calling raylib.GetRandomValue with -250, 250) to f32
+                            set .y is (calling raylib.GetRandomValue with -250, 250) to f32
+                        set .color is with:
+                            set .r is (calling raylib.GetRandomValue with 50, 240) to byte
+                            set .g is (calling raylib.GetRandomValue with 80, 240) to byte
+                            set .b is (calling raylib.GetRandomValue with 100, 240) to byte
+                            set .a is 255 to byte
+                    calling bunnies.append with b
+
+        if calling input.is_key_pressed with raylib.KEY_P:
+            set paused is not paused
+
+        if not paused:
+            let dt as f32 is calling raylib.GetFrameTime
+            let half_w as f32 is (tex_bunny.width to f32) / 2.0
+            let half_h as f32 is (tex_bunny.height to f32) / 2.0
+            let screen_w as f32 is (calling raylib.GetScreenWidth) to f32
+            let screen_h as f32 is (calling raylib.GetScreenHeight) to f32
+
+            # Update bunnies
+            for i from 0 to bunnies.length:
+                var b as Bunny is bunnies at i
+                set b.position.x is b.position.x + (b.speed.x * dt)
+                set b.position.y is b.position.y + (b.speed.y * dt)
+
+                if ((b.position.x + half_w) > screen_w) or ((b.position.x + half_w) < 0.0):
+                    set b.speed.x is -b.speed.x
+                if ((b.position.y + half_h) > screen_h) or ((b.position.y + half_h - 40.0) < 0.0):
+                    set b.speed.y is -b.speed.y
+
+                set bunnies at i is b
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        for i from 0 to bunnies.length:
+            let b as Bunny is bunnies at i
+            calling tex_bunny.draw with (b.position.x to int), (b.position.y to int), b.color
+
+        calling shapes.draw_rectangle with 0, 0, SCREEN_WIDTH, 40, raylib.BLACK
+        calling txt.draw_text with "bunnies: {bunnies.length}", 120, 10, 20, raylib.GREEN
+        calling txt.draw_text with "batched draw calls: {1 + (bunnies.length / MAX_BATCH_ELEMENTS)}", 320, 10, 20, raylib.MAROON
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

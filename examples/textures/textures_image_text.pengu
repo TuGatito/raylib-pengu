@@ -1,0 +1,136 @@
+## examples/textures/textures_image_text.pengu
+## raylib [textures] example - image text
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 1.8, last time updated with raylib 4.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2017-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/textures/textures_image_text.c` built on top of the
+## `raylibx` wrapper layer. Loads a TTF font with a filtered set of codepoints,
+## draws text directly into an image using `img.draw_text_ex`, converts the image
+## to a GPU texture, and toggles display of the font atlas using `KEY_SPACE`.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_image_text.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry point --------------------------------------------------------
+## Program main entry point. Demonstrates drawing text directly to CPU image memory
+## and rendering the resulting texture alongside real-time font rendering.
+##
+## ## Returns
+## Exit code 0 on success.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - image text"
+    defer calling raylib.CloseWindow
+
+    let maybe_parrots as maybe raylib.Image is calling images.load_image with "examples/textures/resources/parrots.png"
+    if parrots as raylib.Image is maybe_parrots:
+        var mutable_parrots as raylib.Image is parrots
+
+        # Filtered ASCII codepoints excluding '@' (which KAISG.ttf lacks)
+        var codepoints as list of int is calling txt.codepoints_from_text with r""" !"#$%&'()*+,-./0123456789:;<=>?ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvwxyz{|}~"""
+        defer banish codepoints
+
+        let maybe_font as maybe raylib.Font is calling txt.load_font_ex with "examples/textures/resources/KAISG.ttf", 64, (codepoints at 0 to (codepoints.length))
+        if font as raylib.Font is maybe_font:
+            defer calling txt.unload_font with font
+
+            # Draw over image using custom font
+            let draw_pos as raylib.Vector2 is with x is 20.0, y is 20.0
+            calling mutable_parrots.draw_text_ex with font, "[Parrots font drawing]", draw_pos, (font.baseSize to f32), 0.0, raylib.RED
+
+            let maybe_texture as maybe raylib.Texture is calling textures.load_texture_from_image with mutable_parrots
+            calling images.unload_image with mutable_parrots
+
+            if texture as raylib.Texture is maybe_texture:
+                defer calling textures.unload_texture with texture
+
+                let position as raylib.Vector2 is with:
+                    set .x is ((SCREEN_WIDTH to f32) / 2.0) - ((texture.width to f32) / 2.0)
+                    set .y is ((SCREEN_HEIGHT to f32) / 2.0) - ((texture.height to f32) / 2.0) - 20.0
+
+                var show_font as bool is false
+
+                calling raylib.SetTargetFPS with TARGET_FPS
+                # -----------------------------------------------------------------
+
+                # Main game loop
+                while not calling raylib.WindowShouldClose:
+                    # Update
+                    # -------------------------------------------------------------
+                    set show_font is calling input.is_key_down with raylib.KEY_SPACE
+                    # -------------------------------------------------------------
+
+                    # Draw
+                    # -------------------------------------------------------------
+                    calling drawing.begin_drawing
+
+                    calling drawing.clear_background with raylib.RAYWHITE
+
+                    if not show_font:
+                        # Draw texture with text already drawn inside
+                        calling texture.draw_at with position, raylib.WHITE
+
+                        # Draw text directly using sprite font
+                        let text_screen_pos as raylib.Vector2 is with:
+                            set .x is position.x + 20.0
+                            set .y is position.y + 20.0 + 280.0
+                        calling font.draw with "[Parrots font drawing]", text_screen_pos, (font.baseSize to f32), 0.0, raylib.WHITE
+                    else:
+                        # Make the font atlas texture fit the screen, so we can see the whole thing
+                        var scale as f32 is 1.0
+                        let atlas_w as f32 is font.texture.width to f32
+                        let atlas_h as f32 is font.texture.height to f32
+                        let screen_w as f32 is SCREEN_WIDTH to f32
+                        let screen_h as f32 is SCREEN_HEIGHT to f32
+
+                        let atlas_ratio as f32 is atlas_w / atlas_h
+                        let screen_ratio as f32 is screen_w / screen_h
+                        if atlas_ratio >= screen_ratio:
+                            set scale is screen_w / atlas_w
+                        else:
+                            set scale is screen_h / atlas_h
+
+                        let scaled_w as f32 is atlas_w * scale
+                        let scaled_h as f32 is atlas_h * scale
+                        let atlas_pos as raylib.Vector2 is with:
+                            set .x is (screen_w - scaled_w) / 2.0
+                            set .y is (screen_h - scaled_h) / 2.0
+
+                        let atlas_tex as raylib.Texture is font.texture
+                        calling atlas_tex.draw_ex with atlas_pos, 0.0, scale, raylib.BLACK
+
+                    calling txt.draw_text with "PRESS SPACE to SHOW FONT ATLAS USED", 290, 420, 10, raylib.DARKGRAY
+
+                    calling drawing.end_drawing
+                    # -------------------------------------------------------------
+
+    return 0

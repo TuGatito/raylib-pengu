@@ -1,0 +1,253 @@
+## examples/textures/textures_cellular_automata.pengu
+## raylib [textures] example - cellular automata
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 5.6, last time updated with raylib 5.6
+##
+## Example contributed by Jordi Santonja (@JordSant) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 Jordi Santonja (@JordSant)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/textures/textures_cellular_automata.c` using the
+## `raylibx` wrapper layer. Simulates elementary 1D cellular automata on an image buffer,
+## dynamically updated to a GPU texture.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_cellular_automata.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Cellular automaton image width in pixels.
+const IMAGE_WIDTH as int is 800
+
+## Cellular automaton image height in pixels.
+const IMAGE_HEIGHT as int is 400
+
+## X start coordinate for drawing rule bit buttons.
+const DRAW_RULE_START_X as int is 585
+
+## Y start coordinate for drawing rule bit buttons.
+const DRAW_RULE_START_Y as int is 10
+
+## Spacing between input bits.
+const DRAW_RULE_SPACING as int is 15
+
+## Spacing between rule bit groups.
+const DRAW_RULE_GROUP_SPACING as int is 50
+
+## Outer size of rule bit boxes.
+const DRAW_RULE_SIZE as int is 14
+
+## Inner size of rule bit boxes when set.
+const DRAW_RULE_INNER_SIZE as int is 10
+
+## Width of preset selection buttons.
+const PRESETS_SIZE_X as int is 42
+
+## Height of preset selection buttons.
+const PRESETS_SIZE_Y as int is 22
+
+## Number of automaton lines computed per frame.
+const LINES_UPDATED_PER_FRAME as int is 4
+
+## Total number of preset rules.
+const PRESETS_COUNT as int is 10
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Enchantments -------------------------------------------------------
+enchanting raylib.Image:
+    ## Computes a single line of the cellular automaton based on the previous line and rule bitmask.
+    ##
+    ## ## Parameters
+    ## - `line`: The current row to compute.
+    ## - `rule`: The Wolfram cellular automaton rule number (0-255).
+    weave compute_line with line as int, rule as int into void:
+        for i from 1 to (IMAGE_WIDTH - 1):
+            let prev_y as int is line - 1
+            let c_left as raylib.Color is calling self.color_at with (i - 1), prev_y
+            let c_mid as raylib.Color is calling self.color_at with i, prev_y
+            let c_right as raylib.Color is calling self.color_at with (i + 1), prev_y
+
+            var left_val as int is 0
+            if (c_left.r to int) < 5:
+                set left_val is 4
+            var mid_val as int is 0
+            if (c_mid.r to int) < 5:
+                set mid_val is 2
+            var right_val as int is 0
+            if (c_right.r to int) < 5:
+                set right_val is 1
+
+            let prev_val as int is left_val + mid_val + right_val
+            let curr_val as bool is (rule & (1 << prev_val)) != 0
+            if curr_val:
+                calling self.draw_pixel with i, line, raylib.BLACK
+            else:
+                calling self.draw_pixel with i, line, raylib.RAYWHITE
+
+# --- Entry point --------------------------------------------------------
+## Main program entry point.
+##
+## ## Returns
+## Exit code `0` on normal termination.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - cellular automata"
+    defer calling raylib.CloseWindow
+
+    # Image that contains the cellular automaton
+    var image as raylib.Image is calling images.gen_image_color with IMAGE_WIDTH, IMAGE_HEIGHT, raylib.RAYWHITE
+    defer calling images.unload_image with image
+
+    # Top central pixel set as black
+    calling image.draw_pixel with (IMAGE_WIDTH / 2), 0, raylib.BLACK
+
+    var texture as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture is calling textures.load_texture_from_image with image:
+        set texture is loaded_tex
+    defer calling textures.unload_texture with texture
+
+    var preset_values as list of int is [18, 30, 60, 86, 102, 124, 126, 150, 182, 225]
+    defer banish preset_values
+
+    var rule as int is 30
+    var line as int is 1
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        let mouse as raylib.Vector2 is calling raylib.GetMousePosition
+        var mouse_in_cell as int is -1
+
+        # Check mouse on rule cells
+        for i from 0 to 8:
+            let cell_x as f32 is (DRAW_RULE_START_X - (DRAW_RULE_GROUP_SPACING * i) + DRAW_RULE_SPACING) to f32
+            let cell_y as f32 is (DRAW_RULE_START_Y + DRAW_RULE_SPACING) to f32
+            let rule_sz as f32 is DRAW_RULE_SIZE to f32
+            if (mouse.x >= cell_x) and (mouse.x <= (cell_x + rule_sz)) and (mouse.y >= cell_y) and (mouse.y <= (cell_y + rule_sz)):
+                set mouse_in_cell is i
+                break
+
+        # Check mouse on preset cells
+        if mouse_in_cell < 0:
+            for i from 0 to PRESETS_COUNT:
+                let cell_x as f32 is (4 + ((PRESETS_SIZE_X + 2) * (i / 2))) to f32
+                let cell_y as f32 is (2 + ((PRESETS_SIZE_Y + 2) * (i % 2))) to f32
+                let ps_x as f32 is PRESETS_SIZE_X to f32
+                let ps_y as f32 is PRESETS_SIZE_Y to f32
+                if (mouse.x >= cell_x) and (mouse.x <= (cell_x + ps_x)) and (mouse.y >= cell_y) and (mouse.y <= (cell_y + ps_y)):
+                    set mouse_in_cell is i + 8
+                    break
+
+        if (calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT) and (mouse_in_cell >= 0):
+            # Rule changed both by selecting a preset or toggling a bit
+            if mouse_in_cell < 8:
+                set rule is rule ^ (1 << mouse_in_cell)
+            else:
+                set rule is preset_values at (mouse_in_cell - 8)
+
+            # Reset image
+            calling image.clear with raylib.RAYWHITE
+            calling image.draw_pixel with (IMAGE_WIDTH / 2), 0, raylib.BLACK
+            set line is 1
+
+        # Compute next lines
+        if line < IMAGE_HEIGHT:
+            var k as int is 0
+            while (k < LINES_UPDATED_PER_FRAME) and ((line + k) < IMAGE_HEIGHT):
+                calling image.compute_line with (line + k), rule
+                set k is k + 1
+            set line is line + LINES_UPDATED_PER_FRAME
+
+            calling raylib.UpdateTexture with texture, (transmute image.data to ref to frozen void)
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        # Draw cellular automaton texture
+        calling texture.draw with 0, SCREEN_HEIGHT - IMAGE_HEIGHT, raylib.WHITE
+
+        # Draw preset values
+        for p from 0 to PRESETS_COUNT:
+            let col as int is p / 2
+            let row as int is p % 2
+            let px as int is 4 + ((PRESETS_SIZE_X + 2) * col)
+            let py as int is 2 + ((PRESETS_SIZE_Y + 2) * row)
+
+            let pval as int is preset_values at p
+            calling txt.draw_text with "{pval}", px + 4, py + 2, 20, raylib.GRAY
+            calling shapes.draw_rectangle_lines with px, py, PRESETS_SIZE_X, PRESETS_SIZE_Y, raylib.BLUE
+
+            # If the mouse is on this preset, highlight it
+            if mouse_in_cell == (p + 8):
+                let outline_rec as raylib.Rectangle is with:
+                    set .x is (px - 2) to f32
+                    set .y is (py - 2) to f32
+                    set .width is (PRESETS_SIZE_X + 4) to f32
+                    set .height is (PRESETS_SIZE_Y + 4) to f32
+                calling outline_rec.draw_outline with 3.0, raylib.RED
+
+        # Draw rule bits
+        for i from 0 to 8:
+            # The three input bits
+            for j from 0 to 3:
+                let bx as int is DRAW_RULE_START_X - (DRAW_RULE_GROUP_SPACING * i) + (DRAW_RULE_SPACING * j)
+                let by as int is DRAW_RULE_START_Y
+                calling shapes.draw_rectangle_lines with bx, by, DRAW_RULE_SIZE, DRAW_RULE_SIZE, raylib.GRAY
+                if (i & (4 >> j)) != 0:
+                    calling shapes.draw_rectangle with bx + 2, by + 2, DRAW_RULE_INNER_SIZE, DRAW_RULE_INNER_SIZE, raylib.BLACK
+
+            # The output bit
+            let ox as int is DRAW_RULE_START_X - (DRAW_RULE_GROUP_SPACING * i) + DRAW_RULE_SPACING
+            let oy as int is DRAW_RULE_START_Y + DRAW_RULE_SPACING
+            calling shapes.draw_rectangle_lines with ox, oy, DRAW_RULE_SIZE, DRAW_RULE_SIZE, raylib.BLUE
+            if (rule & (1 << i)) != 0:
+                calling shapes.draw_rectangle with ox + 2, oy + 2, DRAW_RULE_INNER_SIZE, DRAW_RULE_INNER_SIZE, raylib.BLACK
+
+            # If the mouse is on this rule bit, highlight it
+            if mouse_in_cell == i:
+                let rule_rec as raylib.Rectangle is with:
+                    set .x is (ox - 2) to f32
+                    set .y is (oy - 2) to f32
+                    set .width is (DRAW_RULE_SIZE + 4) to f32
+                    set .height is (DRAW_RULE_SIZE + 4) to f32
+                calling rule_rec.draw_outline with 3.0, raylib.RED
+
+        calling txt.draw_text with "RULE: {rule}", DRAW_RULE_START_X + (DRAW_RULE_SPACING * 4), DRAW_RULE_START_Y + 1, 30, raylib.GRAY
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

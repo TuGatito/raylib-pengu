@@ -1,0 +1,457 @@
+## raylib [textures] example - tiled drawing
+##
+## Example complexity rating: [★★★☆] 3/4
+##
+## Example originally created with raylib 3.0, last time updated with raylib 4.2
+## Example contributed by Vlad Adrian (@demizdor) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2020-2025 Vlad Adrian (@demizdor) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers (`textures`, `shapes`, `colors`, `drawing`, `input`, `text`).
+##
+## ## Example
+## ```shell
+## pengu run examples/textures/textures_tiled_drawing.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ---
+
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Maximum width for the options sidebar container in pixels.
+const OPT_WIDTH as int is 220
+
+## Margin spacing around containers and buttons in pixels.
+const MARGIN_SIZE as int is 8
+
+## Dimension of the color selection buttons in pixels.
+const COLOR_SIZE as int is 16
+
+## Total number of available patterns in the texture atlas.
+const PATTERNS_COUNT as int is 6
+
+## Total number of selectable color tints.
+const MAX_COLORS as int is 10
+
+# --- Helpers ---
+
+## Formats the scale multiplier with two decimal places.
+##
+## ## Parameters
+## - `scale_val`: magnification scale factor.
+##
+## ## Returns
+## Formatted descriptive string representing the scale factor.
+weave format_scale with scale_val as f32 into string:
+    let centis as int is (scale_val * 100.0) to int
+    let whole as int is centis / 100
+    let frac as int is centis % 100
+    let frac_str as string is if frac < 10 then "0{frac}" else "{frac}"
+    defer banish frac_str
+    return "{whole}.{frac_str}x"
+
+## Formats the rotation angle in whole degrees.
+##
+## ## Parameters
+## - `rot`: angle in degrees.
+##
+## ## Returns
+## Formatted string with angle and unit.
+weave format_rotation with rot as f32 into string:
+    let rot_int as int is rot to int
+    return "{rot_int} degrees"
+
+## Draws a portion of a texture tiled repeatedly across a destination rectangle.
+##
+## ## Parameters
+## - `texture`: source texture to sample.
+## - `source`: region within the texture to repeat.
+## - `dest`: screen rectangle to fill with tiled copies.
+## - `origin`: center point for rotation and scaling.
+## - `rotation`: rotation in degrees.
+## - `scale_factor`: scaling multiplier applied to source tiles.
+## - `tint`: color multiplier.
+##
+## ## Returns
+## Nothing; draws quads directly into the frame.
+weave draw_texture_tiled with texture as raylib.Texture2D, source as raylib.Rectangle, dest as raylib.Rectangle, origin as raylib.Vector2, rotation as f32, scale_factor as f32, tint as raylib.Color into void:
+    if (texture.id <= (0 to u32)) or (scale_factor <= 0.0):
+        return
+    if (source.width <= 0.0) or (source.height <= 0.0):
+        return
+
+    let tile_width as int is (source.width * scale_factor) to int
+    let tile_height as int is (source.height * scale_factor) to int
+    if (tile_width <= 0) or (tile_height <= 0):
+        return
+
+    let tw_f as f32 is tile_width to f32
+    let th_f as f32 is tile_height to f32
+
+    if (dest.width < tw_f) and (dest.height < th_f):
+        # Can fit only one partial tile
+        var src as raylib.Rectangle is with:
+            set .x is source.x
+            set .y is source.y
+            set .width is (dest.width / tw_f) * source.width
+            set .height is (dest.height / th_f) * source.height
+        calling texture.draw_pro with src, dest, origin, rotation, tint
+    else if dest.width <= tw_f:
+        # Tiled vertically (one column)
+        var dy as int is 0
+        while (dy + tile_height) < (dest.height to int):
+            var src_rec as raylib.Rectangle is with:
+                set .x is source.x
+                set .y is source.y
+                set .width is (dest.width / tw_f) * source.width
+                set .height is source.height
+            var dst_rec as raylib.Rectangle is with:
+                set .x is dest.x
+                set .y is dest.y + (dy to f32)
+                set .width is dest.width
+                set .height is th_f
+            calling texture.draw_pro with src_rec, dst_rec, origin, rotation, tint
+            set dy is dy + tile_height
+
+        # Fit last tile
+        if (dy to f32) < dest.height:
+            let rem_h as f32 is dest.height - (dy to f32)
+            var last_src as raylib.Rectangle is with:
+                set .x is source.x
+                set .y is source.y
+                set .width is (dest.width / tw_f) * source.width
+                set .height is (rem_h / th_f) * source.height
+            var last_dst as raylib.Rectangle is with:
+                set .x is dest.x
+                set .y is dest.y + (dy to f32)
+                set .width is dest.width
+                set .height is rem_h
+            calling texture.draw_pro with last_src, last_dst, origin, rotation, tint
+    else if dest.height <= th_f:
+        # Tiled horizontally (one row)
+        var dx as int is 0
+        while (dx + tile_width) < (dest.width to int):
+            var src_rec as raylib.Rectangle is with:
+                set .x is source.x
+                set .y is source.y
+                set .width is source.width
+                set .height is (dest.height / th_f) * source.height
+            var dst_rec as raylib.Rectangle is with:
+                set .x is dest.x + (dx to f32)
+                set .y is dest.y
+                set .width is tw_f
+                set .height is dest.height
+            calling texture.draw_pro with src_rec, dst_rec, origin, rotation, tint
+            set dx is dx + tile_width
+
+        # Fit last tile
+        if (dx to f32) < dest.width:
+            let rem_w as f32 is dest.width - (dx to f32)
+            var last_src as raylib.Rectangle is with:
+                set .x is source.x
+                set .y is source.y
+                set .width is (rem_w / tw_f) * source.width
+                set .height is (dest.height / th_f) * source.height
+            var last_dst as raylib.Rectangle is with:
+                set .x is dest.x + (dx to f32)
+                set .y is dest.y
+                set .width is rem_w
+                set .height is dest.height
+            calling texture.draw_pro with last_src, last_dst, origin, rotation, tint
+    else:
+        # Tiled both horizontally and vertically (rows and columns)
+        var dx as int is 0
+        while (dx + tile_width) < (dest.width to int):
+            var dy as int is 0
+            while (dy + tile_height) < (dest.height to int):
+                var dst_rec as raylib.Rectangle is with:
+                    set .x is dest.x + (dx to f32)
+                    set .y is dest.y + (dy to f32)
+                    set .width is tw_f
+                    set .height is th_f
+                calling texture.draw_pro with source, dst_rec, origin, rotation, tint
+                set dy is dy + tile_height
+
+            if (dy to f32) < dest.height:
+                let rem_h as f32 is dest.height - (dy to f32)
+                var part_src as raylib.Rectangle is with:
+                    set .x is source.x
+                    set .y is source.y
+                    set .width is source.width
+                    set .height is (rem_h / th_f) * source.height
+                var part_dst as raylib.Rectangle is with:
+                    set .x is dest.x + (dx to f32)
+                    set .y is dest.y + (dy to f32)
+                    set .width is tw_f
+                    set .height is rem_h
+                calling texture.draw_pro with part_src, part_dst, origin, rotation, tint
+
+            set dx is dx + tile_width
+
+        # Fit last column of tiles
+        if (dx to f32) < dest.width:
+            let rem_w as f32 is dest.width - (dx to f32)
+            var dy as int is 0
+            while (dy + tile_height) < (dest.height to int):
+                var col_src as raylib.Rectangle is with:
+                    set .x is source.x
+                    set .y is source.y
+                    set .width is (rem_w / tw_f) * source.width
+                    set .height is source.height
+                var col_dst as raylib.Rectangle is with:
+                    set .x is dest.x + (dx to f32)
+                    set .y is dest.y + (dy to f32)
+                    set .width is rem_w
+                    set .height is th_f
+                calling texture.draw_pro with col_src, col_dst, origin, rotation, tint
+                set dy is dy + tile_height
+
+            # Draw final tile in bottom right corner
+            if (dy to f32) < dest.height:
+                let rem_h as f32 is dest.height - (dy to f32)
+                var corner_src as raylib.Rectangle is with:
+                    set .x is source.x
+                    set .y is source.y
+                    set .width is (rem_w / tw_f) * source.width
+                    set .height is (rem_h / th_f) * source.height
+                var corner_dst as raylib.Rectangle is with:
+                    set .x is dest.x + (dx to f32)
+                    set .y is dest.y + (dy to f32)
+                    set .width is rem_w
+                    set .height is rem_h
+                calling texture.draw_pro with corner_src, corner_dst, origin, rotation, tint
+
+# --- Entry point ---
+
+## Application main entry point.
+##
+## Enables window resizing, loads pattern texture atlas with bilinear filtering,
+## sets up pattern atlas source boxes and selectable color buttons,
+## and renders the tiled pattern filling the flexible right-hand view pane.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if resource loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.SetConfigFlags with (raylib.FLAG_WINDOW_RESIZABLE to u32)
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - tiled drawing"
+    defer calling raylib.CloseWindow
+
+    # NOTE: Textures MUST be loaded after Window initialization (OpenGL context is required)
+    let loaded_texture as maybe raylib.Texture2D is calling textures.load_texture with "examples/textures/resources/patterns.png"
+    if tex_pattern as raylib.Texture2D is loaded_texture:
+        defer calling textures.unload_texture with tex_pattern
+
+        calling tex_pattern.set_filter with raylib.TEXTURE_FILTER_BILINEAR
+
+        # Coordinates for all patterns inside the texture
+        var rec_pattern as list of raylib.Rectangle is list of raylib.Rectangle
+        defer banish rec_pattern
+
+        var p0 as raylib.Rectangle is with:
+            set .x is 3.0
+            set .y is 3.0
+            set .width is 66.0
+            set .height is 66.0
+        calling rec_pattern.append with p0
+
+        var p1 as raylib.Rectangle is with:
+            set .x is 75.0
+            set .y is 3.0
+            set .width is 100.0
+            set .height is 100.0
+        calling rec_pattern.append with p1
+
+        var p2 as raylib.Rectangle is with:
+            set .x is 3.0
+            set .y is 75.0
+            set .width is 66.0
+            set .height is 66.0
+        calling rec_pattern.append with p2
+
+        var p3 as raylib.Rectangle is with:
+            set .x is 7.0
+            set .y is 156.0
+            set .width is 50.0
+            set .height is 50.0
+        calling rec_pattern.append with p3
+
+        var p4 as raylib.Rectangle is with:
+            set .x is 85.0
+            set .y is 106.0
+            set .width is 90.0
+            set .height is 45.0
+        calling rec_pattern.append with p4
+
+        var p5 as raylib.Rectangle is with:
+            set .x is 75.0
+            set .y is 154.0
+            set .width is 100.0
+            set .height is 60.0
+        calling rec_pattern.append with p5
+
+        # Setup colors
+        var colors_list as list of raylib.Color is list of raylib.Color
+        defer banish colors_list
+        calling colors_list.append with raylib.BLACK
+        calling colors_list.append with raylib.MAROON
+        calling colors_list.append with raylib.ORANGE
+        calling colors_list.append with raylib.BLUE
+        calling colors_list.append with raylib.PURPLE
+        calling colors_list.append with raylib.BEIGE
+        calling colors_list.append with raylib.LIME
+        calling colors_list.append with raylib.RED
+        calling colors_list.append with raylib.DARKGRAY
+        calling colors_list.append with raylib.SKYBLUE
+
+        # Calculate rectangle for each color button
+        var color_recs as list of raylib.Rectangle is list of raylib.Rectangle
+        defer banish color_recs
+
+        var cur_x as f32 is 0.0
+        var cur_y as f32 is 0.0
+        for i from 0 to MAX_COLORS - 1:
+            var cr as raylib.Rectangle is with:
+                set .x is 2.0 + (MARGIN_SIZE to f32) + cur_x
+                set .y is 22.0 + 256.0 + (MARGIN_SIZE to f32) + cur_y
+                set .width is (COLOR_SIZE to f32) * 2.0
+                set .height is COLOR_SIZE to f32
+            calling color_recs.append with cr
+
+            if i == ((MAX_COLORS / 2) - 1):
+                set cur_x is 0.0
+                set cur_y is cur_y + (COLOR_SIZE to f32) + (MARGIN_SIZE to f32)
+            else:
+                set cur_x is cur_x + ((COLOR_SIZE to f32) * 2.0) + (MARGIN_SIZE to f32)
+
+        var active_pattern as int is 0
+        var active_col as int is 0
+        var scale as f32 is 1.0
+        var rotation as f32 is 0.0
+
+        calling raylib.SetTargetFPS with 60
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT:
+                let mouse as raylib.Vector2 is calling raylib.GetMousePosition
+
+                # Check which pattern was clicked
+                for i from 0 to PATTERNS_COUNT - 1:
+                    let pat as raylib.Rectangle is rec_pattern at i
+                    var pat_btn as raylib.Rectangle is with:
+                        set .x is 2.0 + (MARGIN_SIZE to f32) + pat.x
+                        set .y is 40.0 + (MARGIN_SIZE to f32) + pat.y
+                        set .width is pat.width
+                        set .height is pat.height
+                    if calling pat_btn.contains_point with mouse:
+                        set active_pattern is i
+
+                # Check which color was clicked
+                for i from 0 to MAX_COLORS - 1:
+                    let cr as raylib.Rectangle is color_recs at i
+                    if calling cr.contains_point with mouse:
+                        set active_col is i
+
+            # Handle keys: change scale
+            if calling input.is_key_pressed with raylib.KEY_UP:
+                set scale is scale + 0.25
+            if calling input.is_key_pressed with raylib.KEY_DOWN:
+                set scale is scale - 0.25
+            if scale > 10.0:
+                set scale is 10.0
+            else if scale <= 0.0:
+                set scale is 0.25
+
+            # Handle keys: change rotation
+            if calling input.is_key_pressed with raylib.KEY_LEFT:
+                set rotation is rotation - 25.0
+            if calling input.is_key_pressed with raylib.KEY_RIGHT:
+                set rotation is rotation + 25.0
+
+            # Handle keys: reset
+            if calling input.is_key_pressed with raylib.KEY_SPACE:
+                set rotation is 0.0
+                set scale is 1.0
+
+            # Draw
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            # Draw the tiled area
+            let active_pat_rec as raylib.Rectangle is rec_pattern at active_pattern
+            let active_color as raylib.Color is colors_list at active_col
+
+            var tiled_dest as raylib.Rectangle is with:
+                set .x is (OPT_WIDTH to f32) + (MARGIN_SIZE to f32)
+                set .y is MARGIN_SIZE to f32
+                set .width is (calling raylib.GetScreenWidth to f32) - (OPT_WIDTH to f32) - (2.0 * (MARGIN_SIZE to f32))
+                set .height is (calling raylib.GetScreenHeight to f32) - (2.0 * (MARGIN_SIZE to f32))
+
+            var origin_zero as raylib.Vector2 is with:
+                set .x is 0.0
+                set .y is 0.0
+
+            calling draw_texture_tiled with tex_pattern, active_pat_rec, tiled_dest, origin_zero, rotation, scale, active_color
+
+            # Draw options panel
+            let panel_color as raylib.Color is calling colors.fade with raylib.LIGHTGRAY, 0.5
+            calling shapes.draw_rectangle with MARGIN_SIZE, MARGIN_SIZE, OPT_WIDTH - MARGIN_SIZE, (calling raylib.GetScreenHeight) - (2 * MARGIN_SIZE), panel_color
+
+            calling txt.draw_text with "Select Pattern", 2 + MARGIN_SIZE, 30 + MARGIN_SIZE, 10, raylib.BLACK
+            calling tex_pattern.draw with 2 + MARGIN_SIZE, 40 + MARGIN_SIZE, raylib.BLACK
+
+            let highlight_color as raylib.Color is calling colors.fade with raylib.DARKBLUE, 0.3
+            calling shapes.draw_rectangle with 2 + MARGIN_SIZE + (active_pat_rec.x to int), 40 + MARGIN_SIZE + (active_pat_rec.y to int), active_pat_rec.width to int, active_pat_rec.height to int, highlight_color
+
+            calling txt.draw_text with "Select Color", 2 + MARGIN_SIZE, 10 + 256 + MARGIN_SIZE, 10, raylib.BLACK
+            for i from 0 to MAX_COLORS - 1:
+                let cr as raylib.Rectangle is color_recs at i
+                let c as raylib.Color is colors_list at i
+                calling cr.draw with c
+                if active_col == i:
+                    let outline_col as raylib.Color is calling colors.fade with raylib.WHITE, 0.5
+                    calling cr.draw_outline with 3.0, outline_col
+
+            calling txt.draw_text with "Scale (UP/DOWN to change)", 2 + MARGIN_SIZE, 80 + 256 + MARGIN_SIZE, 10, raylib.BLACK
+
+            let scale_label as string is calling format_scale with scale
+            defer banish scale_label
+            calling txt.draw_text with scale_label, 2 + MARGIN_SIZE, 92 + 256 + MARGIN_SIZE, 20, raylib.BLACK
+
+            calling txt.draw_text with "Rotation (LEFT/RIGHT to change)", 2 + MARGIN_SIZE, 122 + 256 + MARGIN_SIZE, 10, raylib.BLACK
+
+            let rot_label as string is calling format_rotation with rotation
+            defer banish rot_label
+            calling txt.draw_text with rot_label, 2 + MARGIN_SIZE, 134 + 256 + MARGIN_SIZE, 20, raylib.BLACK
+
+            calling txt.draw_text with "Press [SPACE] to reset", 2 + MARGIN_SIZE, 164 + 256 + MARGIN_SIZE, 10, raylib.DARKBLUE
+
+            # Draw FPS
+            let fps_label as string is "{calling raylib.GetFPS} FPS"
+            defer banish fps_label
+            calling txt.draw_text with fps_label, 2 + MARGIN_SIZE, 2 + MARGIN_SIZE, 20, raylib.BLACK
+
+            calling drawing.end_drawing
+
+        return 0
+    else:
+        return 1

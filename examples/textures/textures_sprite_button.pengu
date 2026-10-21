@@ -1,0 +1,139 @@
+## raylib [textures] example - sprite button
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 2.5, last time updated with raylib 2.5
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2019-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers (`textures`, `audio`, `drawing`, `shapes`, `input`).
+##
+## ## Example
+## ```shell
+## pengu run examples/textures/textures_sprite_button.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.audio as audio
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.textures as textures
+
+# --- Constants ---
+
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Number of frames (rectangles) for the button sprite texture.
+const NUM_FRAMES as int is 3
+
+## Normal button state index.
+const STATE_NORMAL as int is 0
+
+## Mouse hover button state index.
+const STATE_HOVER as int is 1
+
+## Mouse pressed button state index.
+const STATE_PRESSED as int is 2
+
+# --- Entry point ---
+
+## Application main entry point.
+##
+## Initializes the window and audio system, loads the button texture and sound,
+## tracks mouse interaction against button bounds, and renders the current sprite state.
+##
+## ## Returns
+## Exit code `0` on successful execution, or `1` if resource loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - sprite button"
+    defer calling raylib.CloseWindow
+
+    calling raylib.InitAudioDevice
+    defer calling raylib.CloseAudioDevice
+
+    # Load button sound effect
+    let loaded_sound as maybe raylib.Sound is calling audio.load_sound with "examples/textures/resources/buttonfx.wav"
+    if fx_button as raylib.Sound is loaded_sound:
+        defer calling audio.unload_sound with fx_button
+
+        # Load button texture
+        let loaded_texture as maybe raylib.Texture2D is calling textures.load_texture with "examples/textures/resources/button.png"
+        if button as raylib.Texture2D is loaded_texture:
+            defer calling textures.unload_texture with button
+
+            # Define frame rectangle for drawing
+            let frame_height as f32 is (button.height to f32) / (NUM_FRAMES to f32)
+            var source_rec as raylib.Rectangle is with:
+                set .x is 0.0
+                set .y is 0.0
+                set .width is button.width to f32
+                set .height is frame_height
+
+            # Define button bounds on screen
+            let btn_x as f32 is ((SCREEN_WIDTH to f32) / 2.0) - ((button.width to f32) / 2.0)
+            let btn_y as f32 is ((SCREEN_HEIGHT to f32) / 2.0) - (frame_height / 2.0)
+            var btn_bounds as raylib.Rectangle is with:
+                set .x is btn_x
+                set .y is btn_y
+                set .width is button.width to f32
+                set .height is frame_height
+
+            var btn_state as int is STATE_NORMAL
+            var btn_action as bool is false
+            var mouse_point as raylib.Vector2 is with:
+                set .x is 0.0
+                set .y is 0.0
+
+            calling raylib.SetTargetFPS with 60
+
+            # Main game loop
+            while not calling raylib.WindowShouldClose:
+                # Update
+                set mouse_point is calling raylib.GetMousePosition
+                set btn_action is false
+
+                # Check button state
+                if calling btn_bounds.contains_point with mouse_point:
+                    if calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT:
+                        set btn_state is STATE_PRESSED
+                    else:
+                        set btn_state is STATE_HOVER
+
+                    if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+                        set btn_action is true
+                else:
+                    set btn_state is STATE_NORMAL
+
+                if btn_action:
+                    calling fx_button.play
+
+                # Calculate button frame rectangle to draw depending on button state
+                set source_rec.y is (btn_state to f32) * frame_height
+
+                # Draw
+                calling drawing.begin_drawing
+                calling drawing.clear_background with raylib.RAYWHITE
+
+                var btn_draw_pos as raylib.Vector2 is with:
+                    set .x is btn_bounds.x
+                    set .y is btn_bounds.y
+                calling button.draw_rec with source_rec, btn_draw_pos, raylib.WHITE
+
+                calling drawing.end_drawing
+
+            return 0
+        else:
+            return 1
+    else:
+        return 1

@@ -1,0 +1,80 @@
+## examples/textures/textures_logo_raylib.pengu
+## raylib [textures] example - logo raylib
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.0, last time updated with raylib 1.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/textures/textures_logo_raylib.c` built on top of the
+## `raylibx` wrapper layer. Loads the raylib logo texture using `textures.load_texture`
+## and draws it centered in the window using `texture.draw`.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_logo_raylib.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Screen width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Screen height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry point --------------------------------------------------------
+## Program main entry point. Loads the raylib logo texture and draws it centered.
+##
+## ## Returns
+## Exit code 0 on success.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - logo raylib"
+    defer calling raylib.CloseWindow
+
+    # NOTE: Textures MUST be loaded after Window initialization (OpenGL context is required)
+    let maybe_texture as maybe raylib.Texture is calling textures.load_texture with "examples/textures/resources/raylib_logo.png"
+    if texture as raylib.Texture is maybe_texture:
+        defer calling textures.unload_texture with texture
+
+        calling raylib.SetTargetFPS with TARGET_FPS
+        # -----------------------------------------------------------------
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            # -------------------------------------------------------------
+            # TODO: Update your variables here
+            # -------------------------------------------------------------
+
+            # Draw
+            # -------------------------------------------------------------
+            calling drawing.begin_drawing
+
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            let draw_x as int is (SCREEN_WIDTH / 2) - (texture.width / 2)
+            let draw_y as int is (SCREEN_HEIGHT / 2) - (texture.height / 2)
+            calling texture.draw with draw_x, draw_y, raylib.WHITE
+
+            calling txt.draw_text with "this IS a texture!", 360, 370, 10, raylib.GRAY
+
+            calling drawing.end_drawing
+            # -------------------------------------------------------------
+
+    return 0

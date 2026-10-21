@@ -1,0 +1,125 @@
+## examples/textures/textures_background_scrolling.pengu
+## raylib [textures] example - background scrolling
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 2.0, last time updated with raylib 2.5
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2019-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## 1:1 translation of `examples/textures/textures_background_scrolling.c` using the
+## `raylibx` wrapper layer. Background layers are loaded safely and drawn with
+## `tex.draw_ex` to create parallax scrolling.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_background_scrolling.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Target frames per second.
+const TARGET_FPS as int is 60
+
+# --- Entry point --------------------------------------------------------
+## Main program entry point demonstrating parallax background scrolling with three layers.
+##
+## ## Returns
+## Exit code `0` on normal termination.
+weave main into int:
+    # Initialization
+    # ---------------------------------------------------------------------
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - background scrolling"
+    defer calling raylib.CloseWindow
+
+    # NOTE: Be careful, background width must be equal or bigger than screen width
+    # if not, texture should be drawn more than two times for scrolling effect
+    var background as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_bg as raylib.Texture is calling textures.load_texture with "examples/textures/resources/cyberpunk_street_background.png":
+        set background is loaded_bg
+    defer calling textures.unload_texture with background
+
+    var midground as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_mid as raylib.Texture is calling textures.load_texture with "examples/textures/resources/cyberpunk_street_midground.png":
+        set midground is loaded_mid
+    defer calling textures.unload_texture with midground
+
+    var foreground as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_fore as raylib.Texture is calling textures.load_texture with "examples/textures/resources/cyberpunk_street_foreground.png":
+        set foreground is loaded_fore
+    defer calling textures.unload_texture with foreground
+
+    var scrolling_back as f32 is 0.0
+    var scrolling_mid as f32 is 0.0
+    var scrolling_fore as f32 is 0.0
+
+    calling raylib.SetTargetFPS with TARGET_FPS
+    # ---------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # -----------------------------------------------------------------
+        set scrolling_back is scrolling_back - 0.1
+        set scrolling_mid is scrolling_mid - 0.5
+        set scrolling_fore is scrolling_fore - 1.0
+
+        # NOTE: Texture is scaled twice its size, so it should be considered on scrolling
+        let bg_limit as f32 is -((background.width * 2) to f32)
+        if scrolling_back <= bg_limit:
+            set scrolling_back is 0.0
+
+        let mid_limit as f32 is -((midground.width * 2) to f32)
+        if scrolling_mid <= mid_limit:
+            set scrolling_mid is 0.0
+
+        let fore_limit as f32 is -((foreground.width * 2) to f32)
+        if scrolling_fore <= fore_limit:
+            set scrolling_fore is 0.0
+        # -----------------------------------------------------------------
+
+        # Draw
+        # -----------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with (calling raylib.GetColor with 0x052c46ff to u32)
+
+        # Draw background image twice
+        # NOTE: Texture is scaled twice its size
+        let bg_w2 as f32 is (background.width * 2) to f32
+        calling background.draw_ex with (with x is scrolling_back, y is 20.0), 0.0, 2.0, raylib.WHITE
+        calling background.draw_ex with (with x is bg_w2 + scrolling_back, y is 20.0), 0.0, 2.0, raylib.WHITE
+
+        # Draw midground image twice
+        let mid_w2 as f32 is (midground.width * 2) to f32
+        calling midground.draw_ex with (with x is scrolling_mid, y is 20.0), 0.0, 2.0, raylib.WHITE
+        calling midground.draw_ex with (with x is mid_w2 + scrolling_mid, y is 20.0), 0.0, 2.0, raylib.WHITE
+
+        # Draw foreground image twice
+        let fore_w2 as f32 is (foreground.width * 2) to f32
+        calling foreground.draw_ex with (with x is scrolling_fore, y is 70.0), 0.0, 2.0, raylib.WHITE
+        calling foreground.draw_ex with (with x is fore_w2 + scrolling_fore, y is 70.0), 0.0, 2.0, raylib.WHITE
+
+        calling txt.draw_text with "BACKGROUND SCROLLING & PARALLAX", 10, 10, 20, raylib.RED
+        calling txt.draw_text with "(c) Cyberpunk Street Environment by Luis Zuno (@ansimuz)", SCREEN_WIDTH - 330, SCREEN_HEIGHT - 20, 10, raylib.RAYWHITE
+
+        calling drawing.end_drawing
+        # -----------------------------------------------------------------
+
+    return 0

@@ -1,0 +1,96 @@
+## raylib [textures] example - to image
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.3, last time updated with raylib 4.0
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2015-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers (`textures`, `images`, `drawing`, `text`).
+##
+## ## Example
+## ```shell
+## pengu run examples/textures/textures_to_image.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ---
+
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+# --- Entry point ---
+
+## Application main entry point.
+##
+## Demonstrates round-trip conversion between CPU image memory (RAM) and GPU texture
+## memory (VRAM): loads an image from disk, converts to a texture, reads back to an image,
+## recreates the texture, and renders the result centered on screen.
+##
+## ## Returns
+## Exit code `0` on clean shutdown, or `1` if resource conversion fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - to image"
+    defer calling raylib.CloseWindow
+
+    # NOTE: Textures MUST be loaded after Window initialization (OpenGL context is required)
+
+    # Load image data into CPU memory (RAM)
+    let loaded_image as maybe raylib.Image is calling images.load_image with "examples/textures/resources/raylib_logo.png"
+    if image1 as raylib.Image is loaded_image:
+        # Image converted to texture, GPU memory (RAM -> VRAM)
+        let loaded_tex1 as maybe raylib.Texture2D is calling textures.load_texture_from_image with image1
+        calling images.unload_image with image1
+
+        if tex1 as raylib.Texture2D is loaded_tex1:
+            # Load image from GPU texture (VRAM -> RAM)
+            let loaded_image2 as maybe raylib.Image is calling images.load_image_from_texture with tex1
+            calling textures.unload_texture with tex1
+
+            if image2 as raylib.Image is loaded_image2:
+                # Recreate texture from retrieved image data (RAM -> VRAM)
+                let loaded_tex2 as maybe raylib.Texture2D is calling textures.load_texture_from_image with image2
+                calling images.unload_image with image2
+
+                if texture as raylib.Texture2D is loaded_tex2:
+                    defer calling textures.unload_texture with texture
+
+                    calling raylib.SetTargetFPS with 60
+
+                    # Main game loop
+                    while not calling raylib.WindowShouldClose:
+                        # Draw
+                        calling drawing.begin_drawing
+                        calling drawing.clear_background with raylib.RAYWHITE
+
+                        let draw_x as int is (SCREEN_WIDTH / 2) - (texture.width / 2)
+                        let draw_y as int is (SCREEN_HEIGHT / 2) - (texture.height / 2)
+                        calling texture.draw with draw_x, draw_y, raylib.WHITE
+
+                        calling txt.draw_text with "this IS a texture loaded from an image!", 300, 370, 10, raylib.GRAY
+
+                        calling drawing.end_drawing
+
+                    return 0
+                else:
+                    return 1
+            else:
+                return 1
+        else:
+            return 1
+    else:
+        return 1

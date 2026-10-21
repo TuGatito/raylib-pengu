@@ -1,0 +1,161 @@
+## raylib [text] example - sprite fonts
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.7, last time updated with raylib 3.7
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2017-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript using raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_sprite_fonts.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+
+# --- Constants ---
+
+## Total number of sprite fonts showcased
+const MAX_FONTS as int is 8
+
+# --- Types ---
+
+## Configuration and state for one displayed sprite font
+rune SpriteFontItem:
+    ## Loaded font
+    font as raylib.Font
+    ## Text message describing font and author
+    message as string
+    ## Spacing between characters
+    spacing as f32
+    ## Calculated render position
+    position as raylib.Vector2
+    ## Display color
+    color as raylib.Color
+
+# --- Main entry point ---
+
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - sprite fonts"
+    defer calling raylib.CloseWindow
+
+    # Font resource paths
+    let paths as list of string is list of string
+    defer banish paths
+    calling paths.push with "examples/text/resources/sprite_fonts/alagard.png"
+    calling paths.push with "examples/text/resources/sprite_fonts/pixelplay.png"
+    calling paths.push with "examples/text/resources/sprite_fonts/mecha.png"
+    calling paths.push with "examples/text/resources/sprite_fonts/setback.png"
+    calling paths.push with "examples/text/resources/sprite_fonts/romulus.png"
+    calling paths.push with "examples/text/resources/sprite_fonts/pixantiqua.png"
+    calling paths.push with "examples/text/resources/sprite_fonts/alpha_beta.png"
+    calling paths.push with "examples/text/resources/sprite_fonts/jupiter_crash.png"
+
+    # Font credit messages
+    let msgs as list of string is list of string
+    defer banish msgs
+    calling msgs.push with "ALAGARD FONT designed by Hewett Tsoi"
+    calling msgs.push with "PIXELPLAY FONT designed by Aleksander Shevchuk"
+    calling msgs.push with "MECHA FONT designed by Captain Falcon"
+    calling msgs.push with "SETBACK FONT designed by Brian Kent (AEnigma)"
+    calling msgs.push with "ROMULUS FONT designed by Hewett Tsoi"
+    calling msgs.push with "PIXANTIQUA FONT designed by Gerhard Grossmann"
+    calling msgs.push with "ALPHA_BETA FONT designed by Brian Kent (AEnigma)"
+    calling msgs.push with "JUPITER_CRASH FONT designed by Brian Kent (AEnigma)"
+
+    # Character spacings
+    let spacings as list of f32 is list of f32
+    defer banish spacings
+    calling spacings.push with 2.0
+    calling spacings.push with 4.0
+    calling spacings.push with 8.0
+    calling spacings.push with 4.0
+    calling spacings.push with 3.0
+    calling spacings.push with 4.0
+    calling spacings.push with 4.0
+    calling spacings.push with 1.0
+
+    # Display colors
+    let font_colors as list of raylib.Color is list of raylib.Color
+    defer banish font_colors
+    calling font_colors.push with raylib.MAROON
+    calling font_colors.push with raylib.ORANGE
+    calling font_colors.push with raylib.DARKGREEN
+    calling font_colors.push with raylib.DARKBLUE
+    calling font_colors.push with raylib.DARKPURPLE
+    calling font_colors.push with raylib.LIME
+    calling font_colors.push with raylib.GOLD
+    calling font_colors.push with raylib.RED
+
+    # Load fonts and build items list
+    var items as list of SpriteFontItem is list of SpriteFontItem
+    defer banish items
+
+    for i from 0 to MAX_FONTS:
+        var font as raylib.Font is calling txt.default_font
+        let maybe_font as maybe raylib.Font is calling txt.load_font with (paths at i)
+        if loaded as raylib.Font is maybe_font:
+            set font is loaded
+
+        let msg as string is msgs at i
+        let spacing as f32 is spacings at i
+        let color as raylib.Color is font_colors at i
+        let font_size as f32 is (font.baseSize to f32) * 2.0
+        let measured as raylib.Vector2 is calling font.measure with msg, font_size, spacing
+
+        var pos as raylib.Vector2 is with:
+            set .x is ((screen_width to f32) / 2.0) - (measured.x / 2.0)
+            set .y is 60.0 + (font.baseSize to f32) + (45.0 * (i to f32))
+
+        # Small Y position corrections matching C example
+        if i == 3:
+            set pos.y is pos.y + 8.0
+        else if i == 4:
+            set pos.y is pos.y + 2.0
+        else if i == 7:
+            set pos.y is pos.y - 8.0
+
+        calling items.push with with:
+            set .font is font
+            set .message is msg
+            set .spacing is spacing
+            set .position is pos
+            set .color is color
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "free sprite fonts included with raylib", 220, 20, 20, raylib.DARKGRAY
+        calling shapes.draw_line with 220, 50, 600, 50, raylib.DARKGRAY
+
+        for i from 0 to MAX_FONTS:
+            let item as SpriteFontItem is items at i
+            let font_size as f32 is (item.font.baseSize to f32) * 2.0
+            calling item.font.draw with item.message, item.position, font_size, item.spacing, item.color
+
+        calling drawing.end_drawing
+
+    # Unload fonts
+    for i from 0 to MAX_FONTS:
+        let item as SpriteFontItem is items at i
+        calling txt.unload_font with item.font
+
+    return 0

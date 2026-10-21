@@ -1,0 +1,117 @@
+## ## PenguScript Port
+## Port of raylib [text] example - codepoints loading
+##
+## Demonstrates extracting unique codepoints from UTF-8 text to load a lightweight
+## font atlas containing only the glyphs required by the application.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_codepoints_loading.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+
+# --- Helpers ---
+
+## Removes duplicate codepoints from a slice of codepoints
+##
+## ## Parameters
+## - `codepoints`: slice of source codepoint integers
+##
+## ## Returns
+## Owned list containing unique codepoints preserving first-appearance order
+weave codepoints_remove_duplicates with codepoints as slice of int into list of int:
+    var result as list of int is []
+    for cp in codepoints:
+        var found as bool is false
+        for existing in result:
+            if existing == cp:
+                set found is true
+        if not found:
+            calling result.push with cp
+    return result
+
+# --- Entry point ---
+
+## Program main entry point
+weave entry into int:
+    # Initialization
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - codepoints loading"
+    defer calling raylib.CloseWindow
+
+    # Text to be displayed, must be UTF-8
+    let text as string is "いろはにほへと　ちりぬるを\nわかよたれそ　つねならむ\nうゐのおくやま　けふこえて\nあさきゆめみし　ゑひもせす"
+
+    # Convert each utf-8 character into its
+    # corresponding codepoint in the font file
+    var codepoints as list of int is calling txt.codepoints_from_text with text
+    let codepoint_count as int is codepoints.length
+
+    # Removed duplicate codepoints to generate smaller font atlas
+    var codepoints_no_dups as list of int is calling codepoints_remove_duplicates with (codepoints at 0 to codepoint_count)
+    let codepoints_no_dups_count as int is codepoints_no_dups.length
+    banish codepoints
+
+    # Load font containing all the provided codepoint glyphs
+    # A texture font atlas is automatically generated
+    var font as raylib.Font is calling txt.default_font
+    let maybe_font as maybe raylib.Font is calling txt.load_font_ex with "examples/text/resources/DotGothic16-Regular.ttf", 36, (codepoints_no_dups at 0 to codepoints_no_dups_count)
+    if loaded as raylib.Font is maybe_font:
+        set font is loaded
+    defer calling raylib.UnloadFont with font
+
+    banish codepoints_no_dups
+
+    # Set bilinear scale filter for better font scaling
+    calling raylib.SetTextureFilter with font.texture, raylib.TEXTURE_FILTER_BILINEAR
+
+    calling txt.set_text_line_spacing with 20         # Set line spacing for multiline text
+
+    var show_font_atlas as bool is false
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set show_font_atlas is not show_font_atlas
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let sw as int is calling raylib.GetScreenWidth
+        let sh as int is calling raylib.GetScreenHeight
+
+        calling shapes.draw_rectangle with 0, 0, sw, 70, raylib.BLACK
+
+        let total_text as string is "Total codepoints contained in provided text: {codepoint_count}"
+        defer banish total_text
+        calling txt.draw_text with total_text, 10, 10, 20, raylib.GREEN
+
+        let unique_text as string is "Total codepoints required for font atlas (duplicates excluded): {codepoints_no_dups_count}"
+        defer banish unique_text
+        calling txt.draw_text with unique_text, 10, 40, 20, raylib.GREEN
+
+        if show_font_atlas:
+            # Draw generated font texture atlas containing provided codepoints
+            calling raylib.DrawTexture with font.texture, 150, 100, raylib.BLACK
+            calling shapes.draw_rectangle_lines with 150, 100, font.texture.width, font.texture.height, raylib.BLACK
+        else:
+            # Draw provided text with loaded font, containing all required codepoint glyphs
+            calling font.draw with text, (with x is 160.0, y is 110.0), 48.0, 5.0, raylib.BLACK
+
+        calling txt.draw_text with "Press SPACE to toggle font atlas view!", 10, sh - 30, 20, raylib.GRAY
+
+        calling drawing.end_drawing
+
+    return 0

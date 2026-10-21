@@ -1,0 +1,173 @@
+## raylib [textures] example - sprite stacking
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+## Example contributed by Robin (@RobinsAviary) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Redbooth model (c) 2017-2025 @kluchek under https://creativecommons.org/licenses/by/4.0/
+## Copyright (c) 2025 Robin (@RobinsAviary)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers (`textures`, `drawing`, `input`, `text`, `raymathx`).
+##
+## ## Example
+## ```shell
+## pengu run examples/textures/textures_sprite_stacking.pengu
+## ```
+
+# --- Imports ---
+import raylib
+import raylibx.drawing as drawing
+import raylibx.input as input
+import raylibx.text as txt
+import raylibx.textures as textures
+import pengu.raymathx as raymathx
+
+# --- Constants ---
+
+## Initial window width in pixels.
+const SCREEN_WIDTH as int is 800
+
+## Initial window height in pixels.
+const SCREEN_HEIGHT as int is 450
+
+## Overall scale factor applied to the stacked sprite slices.
+const STACK_SCALE as f32 is 3.0
+
+## Number of horizontal layer slices in the stacked sprite.
+const STACK_COUNT as int is 122
+
+## Rate of change of rotation speed when pressing spin keys.
+const SPEED_CHANGE as f32 is 0.25
+
+# --- Helpers ---
+
+## Formats the layer spacing value with one decimal place.
+##
+## ## Parameters
+## - `spacing`: vertical spacing in pixels between slices.
+##
+## ## Returns
+## Formatted descriptive string showing current spacing.
+weave format_spacing with spacing as f32 into string:
+    let total_decis as int is (spacing * 10.0) to int
+    let whole as int is total_decis / 10
+    let frac as int is total_decis % 10
+    return "current spacing: {whole}.{frac}"
+
+## Formats the rotation speed value with two decimal places and correct sign.
+##
+## ## Parameters
+## - `speed`: rotation speed in degrees per second.
+##
+## ## Returns
+## Formatted descriptive string showing current rotation speed.
+weave format_speed with speed as f32 into string:
+    let total_centis as int is (speed * 100.0) to int
+    let abs_centis as int is if total_centis < 0 then -total_centis else total_centis
+    let whole as int is abs_centis / 100
+    let frac as int is abs_centis % 100
+    let frac_str as string is if frac < 10 then "0{frac}" else "{frac}"
+    defer banish frac_str
+    let sign_str as string is if total_centis < 0 then "-" else ""
+    return "current speed: {sign_str}{whole}.{frac_str}"
+
+# --- Entry point ---
+
+## Application main entry point.
+##
+## Initializes the window, loads the booth sliced texture, handles user input for
+## rotation speed and vertical layer separation, and renders the stacked sprite slices
+## from bottom to top using `draw_pro`.
+##
+## ## Returns
+## Exit code `0` on successful execution, or `1` if resource loading fails.
+weave main into int:
+    # Initialization
+    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [textures] example - sprite stacking"
+    defer calling raylib.CloseWindow
+
+    let loaded_texture as maybe raylib.Texture2D is calling textures.load_texture with "examples/textures/resources/booth.png"
+    if booth as raylib.Texture2D is loaded_texture:
+        defer calling textures.unload_texture with booth
+
+        var stack_spacing as f32 is 2.0
+        var rotation_speed as f32 is 30.0
+        var rotation as f32 is 0.0
+
+        calling raylib.SetTargetFPS with 60
+
+        # Main game loop
+        while not calling raylib.WindowShouldClose:
+            # Update
+            # Use mouse wheel to affect stack separation
+            set stack_spacing is stack_spacing + ((calling raylib.GetMouseWheelMove) * 0.1)
+            set stack_spacing is calling raymathx.clamp with stack_spacing, 0.0, 5.0
+
+            # Add a positive/negative offset to spin right/left at different speeds
+            if (calling input.is_key_down with raylib.KEY_LEFT) or (calling input.is_key_down with raylib.KEY_A):
+                set rotation_speed is rotation_speed - SPEED_CHANGE
+            if (calling input.is_key_down with raylib.KEY_RIGHT) or (calling input.is_key_down with raylib.KEY_D):
+                set rotation_speed is rotation_speed + SPEED_CHANGE
+
+            set rotation is rotation + (rotation_speed * (calling raylib.GetFrameTime))
+
+            # Draw
+            calling drawing.begin_drawing
+            calling drawing.clear_background with raylib.RAYWHITE
+
+            # Get the size of a single slice
+            let frame_width as f32 is booth.width to f32
+            let frame_height as f32 is (booth.height to f32) / (STACK_COUNT to f32)
+
+            # Get the scaled resolution to draw at
+            let scaled_width as f32 is frame_width * STACK_SCALE
+            let scaled_height as f32 is frame_height * STACK_SCALE
+
+            # Draw the stacked sprite, rotated to the correct angle, with a vertical offset
+            for k from 0 to STACK_COUNT - 1:
+                let i as int is (STACK_COUNT - 1) - k
+                let i_f as f32 is i to f32
+
+                var source as raylib.Rectangle is with:
+                    set .x is 0.0
+                    set .y is i_f * frame_height
+                    set .width is frame_width
+                    set .height is frame_height
+
+                let dest_x as f32 is (SCREEN_WIDTH to f32) / 2.0
+                let dest_y as f32 is (((SCREEN_HEIGHT to f32) / 2.0) + (i_f * stack_spacing)) - ((stack_spacing * (STACK_COUNT to f32)) / 2.0)
+
+                var dest as raylib.Rectangle is with:
+                    set .x is dest_x
+                    set .y is dest_y
+                    set .width is scaled_width
+                    set .height is scaled_height
+
+                var origin as raylib.Vector2 is with:
+                    set .x is scaled_width / 2.0
+                    set .y is scaled_height / 2.0
+
+                calling booth.draw_pro with source, dest, origin, rotation, raylib.WHITE
+
+            calling txt.draw_text with "A/D to spin\nmouse wheel to change separation (aka 'angle')", 10, 10, 20, raylib.DARKGRAY
+
+            let spacing_label as string is calling format_spacing with stack_spacing
+            defer banish spacing_label
+            calling txt.draw_text with spacing_label, 10, 50, 20, raylib.DARKGRAY
+
+            let speed_label as string is calling format_speed with rotation_speed
+            defer banish speed_label
+            calling txt.draw_text with speed_label, 10, 70, 20, raylib.DARKGRAY
+
+            calling txt.draw_text with "redbooth model (c) kluchek under cc 4.0", 10, 420, 20, raylib.DARKGRAY
+
+            calling drawing.end_drawing
+
+        return 0
+    else:
+        return 1

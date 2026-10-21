@@ -1,0 +1,174 @@
+## raylib [textures] example - particles blending
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 1.7, last time updated with raylib 3.5
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2017-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/textures/textures_particles_blending.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.textures as textures
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import pengu.raylibx.random as random
+
+# --- Constants ---
+
+## Maximum particles pooled for blending tail effect.
+const MAX_PARTICLES as int is 200
+
+# --- Types ---
+
+## Represents a single particle in the mouse tail pool.
+rune Particle:
+    position as raylib.Vector2
+    color as raylib.Color
+    alpha as f32
+    scale as f32
+    rotation as f32
+    active as bool
+
+# --- Entry point ---
+
+## Application main entry point.
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - particles blending"
+    defer calling raylib.CloseWindow
+
+    # Particles pool, reuse them!
+    var mouse_tail as list of Particle is list of Particle
+    defer banish mouse_tail
+
+    # Initialize particles
+    for i from 0 to MAX_PARTICLES - 1:
+        let r as int is calling random.between with 0, 255
+        let g as int is calling random.between with 0, 255
+        let b as int is calling random.between with 0, 255
+        let p_scale as f32 is ((calling random.between with 1, 30) to f32) / 20.0
+        let p_rot as f32 is (calling random.between with 0, 360) to f32
+
+        let p as Particle is with:
+            set .position is with:
+                set .x is 0.0
+                set .y is 0.0
+            set .color is with:
+                set .r is (r to byte)
+                set .g is (g to byte)
+                set .b is (b to byte)
+                set .a is (255 to byte)
+            set .alpha is 1.0
+            set .scale is p_scale
+            set .rotation is p_rot
+            set .active is false
+        calling mouse_tail.push with p
+
+    let gravity as f32 is 3.0
+
+    var smoke as raylib.Texture2D is with id is 0
+    if loaded as raylib.Texture2D is calling textures.load_texture with "examples/textures/resources/spark_flame.png":
+        set smoke is loaded
+    else:
+        return 1
+    defer calling textures.unload_texture with smoke
+
+    var blending as raylib.BlendMode is raylib.BlendMode.BLEND_ALPHA
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        # Activate one particle every frame and Update active particles
+        for i from 0 to MAX_PARTICLES - 1:
+            var p as Particle is mouse_tail at i
+            if not p.active:
+                set p.active is true
+                set p.alpha is 1.0
+                set p.position is calling raylib.GetMousePosition
+                set mouse_tail at i is p
+                break
+
+        for i from 0 to MAX_PARTICLES - 1:
+            var p as Particle is mouse_tail at i
+            if p.active:
+                set p.position.y is p.position.y + (gravity / 2.0)
+                set p.alpha is p.alpha - 0.005
+
+                if p.alpha <= 0.0:
+                    set p.active is false
+
+                set p.rotation is p.rotation + 2.0
+                set mouse_tail at i is p
+
+        if calling input.is_key_pressed with raylib.KeyboardKey.KEY_SPACE:
+            if blending == raylib.BlendMode.BLEND_ALPHA:
+                set blending is raylib.BlendMode.BLEND_ADDITIVE
+            else:
+                set blending is raylib.BlendMode.BLEND_ALPHA
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.DARKGRAY
+
+        calling drawing.begin_blend_mode with blending
+
+        # Draw active particles
+        let src_rec as raylib.Rectangle is with:
+            set .x is 0.0
+            set .y is 0.0
+            set .width is (smoke.width to f32)
+            set .height is (smoke.height to f32)
+
+        for i from 0 to MAX_PARTICLES - 1:
+            let p as Particle is mouse_tail at i
+            if p.active:
+                let pw as f32 is (smoke.width to f32) * p.scale
+                let ph as f32 is (smoke.height to f32) * p.scale
+                let dst_rec as raylib.Rectangle is with:
+                    set .x is p.position.x
+                    set .y is p.position.y
+                    set .width is pw
+                    set .height is ph
+                let origin as raylib.Vector2 is with:
+                    set .x is pw / 2.0
+                    set .y is ph / 2.0
+                let tint as raylib.Color is calling colors.fade with p.color, p.alpha
+
+                calling smoke.draw_pro with src_rec, dst_rec, origin, p.rotation, tint
+
+        calling drawing.end_blend_mode
+
+        calling txt.draw_text with "PRESS SPACE to CHANGE BLENDING MODE", 180, 20, 20, raylib.BLACK
+
+        if blending == raylib.BlendMode.BLEND_ALPHA:
+            calling txt.draw_text with "ALPHA BLENDING", 290, screen_height - 40, 20, raylib.BLACK
+        else:
+            calling txt.draw_text with "ADDITIVE BLENDING", 280, screen_height - 40, 20, raylib.RAYWHITE
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

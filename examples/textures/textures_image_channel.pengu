@@ -1,0 +1,118 @@
+## ## PenguScript Port
+## Translated from raylib [textures] example - image channel
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Bruno Cabral (@brccabral) and Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to extract individual color and alpha channels
+## from an image, apply alpha masks, and draw each channel separately.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_image_channel.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.textures as textures
+
+# --- Helpers ------------------------------------------------------------
+## Converts an image to a GPU texture.
+##
+## ## Parameters
+## - `img`: image to upload to GPU memory.
+##
+## ## Returns
+## Texture handle, or an empty texture if loading fails.
+##
+## ## Memory
+## Allocates a GPU texture.
+weave to_texture with img as raylib.Image into raylib.Texture:
+    var tex as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded as raylib.Texture is calling textures.load_texture_from_image with img:
+        set tex is loaded
+    return tex
+
+# --- Entry point --------------------------------------------------------
+## Main program function.
+##
+## ## Returns
+## Exit code (0 for success).
+weave main into int:
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - image channel"
+    defer calling raylib.CloseWindow
+
+    var fudesumi_image as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_img as raylib.Image is calling images.load_image with "examples/textures/resources/fudesumi.png":
+        set fudesumi_image is loaded_img
+
+    var image_alpha as raylib.Image is calling fudesumi_image.channel with 3
+    calling image_alpha.apply_alpha_mask with image_alpha
+
+    var image_red as raylib.Image is calling fudesumi_image.channel with 0
+    calling image_red.apply_alpha_mask with image_alpha
+
+    var image_green as raylib.Image is calling fudesumi_image.channel with 1
+    calling image_green.apply_alpha_mask with image_alpha
+
+    var image_blue as raylib.Image is calling fudesumi_image.channel with 2
+    calling image_blue.apply_alpha_mask with image_alpha
+
+    var background_image as raylib.Image is calling images.gen_image_checked with screen_width, screen_height, (screen_width / 20), (screen_height / 20), raylib.ORANGE, raylib.YELLOW
+
+    var fudesumi_texture as raylib.Texture is calling to_texture with fudesumi_image
+    defer calling textures.unload_texture with fudesumi_texture
+
+    var texture_alpha as raylib.Texture is calling to_texture with image_alpha
+    defer calling textures.unload_texture with texture_alpha
+
+    var texture_red as raylib.Texture is calling to_texture with image_red
+    defer calling textures.unload_texture with texture_red
+
+    var texture_green as raylib.Texture is calling to_texture with image_green
+    defer calling textures.unload_texture with texture_green
+
+    var texture_blue as raylib.Texture is calling to_texture with image_blue
+    defer calling textures.unload_texture with texture_blue
+
+    var background_texture as raylib.Texture is calling to_texture with background_image
+    defer calling textures.unload_texture with background_texture
+
+    let img_w as f32 is fudesumi_image.width to f32
+    let img_h as f32 is fudesumi_image.height to f32
+
+    calling images.unload_image with fudesumi_image
+    calling images.unload_image with image_alpha
+    calling images.unload_image with image_red
+    calling images.unload_image with image_green
+    calling images.unload_image with image_blue
+    calling images.unload_image with background_image
+
+    let fudesumi_rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is img_w, height is img_h
+    let fudesumi_pos as raylib.Rectangle is with x is 50.0, y is 10.0, width is img_w * 0.8, height is img_h * 0.8
+    let red_pos as raylib.Rectangle is with x is 410.0, y is 10.0, width is fudesumi_pos.width / 2.0, height is fudesumi_pos.height / 2.0
+    let green_pos as raylib.Rectangle is with x is 600.0, y is 10.0, width is fudesumi_pos.width / 2.0, height is fudesumi_pos.height / 2.0
+    let blue_pos as raylib.Rectangle is with x is 410.0, y is 230.0, width is fudesumi_pos.width / 2.0, height is fudesumi_pos.height / 2.0
+    let alpha_pos as raylib.Rectangle is with x is 600.0, y is 230.0, width is fudesumi_pos.width / 2.0, height is fudesumi_pos.height / 2.0
+    let origin as raylib.Vector2 is with x is 0.0, y is 0.0
+
+    calling raylib.SetTargetFPS with 60
+
+    while not calling raylib.WindowShouldClose:
+        calling drawing.begin_drawing
+
+        calling background_texture.draw with 0, 0, raylib.WHITE
+        calling fudesumi_texture.draw_pro with fudesumi_rec, fudesumi_pos, origin, 0.0, raylib.WHITE
+        calling texture_red.draw_pro with fudesumi_rec, red_pos, origin, 0.0, raylib.RED
+        calling texture_green.draw_pro with fudesumi_rec, green_pos, origin, 0.0, raylib.GREEN
+        calling texture_blue.draw_pro with fudesumi_rec, blue_pos, origin, 0.0, raylib.BLUE
+        calling texture_alpha.draw_pro with fudesumi_rec, alpha_pos, origin, 0.0, raylib.WHITE
+
+        calling drawing.end_drawing
+
+    return 0

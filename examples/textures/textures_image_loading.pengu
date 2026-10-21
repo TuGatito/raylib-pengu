@@ -1,0 +1,59 @@
+## ## PenguScript Port
+## Translated from raylib [textures] example - image loading
+##
+## Original example complexity rating: [★☆☆☆] 1/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to load an image into CPU RAM, convert it
+## into a GPU texture, release the image memory, and render the texture centered.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_image_loading.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Entry point --------------------------------------------------------
+## Main program function.
+##
+## ## Returns
+## Exit code (0 for success).
+weave main into int:
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - image loading"
+    defer calling raylib.CloseWindow
+
+    var image as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_img as raylib.Image is calling images.load_image with "examples/textures/resources/raylib_logo.png":
+        set image is loaded_img
+
+    var texture as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture is calling textures.load_texture_from_image with image:
+        set texture is loaded_tex
+    defer calling textures.unload_texture with texture
+
+    calling images.unload_image with image
+
+    calling raylib.SetTargetFPS with 60
+
+    while not calling raylib.WindowShouldClose:
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let tex_x as int is (screen_width / 2) - (texture.width / 2)
+        let tex_y as int is (screen_height / 2) - (texture.height / 2)
+        calling texture.draw with tex_x, tex_y, raylib.WHITE
+
+        calling txt.draw_text with "this IS a texture loaded from an image!", 300, 370, 10, raylib.GRAY
+
+        calling drawing.end_drawing
+
+    return 0

@@ -1,0 +1,712 @@
+## ## PenguScript Port
+## Port of raylib [text] example - 3d drawing
+##
+## Demonstrates drawing 2D text in 3D space: each character is rendered as a quad
+## (or two quads when backface is enabled) mapped to the font texture atlas.
+## Includes interactive controls for font size, spacing, line height, layer duplication,
+## alpha-discard shader rendering, and real-time wave animation.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_3d_drawing.pengu
+## ```
+
+import std.ffi as ffi
+import std.fractio as fractio
+import pengu.raylib as raylib
+import pengu.rlgl as rlgl
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.files as files
+import pengu.raylibx.input as input
+import pengu.raylibx.models as models
+import pengu.raylibx.shaders as shaders
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.shapes3d as shapes3d
+import pengu.raylibx.text as txt
+import pengu.rcamerax as rcamerax
+
+# --- Constants ---
+
+## Size of the letter bounding box
+const LETTER_BOUNDRY_SIZE as f32 is 0.25
+
+## Maximum number of 3D text layers
+const TEXT_MAX_LAYERS as int is 32
+
+## Color of the letter bounding box wireframe
+const LETTER_BOUNDRY_COLOR as raylib.Color is with r is 135, g is 60, b is 190, a is 255
+
+# --- Types ---
+
+## Configuration structure for waving text
+rune WaveTextConfig:
+    wave_range as raylib.Vector3
+    wave_speed as raylib.Vector3
+    wave_offset as raylib.Vector3
+
+# --- Helpers ---
+
+## Formats a float to one decimal place
+weave format_float_1dp with val as f32 into string:
+    let decis as int is (val * 10.0) to int
+    let whole as int is decis / 10
+    let frac as int is decis % 10
+    let abs_frac as int is if frac < 0 then -frac else frac
+    let prefix as string is if (decis < 0 and whole == 0) then "-" else ""
+    defer banish prefix
+    return "{prefix}{whole}.{abs_frac}"
+
+## Formats a float to three decimal places
+weave format_float_3dp with val as f32 into string:
+    let millis as int is (val * 1000.0) to int
+    let whole as int is millis / 1000
+    let frac as int is millis % 1000
+    let abs_frac as int is if frac < 0 then -frac else frac
+    let frac_str as string is if abs_frac < 10 then "00{abs_frac}" else if abs_frac < 100 then "0{abs_frac}" else "{abs_frac}"
+    defer banish frac_str
+    let prefix as string is if (millis < 0 and whole == 0) then "-" else ""
+    defer banish prefix
+    return "{prefix}{whole}.{frac_str}"
+
+## Generates a nice color with a random hue
+weave generate_random_color with s as f32, v as f32 into raylib.Color:
+    let phi as f32 is 0.618033988749895
+    var h as f32 is (calling raylib.GetRandomValue with 0, 360) to f32
+    set h is h + (h * phi)
+    while h >= 360.0:
+        set h is h - 360.0
+    return calling raylib.ColorFromHSV with h, s, v
+
+## Draws a codepoint in 3D space
+weave draw_text_codepoint_3d with font as raylib.Font, codepoint as int, position as raylib.Vector3, font_size as f32, backface as bool, tint as raylib.Color, show_letter_boundry as bool into void:
+    let index as int is calling raylib.GetGlyphIndex with font, codepoint
+    let scale as f32 is font_size / (font.baseSize to f32)
+    let glyph as raylib.GlyphInfo is font.glyphs at index
+    let rec as raylib.Rectangle is font.recs at index
+
+    var pos as raylib.Vector3 is position
+    set pos.x is pos.x + (((glyph.offsetX - font.glyphPadding) to f32) * scale)
+    set pos.z is pos.z + (((glyph.offsetY - font.glyphPadding) to f32) * scale)
+
+    let padding_f as f32 is font.glyphPadding to f32
+    let src_rec as raylib.Rectangle is with x is rec.x - padding_f, y is rec.y - padding_f, width is rec.width + (2.0 * padding_f), height is rec.height + (2.0 * padding_f)
+
+    let width as f32 is (rec.width + (2.0 * padding_f)) * scale
+    let height as f32 is (rec.height + (2.0 * padding_f)) * scale
+
+    if (font.texture.id to int) > 0:
+        let x as f32 is 0.0
+        let y as f32 is 0.0
+        let z as f32 is 0.0
+
+        let tex_w as f32 is font.texture.width to f32
+        let tex_h as f32 is font.texture.height to f32
+        let tx as f32 is src_rec.x / tex_w
+        let ty as f32 is src_rec.y / tex_h
+        let tw as f32 is (src_rec.x + src_rec.width) / tex_w
+        let th as f32 is (src_rec.y + src_rec.height) / tex_h
+
+        if show_letter_boundry:
+            let wire_pos as raylib.Vector3 is with x is pos.x + (width / 2.0), y is pos.y, z is pos.z + (height / 2.0)
+            let wire_size as raylib.Vector3 is with x is width, y is LETTER_BOUNDRY_SIZE, z is height
+            calling wire_pos.draw_cube_wires with wire_size, LETTER_BOUNDRY_COLOR
+
+        let backface_int as int is if backface then 1 else 0
+        let _batch_check as bool is calling rlgl.rlCheckRenderBatchLimit with (4 + (4 * backface_int))
+        calling rlgl.rlSetTexture with font.texture.id
+
+        calling rlgl.rlPushMatrix
+        calling rlgl.rlTranslatef with pos.x, pos.y, pos.z
+
+        calling rlgl.rlBegin with (rlgl.RL_QUADS to int)
+        calling rlgl.rlColor4ub with tint.r, tint.g, tint.b, tint.a
+
+        # Front Face
+        calling rlgl.rlNormal3f with 0.0, 1.0, 0.0
+        calling rlgl.rlTexCoord2f with tx, ty
+        calling rlgl.rlVertex3f with x, y, z
+        calling rlgl.rlTexCoord2f with tx, th
+        calling rlgl.rlVertex3f with x, y, z + height
+        calling rlgl.rlTexCoord2f with tw, th
+        calling rlgl.rlVertex3f with x + width, y, z + height
+        calling rlgl.rlTexCoord2f with tw, ty
+        calling rlgl.rlVertex3f with x + width, y, z
+
+        if backface:
+            # Back Face
+            calling rlgl.rlNormal3f with 0.0, -1.0, 0.0
+            calling rlgl.rlTexCoord2f with tx, ty
+            calling rlgl.rlVertex3f with x, y, z
+            calling rlgl.rlTexCoord2f with tw, ty
+            calling rlgl.rlVertex3f with x + width, y, z
+            calling rlgl.rlTexCoord2f with tw, th
+            calling rlgl.rlVertex3f with x + width, y, z + height
+            calling rlgl.rlTexCoord2f with tx, th
+            calling rlgl.rlVertex3f with x, y, z + height
+
+        calling rlgl.rlEnd
+        calling rlgl.rlPopMatrix
+
+        calling rlgl.rlSetTexture with 0
+
+## Draws 2D text in 3D space
+weave draw_text_3d with font as raylib.Font, text as string, position as raylib.Vector3, font_size as f32, font_spacing as f32, line_spacing as f32, backface as bool, tint as raylib.Color, show_letter_boundry as bool into void:
+    let length as int is text.length
+    if length == 0:
+        return
+
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+
+    var text_offset_y as f32 is 0.0
+    var text_offset_x as f32 is 0.0
+    let scale as f32 is font_size / (font.baseSize to f32)
+
+    var i as int is 0
+    while i < length:
+        var codepoint_byte_count as int is 0
+        let ptr as ref to frozen char is sigil of (c_text at i)
+        let codepoint as int is calling raylib.GetCodepoint with ptr, sigil of codepoint_byte_count
+        let index as int is calling raylib.GetGlyphIndex with font, codepoint
+
+        var step as int is codepoint_byte_count
+        if codepoint == 63:    # 0x3f ('?')
+            set step is 1
+
+        if codepoint == 10:    # '\n'
+            set text_offset_y is text_offset_y + font_size + line_spacing
+            set text_offset_x is 0.0
+        else:
+            if (codepoint != 32) and (codepoint != 9):    # ' ' and '\t'
+                let char_pos as raylib.Vector3 is with x is position.x + text_offset_x, y is position.y, z is position.z + text_offset_y
+                calling draw_text_codepoint_3d with font, codepoint, char_pos, font_size, backface, tint, show_letter_boundry
+
+            let glyph as raylib.GlyphInfo is font.glyphs at index
+            let rec as raylib.Rectangle is font.recs at index
+            if glyph.advanceX == 0:
+                set text_offset_x is text_offset_x + (rec.width * scale) + font_spacing
+            else:
+                set text_offset_x is text_offset_x + ((glyph.advanceX to f32) * scale) + font_spacing
+
+        set i is i + step
+
+## Draws 2D text in 3D space and waves the parts that start with '~~' and end with '~~'
+weave draw_text_wave_3d with font as raylib.Font, text as string, position as raylib.Vector3, font_size as f32, font_spacing as f32, line_spacing as f32, backface as bool, config as WaveTextConfig, time as f32, tint as raylib.Color, show_letter_boundry as bool into void:
+    let length as int is text.length
+    if length == 0:
+        return
+
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+
+    var text_offset_y as f32 is 0.0
+    var text_offset_x as f32 is 0.0
+    let scale as f32 is font_size / (font.baseSize to f32)
+    var wave as bool is false
+
+    var i as int is 0
+    var k as int is 0
+    while i < length:
+        var codepoint_byte_count as int is 0
+        let ptr as ref to frozen char is sigil of (c_text at i)
+        let codepoint as int is calling raylib.GetCodepoint with ptr, sigil of codepoint_byte_count
+        let index as int is calling raylib.GetGlyphIndex with font, codepoint
+
+        var step as int is codepoint_byte_count
+        if codepoint == 63:    # 0x3f ('?')
+            set step is 1
+
+        if codepoint == 10:    # '\n'
+            set text_offset_y is text_offset_y + font_size + line_spacing
+            set text_offset_x is 0.0
+            set k is 0
+        else if codepoint == 126:    # '~'
+            var is_wave_toggle as bool is false
+            if (i + step) < length:
+                var next_byte_count as int is 0
+                let next_ptr as ref to frozen char is sigil of (c_text at (i + step))
+                let next_cp as int is calling raylib.GetCodepoint with next_ptr, sigil of next_byte_count
+                if next_cp == 126:
+                    set is_wave_toggle is true
+                    let extra_step as int is if next_byte_count > 0 then next_byte_count else 1
+                    set step is step + extra_step
+                    set wave is not wave
+
+            if not is_wave_toggle:
+                # Single tilde drawn as regular character
+                let char_pos as raylib.Vector3 is with x is position.x + text_offset_x, y is position.y, z is position.z + text_offset_y
+                calling draw_text_codepoint_3d with font, codepoint, char_pos, font_size, backface, tint, show_letter_boundry
+                let glyph as raylib.GlyphInfo is font.glyphs at index
+                let rec as raylib.Rectangle is font.recs at index
+                if glyph.advanceX == 0:
+                    set text_offset_x is text_offset_x + (rec.width * scale) + font_spacing
+                else:
+                    set text_offset_x is text_offset_x + ((glyph.advanceX to f32) * scale) + font_spacing
+        else:
+            if (codepoint != 32) and (codepoint != 9):    # ' ' and '\t'
+                var pos as raylib.Vector3 is position
+                if wave:
+                    let k_f as f32 is k to f32
+                    let arg_x as f32 is (time * config.wave_speed.x) - (k_f * config.wave_offset.x)
+                    let arg_y as f32 is (time * config.wave_speed.y) - (k_f * config.wave_offset.y)
+                    let arg_z as f32 is (time * config.wave_speed.z) - (k_f * config.wave_offset.z)
+                    set pos.x is pos.x + ((calling arg_x.get_sin) * config.wave_range.x)
+                    set pos.y is pos.y + ((calling arg_y.get_sin) * config.wave_range.y)
+                    set pos.z is pos.z + ((calling arg_z.get_sin) * config.wave_range.z)
+
+                let char_pos as raylib.Vector3 is with x is pos.x + text_offset_x, y is pos.y, z is pos.z + text_offset_y
+                calling draw_text_codepoint_3d with font, codepoint, char_pos, font_size, backface, tint, show_letter_boundry
+
+            let glyph as raylib.GlyphInfo is font.glyphs at index
+            let rec as raylib.Rectangle is font.recs at index
+            if glyph.advanceX == 0:
+                set text_offset_x is text_offset_x + (rec.width * scale) + font_spacing
+            else:
+                set text_offset_x is text_offset_x + ((glyph.advanceX to f32) * scale) + font_spacing
+
+        set i is i + step
+        set k is k + 1
+
+## Measures a text in 3D ignoring the '~~' markup chars
+weave measure_text_wave_3d with font as raylib.Font, text as string, font_size as f32, font_spacing as f32, line_spacing as f32 into raylib.Vector3:
+    let length as int is text.length
+    if length == 0:
+        return with x is 0.0, y is 0.25, z is 0.0
+
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+
+    var temp_len as int is 0
+    var len_counter as int is 0
+    var temp_text_width as f32 is 0.0
+
+    let scale as f32 is font_size / (font.baseSize to f32)
+    var text_height as f32 is scale
+    var text_width as f32 is 0.0
+
+    var i as int is 0
+    while i < length:
+        var next_bytes as int is 0
+        let ptr as ref to frozen char is sigil of (c_text at i)
+        let letter as int is calling raylib.GetCodepoint with ptr, sigil of next_bytes
+        let index as int is calling raylib.GetGlyphIndex with font, letter
+
+        var step as int is next_bytes
+        if letter == 63:    # 0x3f ('?')
+            set step is 1
+
+        if letter != 10:    # '\n'
+            var is_double_tilde as bool is false
+            if letter == 126:    # '~'
+                if (i + step) < length:
+                    var next_t_bytes as int is 0
+                    let next_ptr as ref to frozen char is sigil of (c_text at (i + step))
+                    let next_cp as int is calling raylib.GetCodepoint with next_ptr, sigil of next_t_bytes
+                    if next_cp == 126:
+                        set is_double_tilde is true
+                        let extra_step as int is if next_t_bytes > 0 then next_t_bytes else 1
+                        set step is step + extra_step
+
+            if not is_double_tilde:
+                set len_counter is len_counter + 1
+                let glyph as raylib.GlyphInfo is font.glyphs at index
+                let rec as raylib.Rectangle is font.recs at index
+                if glyph.advanceX != 0:
+                    set text_width is text_width + ((glyph.advanceX to f32) * scale)
+                else:
+                    set text_width is text_width + ((rec.width + (glyph.offsetX to f32)) * scale)
+        else:
+            if temp_text_width < text_width:
+                set temp_text_width is text_width
+            set len_counter is 0
+            set text_width is 0.0
+            set text_height is text_height + font_size + line_spacing
+
+        if temp_len < len_counter:
+            set temp_len is len_counter
+
+        set i is i + step
+
+    if temp_text_width < text_width:
+        set temp_text_width is text_width
+
+    let spacing_add as f32 is if temp_len > 1 then (((temp_len - 1) to f32) * font_spacing) else 0.0
+    return with x is temp_text_width + spacing_add, y is 0.25, z is text_height
+
+# --- Main entry point ---
+
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.SetConfigFlags with ((raylib.FLAG_MSAA_4X_HINT to int) | (raylib.FLAG_VSYNC_HINT to int))
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - 3d drawing"
+    defer calling raylib.CloseWindow
+
+    var spin as bool is true
+    var multicolor as bool is false
+    var show_letter_boundry as bool is false
+    var show_text_boundry as bool is false
+
+    var camera as raylib.Camera3D is with:
+        set .position is with x is -10.0, y is 15.0, z is -10.0
+        set .target is with x is 0.0, y is 0.0, z is 0.0
+        set .up is with x is 0.0, y is 1.0, z is 0.0
+        set .fovy is 45.0
+        set .projection is raylib.CAMERA_PERSPECTIVE to int
+
+    var camera_mode as int is raylib.CAMERA_ORBITAL to int
+
+    let cube_position as raylib.Vector3 is with x is 0.0, y is 1.0, z is 0.0
+    let cube_size as raylib.Vector3 is with x is 2.0, y is 2.0, z is 2.0
+
+    # Use default font
+    var font as raylib.Font is calling txt.default_font
+    var custom_font_loaded as bool is false
+    defer:
+        if custom_font_loaded:
+            calling raylib.UnloadFont with font
+
+    var font_size as f32 is 0.8
+    var font_spacing as f32 is 0.05
+    var line_spacing as f32 is -0.1
+
+    var text as string is "Hello ~~World~~ in 3D!"
+    var text_is_allocated as bool is false
+    defer:
+        if text_is_allocated:
+            banish text
+
+    var tbox as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    var layers as int is 1
+    var quads as int is 0
+    var layer_distance as f32 is 0.01
+
+    var wcfg as WaveTextConfig is with:
+        set .wave_speed is with x is 3.0, y is 3.0, z is 0.5
+        set .wave_offset is with x is 0.35, y is 0.35, z is 0.35
+        set .wave_range is with x is 0.45, y is 0.45, z is 0.45
+
+    var time as f32 is 0.0
+
+    var light as raylib.Color is raylib.MAROON
+    var dark as raylib.Color is raylib.RED
+
+    # Load the alpha discard shader
+    var alpha_discard as raylib.Shader is with id is 0, locs is transmute (calling ffi.null_void) to ref to int
+    if loaded_shader as raylib.Shader is calling shaders.load_shader with "", "examples/text/resources/shaders/glsl330/alpha_discard.fs":
+        set alpha_discard is loaded_shader
+    defer calling shaders.unload_shader with alpha_discard
+
+    # Array filled with multiple random colors (when multicolor mode is set)
+    var multi as list of raylib.Color is list of raylib.Color
+    for _i from 0 to TEXT_MAX_LAYERS - 1:
+        calling multi.append with raylib.BLACK
+    defer banish multi
+
+    calling raylib.DisableCursor
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        calling raylib.UpdateCamera with (sigil of camera), camera_mode
+
+        # Handle font files dropped
+        if calling raylib.IsFileDropped:
+            var dropped_list as list of string is calling files.dropped_files
+            defer banish dropped_list
+            if dropped_list.length > 0:
+                let first_path as string is dropped_list at 0
+                if calling files.is_file_extension with first_path, ".ttf":
+                    if custom_font_loaded:
+                        calling raylib.UnloadFont with font
+                    let empty_cps as list of int is list of int
+                    defer banish empty_cps
+                    if loaded_font as raylib.Font is calling txt.load_font_ex with first_path, (font_size to int), (empty_cps at 0 to 0):
+                        set font is loaded_font
+                        set custom_font_loaded is true
+                else if calling files.is_file_extension with first_path, ".fnt":
+                    if custom_font_loaded:
+                        calling raylib.UnloadFont with font
+                    if loaded_font as raylib.Font is calling txt.load_font with first_path:
+                        set font is loaded_font
+                        set custom_font_loaded is true
+                        set font_size is font.baseSize to f32
+
+        # Handle Events
+        if calling input.is_key_pressed with raylib.KEY_F1:
+            set show_letter_boundry is not show_letter_boundry
+        if calling input.is_key_pressed with raylib.KEY_F2:
+            set show_text_boundry is not show_text_boundry
+        if calling input.is_key_pressed with raylib.KEY_F3:
+            set spin is not spin
+            set camera.target is with x is 0.0, y is 0.0, z is 0.0
+            set camera.up is with x is 0.0, y is 1.0, z is 0.0
+            set camera.fovy is 45.0
+            set camera.projection is raylib.CAMERA_PERSPECTIVE to int
+            if spin:
+                set camera.position is with x is -10.0, y is 15.0, z is -10.0
+                set camera_mode is raylib.CAMERA_ORBITAL to int
+            else:
+                set camera.position is with x is 10.0, y is 10.0, z is -10.0
+                set camera_mode is raylib.CAMERA_FREE to int
+
+        # Handle clicking the cube
+        if calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT:
+            let mouse_pos as raylib.Vector2 is calling raylib.GetMousePosition
+            let ray as raylib.Ray is calling camera.to_world_ray with mouse_pos
+            let half_w as f32 is cube_size.x / 2.0
+            let half_h as f32 is cube_size.y / 2.0
+            let half_l as f32 is cube_size.z / 2.0
+            let box as raylib.BoundingBox is with min is (with x is cube_position.x - half_w, y is cube_position.y - half_h, z is cube_position.z - half_l), max is (with x is cube_position.x + half_w, y is cube_position.y + half_h, z is cube_position.z + half_l)
+            let collision as raylib.RayCollision is calling models.ray_box_hit with ray, box
+            if collision.hit:
+                set light is calling generate_random_color with 0.5, 0.78
+                set dark is calling generate_random_color with 0.4, 0.58
+
+        # Handle text layers changes
+        if calling input.is_key_pressed with raylib.KEY_HOME:
+            if layers > 1:
+                set layers is layers - 1
+        else if calling input.is_key_pressed with raylib.KEY_END:
+            if layers < TEXT_MAX_LAYERS:
+                set layers is layers + 1
+
+        # Handle text changes
+        if calling input.is_key_pressed with raylib.KEY_LEFT:
+            set font_size is font_size - 0.5
+        else if calling input.is_key_pressed with raylib.KEY_RIGHT:
+            set font_size is font_size + 0.5
+        else if calling input.is_key_pressed with raylib.KEY_UP:
+            set font_spacing is font_spacing - 0.1
+        else if calling input.is_key_pressed with raylib.KEY_DOWN:
+            set font_spacing is font_spacing + 0.1
+        else if calling input.is_key_pressed with raylib.KEY_PAGE_UP:
+            set line_spacing is line_spacing - 0.1
+        else if calling input.is_key_pressed with raylib.KEY_PAGE_DOWN:
+            set line_spacing is line_spacing + 0.1
+        else if calling input.is_key_down with raylib.KEY_INSERT:
+            set layer_distance is layer_distance - 0.001
+        else if calling input.is_key_down with raylib.KEY_DELETE:
+            set layer_distance is layer_distance + 0.001
+        else if calling input.is_key_pressed with raylib.KEY_TAB:
+            set multicolor is not multicolor
+            if multicolor:
+                for i from 0 to TEXT_MAX_LAYERS - 1:
+                    var col as raylib.Color is calling generate_random_color with 0.5, 0.8
+                    set col.a is (calling raylib.GetRandomValue with 0, 255) to byte
+                    set multi at i is col
+
+        # Handle text input
+        var ch as int is calling raylib.GetCharPressed
+        if calling input.is_key_pressed with raylib.KEY_BACKSPACE:
+            let len as int is text.length
+            if len > 0:
+                let prev as string is text
+                set text is calling txt.text_subtext with text, 0, len - 1
+                if text_is_allocated:
+                    banish prev
+                set text_is_allocated is true
+        else if calling input.is_key_pressed with raylib.KEY_ENTER:
+            let len as int is text.length
+            if len < 63:
+                let prev as string is text
+                set text is "{text}\n"
+                if text_is_allocated:
+                    banish prev
+                set text_is_allocated is true
+        else:
+            while ch > 0:
+                let len as int is text.length
+                if (ch >= 32) and (ch <= 125) and (len < 63):
+                    let ch_str as string is calling txt.codepoint_to_text with ch
+                    let prev as string is text
+                    set text is "{text}{ch_str}"
+                    banish ch_str
+                    if text_is_allocated:
+                        banish prev
+                    set text_is_allocated is true
+                set ch is calling raylib.GetCharPressed
+
+        # Measure 3D text so we can center it
+        set tbox is calling measure_text_wave_3d with font, text, font_size, font_spacing, line_spacing
+
+        set quads is 0
+        set time is time + (calling raylib.GetFrameTime)
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+        calling cube_position.draw_cube with cube_size, dark
+        calling cube_position.draw_cube_wires with (with x is 2.1, y is 2.1, z is 2.1), light
+
+        calling shapes3d.draw_grid with 10, 2.0
+
+        # Use a shader to handle the depth buffer issue with transparent textures
+        calling drawing.begin_shader_mode with alpha_discard
+
+        # Draw the 3D text above the cube
+        calling rlgl.rlPushMatrix
+        calling rlgl.rlRotatef with 90.0, 1.0, 0.0, 0.0
+        calling rlgl.rlRotatef with 90.0, 0.0, 0.0, -1.0
+
+        for i from 0 to layers - 1:
+            var clr as raylib.Color is light
+            if multicolor:
+                set clr is multi at i
+            let text_pos as raylib.Vector3 is with x is -tbox.x / 2.0, y is layer_distance * (i to f32), z is -4.5
+            calling draw_text_wave_3d with font, text, text_pos, font_size, font_spacing, line_spacing, true, wcfg, time, clr, show_letter_boundry
+
+        # Draw the text boundary if set
+        if show_text_boundry:
+            let boundry_pos as raylib.Vector3 is with x is 0.0, y is 0.0, z is -4.5 + (tbox.z / 2.0)
+            calling boundry_pos.draw_cube_wires with tbox, dark
+
+        calling rlgl.rlPopMatrix
+
+        # Draw 3D options (use default font)
+        calling rlgl.rlPushMatrix
+        calling rlgl.rlRotatef with 180.0, 0.0, 1.0, 0.0
+
+        let def_font as raylib.Font is calling txt.default_font
+
+        let size_val_str as string is calling format_float_1dp with font_size
+        defer banish size_val_str
+        let opt_size as string is "< SIZE: {size_val_str} >"
+        defer banish opt_size
+        set quads is quads + opt_size.length
+        var m as raylib.Vector2 is calling def_font.measure with opt_size, 0.8, 0.1
+        var opt_pos as raylib.Vector3 is with x is -m.x / 2.0, y is 0.01, z is 2.0
+        calling draw_text_3d with def_font, opt_size, opt_pos, 0.8, 0.1, 0.0, false, raylib.BLUE, false
+        set opt_pos.z is opt_pos.z + 0.5 + m.y
+
+        let spacing_val_str as string is calling format_float_1dp with font_spacing
+        defer banish spacing_val_str
+        let opt_spacing as string is "< SPACING: {spacing_val_str} >"
+        defer banish opt_spacing
+        set quads is quads + opt_spacing.length
+        set m is calling def_font.measure with opt_spacing, 0.8, 0.1
+        set opt_pos.x is -m.x / 2.0
+        calling draw_text_3d with def_font, opt_spacing, opt_pos, 0.8, 0.1, 0.0, false, raylib.BLUE, false
+        set opt_pos.z is opt_pos.z + 0.5 + m.y
+
+        let line_val_str as string is calling format_float_1dp with line_spacing
+        defer banish line_val_str
+        let opt_line as string is "< LINE: {line_val_str} >"
+        defer banish opt_line
+        set quads is quads + opt_line.length
+        set m is calling def_font.measure with opt_line, 0.8, 0.1
+        set opt_pos.x is -m.x / 2.0
+        calling draw_text_3d with def_font, opt_line, opt_pos, 0.8, 0.1, 0.0, false, raylib.BLUE, false
+        set opt_pos.z is opt_pos.z + 0.5 + m.y
+
+        let lbox_str as string is if show_letter_boundry then "ON" else "OFF"
+        let opt_lbox as string is "< LBOX: {lbox_str} >"
+        defer banish opt_lbox
+        set quads is quads + opt_lbox.length
+        set m is calling def_font.measure with opt_lbox, 0.8, 0.1
+        set opt_pos.x is -m.x / 2.0
+        calling draw_text_3d with def_font, opt_lbox, opt_pos, 0.8, 0.1, 0.0, false, raylib.RED, false
+        set opt_pos.z is opt_pos.z + 0.5 + m.y
+
+        let tbox_str as string is if show_text_boundry then "ON" else "OFF"
+        let opt_tbox as string is "< TBOX: {tbox_str} >"
+        defer banish opt_tbox
+        set quads is quads + opt_tbox.length
+        set m is calling def_font.measure with opt_tbox, 0.8, 0.1
+        set opt_pos.x is -m.x / 2.0
+        calling draw_text_3d with def_font, opt_tbox, opt_pos, 0.8, 0.1, 0.0, false, raylib.RED, false
+        set opt_pos.z is opt_pos.z + 0.5 + m.y
+
+        let dist_val_str as string is calling format_float_3dp with layer_distance
+        defer banish dist_val_str
+        let opt_dist as string is "< LAYER DISTANCE: {dist_val_str} >"
+        defer banish opt_dist
+        set quads is quads + opt_dist.length
+        set m is calling def_font.measure with opt_dist, 0.8, 0.1
+        set opt_pos.x is -m.x / 2.0
+        calling draw_text_3d with def_font, opt_dist, opt_pos, 0.8, 0.1, 0.0, false, raylib.DARKPURPLE, false
+
+        calling rlgl.rlPopMatrix
+
+        # Draw 3D info text (use default font)
+        let info1 as string is "All the text displayed here is in 3D"
+        set quads is quads + 36
+        set m is calling def_font.measure with info1, 1.0, 0.05
+        var info_pos as raylib.Vector3 is with x is -m.x / 2.0, y is 0.01, z is 2.0
+        calling draw_text_3d with def_font, info1, info_pos, 1.0, 0.05, 0.0, false, raylib.DARKBLUE, false
+        set info_pos.z is info_pos.z + 1.5 + m.y
+
+        let info2 as string is "press [Left]/[Right] to change the font size"
+        set quads is quads + 44
+        set m is calling def_font.measure with info2, 0.6, 0.05
+        set info_pos.x is -m.x / 2.0
+        calling draw_text_3d with def_font, info2, info_pos, 0.6, 0.05, 0.0, false, raylib.DARKBLUE, false
+        set info_pos.z is info_pos.z + 0.5 + m.y
+
+        let info3 as string is "press [Up]/[Down] to change the font spacing"
+        set quads is quads + 44
+        set m is calling def_font.measure with info3, 0.6, 0.05
+        set info_pos.x is -m.x / 2.0
+        calling draw_text_3d with def_font, info3, info_pos, 0.6, 0.05, 0.0, false, raylib.DARKBLUE, false
+        set info_pos.z is info_pos.z + 0.5 + m.y
+
+        let info4 as string is "press [PgUp]/[PgDown] to change the line spacing"
+        set quads is quads + 48
+        set m is calling def_font.measure with info4, 0.6, 0.05
+        set info_pos.x is -m.x / 2.0
+        calling draw_text_3d with def_font, info4, info_pos, 0.6, 0.05, 0.0, false, raylib.DARKBLUE, false
+        set info_pos.z is info_pos.z + 0.5 + m.y
+
+        let info5 as string is "press [F1] to toggle the letter boundry"
+        set quads is quads + 39
+        set m is calling def_font.measure with info5, 0.6, 0.05
+        set info_pos.x is -m.x / 2.0
+        calling draw_text_3d with def_font, info5, info_pos, 0.6, 0.05, 0.0, false, raylib.DARKBLUE, false
+        set info_pos.z is info_pos.z + 0.5 + m.y
+
+        let info6 as string is "press [F2] to toggle the text boundry"
+        set quads is quads + 37
+        set m is calling def_font.measure with info6, 0.6, 0.05
+        set info_pos.x is -m.x / 2.0
+        calling draw_text_3d with def_font, info6, info_pos, 0.6, 0.05, 0.0, false, raylib.DARKBLUE, false
+
+        calling drawing.end_shader_mode
+        calling drawing.end_mode_3d
+
+        # Draw 2D info text & stats
+        calling txt.draw_text with "Drag & drop a font file to change the font!\nType something, see what happens!\n\nPress [F3] to toggle the camera", 10, 35, 10, raylib.BLACK
+
+        set quads is quads + (text.length * 2 * layers)
+        let cam_type_str as string is if spin then "ORBITAL" else "FREE"
+        let tmp_stat as string is "{layers} layer(s) | {cam_type_str} camera | {quads} quads ({quads * 4} verts)"
+        defer banish tmp_stat
+        var stat_width as int is calling txt.measure_text with tmp_stat, 10
+        calling txt.draw_text with tmp_stat, screen_width - 20 - stat_width, 10, 10, raylib.DARKGREEN
+
+        let h1 as string is "[Home]/[End] to add/remove 3D text layers"
+        set stat_width is calling txt.measure_text with h1, 10
+        calling txt.draw_text with h1, screen_width - 20 - stat_width, 25, 10, raylib.DARKGRAY
+
+        let h2 as string is "[Insert]/[Delete] to increase/decrease distance between layers"
+        set stat_width is calling txt.measure_text with h2, 10
+        calling txt.draw_text with h2, screen_width - 20 - stat_width, 40, 10, raylib.DARKGRAY
+
+        let h3 as string is "click the [CUBE] for a random color"
+        set stat_width is calling txt.measure_text with h3, 10
+        calling txt.draw_text with h3, screen_width - 20 - stat_width, 55, 10, raylib.DARKGRAY
+
+        let h4 as string is "[Tab] to toggle multicolor mode"
+        set stat_width is calling txt.measure_text with h4, 10
+        calling txt.draw_text with h4, screen_width - 20 - stat_width, 70, 10, raylib.DARKGRAY
+
+        calling txt.draw_fps with 10, 10
+
+        calling drawing.end_drawing
+
+    return 0

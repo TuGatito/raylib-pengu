@@ -1,0 +1,152 @@
+## ## PenguScript Port
+## Translated from raylib [textures] example - image kernel
+##
+## Original example complexity rating: [★★★★] 4/4
+## Contributed by Karim Salem (@kimo-s) and Ramon Santamaria (@raysan5)
+##
+## This example demonstrates custom 3x3 convolution kernels (Gaussian blur,
+## Sobel edge detection, and sharpen filter) applied to an image on the CPU.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_image_kernel.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.textures as textures
+
+# --- Helpers ------------------------------------------------------------
+## Normalizes kernel weights so their sum equals 1.0.
+##
+## ## Parameters
+## - `raw`: input list of float weights.
+##
+## ## Returns
+## Newly allocated list of normalized weights.
+##
+## ## Memory
+## Allocates a new list of f32; caller owns the returned list.
+weave normalize_kernel with raw as list of f32 into list of f32:
+    var sum as f32 is 0.0
+    for val in raw:
+        set sum is sum + val
+
+    var result as list of f32 is []
+    if sum != 0.0:
+        for val in raw:
+            calling result.append with (val / sum)
+    else:
+        for val in raw:
+            calling result.append with val
+    return result
+
+## Converts an image to a GPU texture and unloads the source image.
+##
+## ## Parameters
+## - `img`: image to convert to a texture.
+##
+## ## Returns
+## Texture handle uploaded to GPU memory.
+##
+## ## Memory
+## Unloads `img` from RAM; caller owns the returned texture.
+weave to_texture_and_unload with img as raylib.Image into raylib.Texture:
+    var tex as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded as raylib.Texture is calling textures.load_texture_from_image with img:
+        set tex is loaded
+    calling images.unload_image with img
+    return tex
+
+# --- Entry point --------------------------------------------------------
+## Main program function.
+##
+## ## Returns
+## Exit code (0 for success).
+weave main into int:
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - image kernel"
+    defer calling raylib.CloseWindow
+
+    var image as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_img as raylib.Image is calling images.load_image with "examples/textures/resources/cat.png":
+        set image is loaded_img
+
+    var raw_gaussian as list of f32 is [
+        1.0, 2.0, 1.0,
+        2.0, 4.0, 2.0,
+        1.0, 2.0, 1.0
+    ]
+    defer banish raw_gaussian
+
+    var raw_sobel as list of f32 is [
+        1.0, 0.0, -1.0,
+        2.0, 0.0, -2.0,
+        1.0, 0.0, -1.0
+    ]
+    defer banish raw_sobel
+
+    var raw_sharpen as list of f32 is [
+        0.0, -1.0, 0.0,
+        -1.0, 5.0, -1.0,
+        0.0, -1.0, 0.0
+    ]
+    defer banish raw_sharpen
+
+    var gaussian_kernel as list of f32 is calling normalize_kernel with raw_gaussian
+    defer banish gaussian_kernel
+
+    var sharpen_kernel as list of f32 is calling normalize_kernel with raw_sharpen
+    defer banish sharpen_kernel
+
+    var sobel_kernel as list of f32 is calling normalize_kernel with raw_sobel
+    defer banish sobel_kernel
+
+    var cat_sharpened as raylib.Image is calling image.copy
+    calling cat_sharpened.convolve with (sharpen_kernel at 0 to 9)
+
+    var cat_sobel as raylib.Image is calling image.copy
+    calling cat_sobel.convolve with (sobel_kernel at 0 to 9)
+
+    var cat_gaussian as raylib.Image is calling image.copy
+    var step as int is 0
+    while step < 6:
+        calling cat_gaussian.convolve with (gaussian_kernel at 0 to 9)
+        set step is step + 1
+
+    let crop_rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is 200.0, height is 450.0
+    calling image.crop with crop_rec
+    calling cat_gaussian.crop with crop_rec
+    calling cat_sobel.crop with crop_rec
+    calling cat_sharpened.crop with crop_rec
+
+    var texture as raylib.Texture is calling to_texture_and_unload with image
+    defer calling textures.unload_texture with texture
+
+    var cat_sharpened_texture as raylib.Texture is calling to_texture_and_unload with cat_sharpened
+    defer calling textures.unload_texture with cat_sharpened_texture
+
+    var cat_sobel_texture as raylib.Texture is calling to_texture_and_unload with cat_sobel
+    defer calling textures.unload_texture with cat_sobel_texture
+
+    var cat_gaussian_texture as raylib.Texture is calling to_texture_and_unload with cat_gaussian
+    defer calling textures.unload_texture with cat_gaussian_texture
+
+    calling raylib.SetTargetFPS with 60
+
+    while not calling raylib.WindowShouldClose:
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling cat_sharpened_texture.draw with 0, 0, raylib.WHITE
+        calling cat_sobel_texture.draw with 200, 0, raylib.WHITE
+        calling cat_gaussian_texture.draw with 400, 0, raylib.WHITE
+        calling texture.draw with 600, 0, raylib.WHITE
+
+        calling drawing.end_drawing
+
+    return 0

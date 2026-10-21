@@ -1,0 +1,155 @@
+## raylib [textures] example - polygon drawing
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 3.7, last time updated with raylib 3.7
+##
+## Example contributed by Chris Camacho (@chriscamacho) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2021-2025 Chris Camacho (@chriscamacho) and Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with rlgl immediate mode and raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/textures/textures_polygon_drawing.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.rlgl as rlgl
+import pengu.raylibx.textures as textures
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.text as txt
+import pengu.raymathx as raymathx
+
+# --- Constants ---
+
+## Number of points forming the closed polygon outline.
+const MAX_POINTS as int is 11
+
+# --- Helpers ---
+
+## Draws a textured polygon defined by vertex and texture coordinates.
+##
+## ## Parameters
+## - `texture`: texture to map onto the polygon.
+## - `center`: screen position of the polygon center.
+## - `points`: vertex positions relative to center.
+## - `texcoords`: normalized UV coordinates for each vertex.
+## - `point_count`: number of points in the vertex list.
+## - `tint`: color tint applied to the vertices.
+##
+## ## Memory
+## No dynamic memory allocations; operates directly through rlgl immediate mode.
+weave draw_texture_poly with texture as raylib.Texture2D, center as raylib.Vector2, points as list of raylib.Vector2, texcoords as list of raylib.Vector2, point_count as int, tint as raylib.Color into void:
+    calling rlgl.rlSetTexture with texture.id
+    calling rlgl.rlBegin with (rlgl.RL_TRIANGLES to int)
+
+    calling rlgl.rlColor4ub with tint.r, tint.g, tint.b, tint.a
+
+    for i from 0 to point_count - 2:
+        calling rlgl.rlTexCoord2f with 0.5, 0.5
+        calling rlgl.rlVertex2f with center.x, center.y
+
+        let pt_i as raylib.Vector2 is points at i
+        let uv_i as raylib.Vector2 is texcoords at i
+        calling rlgl.rlTexCoord2f with uv_i.x, uv_i.y
+        calling rlgl.rlVertex2f with (pt_i.x + center.x), (pt_i.y + center.y)
+
+        let pt_next as raylib.Vector2 is points at (i + 1)
+        let uv_next as raylib.Vector2 is texcoords at (i + 1)
+        calling rlgl.rlTexCoord2f with uv_next.x, uv_next.y
+        calling rlgl.rlVertex2f with (pt_next.x + center.x), (pt_next.y + center.y)
+
+    calling rlgl.rlEnd
+    calling rlgl.rlSetTexture with (0 to u32)
+
+# --- Entry point ---
+
+## Application main entry point.
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - polygon drawing"
+    defer calling raylib.CloseWindow
+
+    # Define texture coordinates to map our texture to poly
+    var texcoords as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish texcoords
+
+    calling texcoords.push with (with x is 0.75, y is 0.0)
+    calling texcoords.push with (with x is 0.25, y is 0.0)
+    calling texcoords.push with (with x is 0.0, y is 0.5)
+    calling texcoords.push with (with x is 0.0, y is 0.75)
+    calling texcoords.push with (with x is 0.25, y is 1.0)
+    calling texcoords.push with (with x is 0.375, y is 0.875)
+    calling texcoords.push with (with x is 0.625, y is 0.875)
+    calling texcoords.push with (with x is 0.75, y is 1.0)
+    calling texcoords.push with (with x is 1.0, y is 0.75)
+    calling texcoords.push with (with x is 1.0, y is 0.5)
+    calling texcoords.push with (with x is 0.75, y is 0.0)
+
+    # Define the base poly vertices from the UV's
+    var points as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish points
+    var positions as list of raylib.Vector2 is list of raylib.Vector2
+    defer banish positions
+
+    for i from 0 to MAX_POINTS - 1:
+        let uv as raylib.Vector2 is texcoords at i
+        let pt as raylib.Vector2 is with:
+            set .x is (uv.x - 0.5) * 256.0
+            set .y is (uv.y - 0.5) * 256.0
+        calling points.push with pt
+        calling positions.push with pt
+
+    # Load texture to be mapped to poly
+    var texture as raylib.Texture2D is with id is 0
+    if loaded as raylib.Texture2D is calling textures.load_texture with "examples/textures/resources/cat.png":
+        set texture is loaded
+    else:
+        return 1
+    defer calling textures.unload_texture with texture
+
+    var angle as f32 is 0.0
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        set angle is angle + 1.0
+        let rad as f32 is angle * (raylib.DEG2RAD to f32)
+        for i from 0 to MAX_POINTS - 1:
+            var pt as raylib.Vector2 is points at i
+            calling pt.rotate_by with rad
+            set positions at i is pt
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling txt.draw_text with "textured polygon", 20, 20, 20, raylib.DARKGRAY
+
+        let center as raylib.Vector2 is with:
+            set .x is (calling raylib.GetScreenWidth to f32) / 2.0
+            set .y is (calling raylib.GetScreenHeight to f32) / 2.0
+
+        calling draw_texture_poly with texture, center, positions, texcoords, MAX_POINTS, raylib.WHITE
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

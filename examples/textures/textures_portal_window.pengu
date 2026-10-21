@@ -1,0 +1,263 @@
+## raylib [textures] example - portal window
+##
+## Example demonstrates rendering a second scene to a texture and projecting it onto a
+## quad to create the illusion of a portal window looking into another place. The second
+## scene is rendered with an off-axis ("oblique frustum") projection matched to the
+## viewer's actual position relative to the window, so the illusion holds up correctly
+## as the player moves and looks around, rather than only looking right from one spot
+##
+## Example complexity rating: [★★★★] 4/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+##
+## Example contributed by PanicTitan (@PanicTitan) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 PanicTitan (@PanicTitan)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with rlgl matrix manipulation and raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/textures/textures_portal_window.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.rlgl as rlgl
+import pengu.raymath as raymath
+import pengu.raylibx.textures as textures
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.shapes3d as shapes3d
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+import std.fractio
+
+# --- Helpers ---
+
+## Starts a 3D mode using an off-axis oblique frustum projection matching window geometry.
+##
+## ## Parameters
+## - `eye`: viewer position in 3D world space.
+## - `bottom_left`: bottom-left world position of the portal opening.
+## - `bottom_right`: bottom-right world position of the portal opening.
+## - `top_left`: top-left world position of the portal opening.
+## - `near_plane`: near clipping distance.
+## - `far_plane`: far clipping distance.
+##
+## ## Memory
+## Operates entirely through matrix calculations and rlgl state without heap allocations.
+weave begin_portal_mode_3d with eye as raylib.Vector3, bottom_left as raylib.Vector3, bottom_right as raylib.Vector3, top_left as raylib.Vector3, near_plane as f32, far_plane as f32 into void:
+    let right as raylib.Vector3 is calling raymath.Vector3Normalize with (calling raymath.Vector3Subtract with bottom_right, bottom_left)
+    let up as raylib.Vector3 is calling raymath.Vector3Normalize with (calling raymath.Vector3Subtract with top_left, bottom_left)
+    let normal as raylib.Vector3 is calling raymath.Vector3Normalize with (calling raymath.Vector3CrossProduct with right, up)
+
+    # Vectors from eye to 3 corners of the window
+    let to_bl as raylib.Vector3 is calling raymath.Vector3Subtract with bottom_left, eye
+    let to_br as raylib.Vector3 is calling raymath.Vector3Subtract with bottom_right, eye
+    let to_tl as raylib.Vector3 is calling raymath.Vector3Subtract with top_left, eye
+
+    var dist as f32 is -(calling raymath.Vector3DotProduct with to_bl, normal)
+    if dist < 0.01:
+        set dist is 0.01
+
+    let scale as f32 is near_plane / dist
+
+    calling rlgl.rlDrawRenderBatchActive
+
+    calling rlgl.rlMatrixMode with (rlgl.RL_PROJECTION to int)
+    calling rlgl.rlPushMatrix
+
+    let left_val as f64 is ((calling raymath.Vector3DotProduct with right, to_bl) * scale) to f64
+    let right_val as f64 is ((calling raymath.Vector3DotProduct with right, to_br) * scale) to f64
+    let bottom_val as f64 is ((calling raymath.Vector3DotProduct with up, to_bl) * scale) to f64
+    let top_val as f64 is ((calling raymath.Vector3DotProduct with up, to_tl) * scale) to f64
+
+    let proj as raylib.Matrix is calling raymath.MatrixFrustum with left_val, right_val, bottom_val, top_val, (near_plane to f64), (far_plane to f64)
+    calling rlgl.rlSetMatrixProjection with proj
+
+    calling rlgl.rlMatrixMode with (rlgl.RL_MODELVIEW to int)
+    calling rlgl.rlLoadIdentity
+
+    let eye_sub as raylib.Vector3 is calling raymath.Vector3Subtract with eye, normal
+    let look as raylib.Matrix is calling raymath.MatrixLookAt with eye, eye_sub, up
+    calling rlgl.rlSetMatrixModelview with look
+
+    calling rlgl.rlEnableDepthTest
+
+## Ends portal 3D mode and restores default state.
+##
+## ## Memory
+## No allocations; manipulates rlgl internal matrix stack.
+weave end_portal_mode_3d into void:
+    calling rlgl.rlDrawRenderBatchActive
+    calling rlgl.rlMatrixMode with (rlgl.RL_PROJECTION to int)
+    calling rlgl.rlPopMatrix
+    calling rlgl.rlMatrixMode with (rlgl.RL_MODELVIEW to int)
+    calling rlgl.rlLoadIdentity
+    calling rlgl.rlDisableDepthTest
+
+# --- Entry point ---
+
+## Application main entry point.
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - portal window"
+    defer calling raylib.CloseWindow
+
+    # Camera to navigate the "real world" (Dimension A)
+    var camera as raylib.Camera3D is with:
+        set .position is with x is 0.0, y is 2.5, z is 7.0
+        set .target is with x is 0.0, y is 1.8, z is 0.0
+        set .up is with x is 0.0, y is 1.0, z is 0.0
+        set .fovy is 45.0
+        set .projection is (raylib.CAMERA_PERSPECTIVE to int)
+
+    # The archway opening, in Dimension A world space
+    let arch_bottom_left as raylib.Vector3 is with x is -1.5, y is 0.0, z is 0.0
+    let arch_bottom_right as raylib.Vector3 is with x is 1.5, y is 0.0, z is 0.0
+    let arch_top_left as raylib.Vector3 is with x is -1.5, y is 4.0, z is 0.0
+
+    # The archway sits at portalA and looks out onto portalB, far away in world space.
+    let portal_a as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
+    let portal_b as raylib.Vector3 is with x is 0.0, y is 0.0, z is -60.0
+
+    var portal_view as raylib.RenderTexture2D is with:
+        set .id is 0
+        set .texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+        set .depth is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_target as raylib.RenderTexture2D is calling textures.load_render_texture with 480, 640:
+        set portal_view is loaded_target
+    else:
+        return 1
+    defer calling textures.unload_render_texture with portal_view
+
+    calling raylib.DisableCursor
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        calling raylib.UpdateCamera with (sigil of camera), (raylib.CAMERA_FREE to int)
+        let time as f32 is (calling raylib.GetTime to f32)
+
+        # Eye and window corners shifted into Dimension B
+        let offset as raylib.Vector3 is calling raymath.Vector3Subtract with portal_b, portal_a
+        let eye_in_b as raylib.Vector3 is calling raymath.Vector3Add with camera.position, offset
+        let bl_in_b as raylib.Vector3 is calling raymath.Vector3Add with arch_bottom_left, offset
+        let br_in_b as raylib.Vector3 is calling raymath.Vector3Add with arch_bottom_right, offset
+        let tl_in_b as raylib.Vector3 is calling raymath.Vector3Add with arch_top_left, offset
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        # Render Dimension B into an offscreen texture
+        calling drawing.begin_texture_mode with portal_view
+
+        let dim_b_bg as raylib.Color is with:
+            set .r is (10 to byte)
+            set .g is (5 to byte)
+            set .b is (20 to byte)
+            set .a is (255 to byte)
+        calling drawing.clear_background with dim_b_bg
+
+        calling begin_portal_mode_3d with eye_in_b, bl_in_b, br_in_b, tl_in_b, 0.05, 100.0
+
+        calling shapes3d.draw_grid with 30, 0.8
+
+        # Floating pulsing core sphere
+        let core_t as f32 is time * 2.5
+        let core_y as f32 is 2.0 + ((calling core_t.get_sin) * 0.4)
+        let core_offset as raylib.Vector3 is with x is 0.0, y is core_y, z is -4.0
+        let core_pos as raylib.Vector3 is calling raymath.Vector3Add with portal_b, core_offset
+
+        calling shapes3d.draw_sphere with core_pos, 1.2, raylib.PURPLE
+        calling shapes3d.draw_sphere_wires with core_pos, 1.25, 16, 16, raylib.MAGENTA
+
+        # Orbiting cubes
+        let pi_val as f32 is (raylib.PI to f32)
+        for i from 0 to 3:
+            let i_f as f32 is i to f32
+            let angle as f32 is (time * 1.5) + (i_f * (pi_val / 2.0))
+            let cos_t as f32 is (time * 3.0) + i_f
+            let cube_y as f32 is 2.0 + ((calling cos_t.get_cos) * 0.5)
+            let cube_offset as raylib.Vector3 is with:
+                set .x is (calling angle.get_sin) * 2.5
+                set .y is cube_y
+                set .z is -4.0 + ((calling angle.get_cos) * 2.5)
+            let pos as raylib.Vector3 is calling raymath.Vector3Add with portal_b, cube_offset
+
+            calling shapes3d.draw_cube with pos, 0.5, 0.5, 0.5, raylib.LIME
+            calling shapes3d.draw_cube_wires with pos, 0.52, 0.52, 0.52, raylib.DARKGREEN
+
+        calling end_portal_mode_3d
+
+        calling drawing.end_texture_mode
+
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling drawing.begin_mode_3d with camera
+
+        calling shapes3d.draw_grid with 20, 1.0
+
+        # Side pillars
+        let pillar_l as raylib.Vector3 is with x is -3.5, y is 2.0, z is 0.0
+        calling shapes3d.draw_cube with pillar_l, 0.8, 4.0, 0.8, raylib.DARKGRAY
+        calling shapes3d.draw_cube_wires with pillar_l, 0.8, 4.0, 0.8, raylib.ORANGE
+
+        let pillar_r as raylib.Vector3 is with x is 3.5, y is 2.0, z is 0.0
+        calling shapes3d.draw_cube with pillar_r, 0.8, 4.0, 0.8, raylib.DARKGRAY
+        calling shapes3d.draw_cube_wires with pillar_r, 0.8, 4.0, 0.8, raylib.ORANGE
+
+        # Golden archway frame and solid base
+        let arch_frame as raylib.Vector3 is with x is 0.0, y is 2.0, z is 0.0
+        calling shapes3d.draw_cube_wires with arch_frame, 3.2, 4.2, 0.2, raylib.GOLD
+
+        let arch_base as raylib.Vector3 is with x is 0.0, y is 0.05, z is 0.0
+        calling shapes3d.draw_cube with arch_base, 3.4, 0.1, 0.6, raylib.MAROON
+
+        # Solid backing wall
+        let back_wall as raylib.Vector3 is with x is 0.0, y is 2.0, z is -0.05
+        calling shapes3d.draw_cube with back_wall, 3.1, 4.1, 0.05, raylib.MAROON
+
+        # Portal opening quad
+        calling rlgl.rlSetTexture with portal_view.texture.id
+        calling rlgl.rlBegin with (rlgl.RL_QUADS to int)
+        calling rlgl.rlColor4ub with (255 to byte), (255 to byte), (255 to byte), (255 to byte)
+        calling rlgl.rlNormal3f with 0.0, 0.0, 1.0
+        calling rlgl.rlTexCoord2f with 0.0, 0.0
+        calling rlgl.rlVertex3f with arch_bottom_left.x, arch_bottom_left.y, arch_bottom_left.z
+        calling rlgl.rlTexCoord2f with 1.0, 0.0
+        calling rlgl.rlVertex3f with arch_bottom_right.x, arch_bottom_right.y, arch_bottom_right.z
+        calling rlgl.rlTexCoord2f with 1.0, 1.0
+        calling rlgl.rlVertex3f with arch_bottom_right.x, 4.0, arch_bottom_right.z
+        calling rlgl.rlTexCoord2f with 0.0, 1.0
+        calling rlgl.rlVertex3f with arch_top_left.x, arch_top_left.y, arch_top_left.z
+        calling rlgl.rlEnd
+        calling rlgl.rlSetTexture with (0 to u32)
+
+        calling drawing.end_mode_3d
+
+        # HUD overlay
+        let hud_tint as raylib.Color is calling colors.fade with raylib.BLACK, 0.75
+        calling shapes.draw_rectangle with 15, 15, 520, 100, hud_tint
+        calling shapes.draw_rectangle_lines with 15, 15, 520, 100, raylib.GOLD
+        calling txt.draw_text with "PORTAL WINDOW", 28, 25, 20, raylib.GOLD
+        calling txt.draw_text with "Look through the golden arch into Dimension B", 28, 52, 20, raylib.RAYWHITE
+        calling txt.draw_text with "Controls: Mouse to look | WASD to move", 28, 80, 20, raylib.GRAY
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

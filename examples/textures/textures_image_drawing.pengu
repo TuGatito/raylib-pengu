@@ -1,0 +1,95 @@
+## ## PenguScript Port
+## Translated from raylib [textures] example - image drawing
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Ramon Santamaria (@raysan5)
+##
+## This example demonstrates software compositing on CPU images: cropping,
+## flipping, resizing, drawing shapes, stamping images, and rendering text before
+## uploading the composite image to a GPU texture.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_image_drawing.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Entry point --------------------------------------------------------
+## Main program function.
+##
+## ## Returns
+## Exit code (0 for success).
+weave main into int:
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - image drawing"
+    defer calling raylib.CloseWindow
+
+    var cat as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_cat as raylib.Image is calling images.load_image with "examples/textures/resources/cat.png":
+        set cat is loaded_cat
+
+    let cat_crop_rec as raylib.Rectangle is with x is 100.0, y is 10.0, width is 280.0, height is 380.0
+    calling cat.crop with cat_crop_rec
+    calling cat.flip_horizontal
+    calling cat.resize with 150, 200
+
+    var parrots as raylib.Image is with width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_parrots as raylib.Image is calling images.load_image with "examples/textures/resources/parrots.png":
+        set parrots is loaded_parrots
+
+    let cat_src_rec as raylib.Rectangle is with x is 0.0, y is 0.0, width is (cat.width to f32), height is (cat.height to f32)
+    let cat_dst_rec as raylib.Rectangle is with x is 30.0, y is 40.0, width is (cat.width to f32) * 1.5, height is (cat.height to f32) * 1.5
+    let origin as raylib.Vector2 is with x is 0.0, y is 0.0
+    calling raylib.ImageDrawImagePro with (sigil of parrots), cat, cat_src_rec, cat_dst_rec, origin, 0.0, raylib.WHITE
+
+    let parrots_crop_rec as raylib.Rectangle is with x is 0.0, y is 50.0, width is (parrots.width to f32), height is ((parrots.height - 100) to f32)
+    calling parrots.crop with parrots_crop_rec
+
+    calling parrots.draw_pixel with 10, 10, raylib.RAYWHITE
+    calling parrots.draw_circle_outline with 10, 10, 5, raylib.RAYWHITE
+    calling parrots.draw_rectangle with 5, 20, 10, 10, raylib.RAYWHITE
+
+    calling images.unload_image with cat
+
+    var font as raylib.Font is with baseSize is 0, glyphCount is 0, glyphPadding is 0
+    if loaded_font as raylib.Font is calling txt.load_font with "examples/textures/resources/custom_jupiter_crash.png":
+        set font is loaded_font
+
+    let text_pos as raylib.Vector2 is with x is 300.0, y is 230.0
+    calling parrots.draw_text_ex with font, "PARROTS & CAT", text_pos, (font.baseSize to f32), -2.0, raylib.WHITE
+
+    calling txt.unload_font with font
+
+    var texture as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded_tex as raylib.Texture is calling textures.load_texture_from_image with parrots:
+        set texture is loaded_tex
+    defer calling textures.unload_texture with texture
+
+    calling images.unload_image with parrots
+
+    calling raylib.SetTargetFPS with 60
+
+    while not calling raylib.WindowShouldClose:
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let tex_x as int is (screen_width / 2) - (texture.width / 2)
+        let tex_y as int is (screen_height / 2) - (texture.height / 2) - 40
+        calling texture.draw with tex_x, tex_y, raylib.WHITE
+        calling shapes.draw_rectangle_lines with tex_x, tex_y, texture.width, texture.height, raylib.DARKGRAY
+
+        calling txt.draw_text with "We are drawing only one texture from various images composed!", 240, 350, 10, raylib.DARKGRAY
+        calling txt.draw_text with "Source images have been cropped, scaled, flipped and copied one over the other.", 190, 370, 10, raylib.DARKGRAY
+
+        calling drawing.end_drawing
+
+    return 0

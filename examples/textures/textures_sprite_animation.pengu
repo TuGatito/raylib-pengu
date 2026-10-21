@@ -1,0 +1,130 @@
+## raylib [textures] example - sprite animation
+##
+## Example complexity rating: [★★☆☆] 2/4
+##
+## Example originally created with raylib 1.3, last time updated with raylib 1.3
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2014-2025 Ramon Santamaria (@raysan5)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript with raylibx wrappers and spritesheet animation.
+##
+## ## Example
+## ```shell
+## pengu run examples/textures/textures_sprite_animation.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.textures as textures
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+
+# --- Constants ---
+
+## Maximum playback speed for the sprite sheet animation in frames per second.
+const MAX_FRAME_SPEED as int is 15
+
+## Minimum playback speed for the sprite sheet animation in frames per second.
+const MIN_FRAME_SPEED as int is 1
+
+# --- Entry point ---
+
+## Application main entry point.
+weave main into int:
+    # Initialization
+    # --------------------------------------------------------------------------------------
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - sprite animation"
+    defer calling raylib.CloseWindow
+
+    # NOTE: Textures MUST be loaded after Window initialization (OpenGL context is required)
+    var scarfy as raylib.Texture2D is with id is 0
+    if loaded as raylib.Texture2D is calling textures.load_texture with "examples/textures/resources/scarfy.png":
+        set scarfy is loaded
+    else:
+        return 1
+    defer calling textures.unload_texture with scarfy
+
+    let position as raylib.Vector2 is with x is 350.0, y is 280.0
+    var frame_rec as raylib.Rectangle is with:
+        set .x is 0.0
+        set .y is 0.0
+        set .width is (scarfy.width to f32) / 6.0
+        set .height is (scarfy.height to f32)
+
+    var current_frame as int is 0
+    var frames_counter as int is 0
+    var frames_speed as int is 8
+
+    calling raylib.SetTargetFPS with 60
+    # --------------------------------------------------------------------------------------
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        # ----------------------------------------------------------------------------------
+        set frames_counter is frames_counter + 1
+
+        if frames_counter >= (60 / frames_speed):
+            set frames_counter is 0
+            set current_frame is current_frame + 1
+
+            if current_frame > 5:
+                set current_frame is 0
+
+            set frame_rec.x is (current_frame to f32) * ((scarfy.width to f32) / 6.0)
+
+        # Control frames speed
+        if calling input.is_key_pressed with raylib.KeyboardKey.KEY_RIGHT:
+            set frames_speed is frames_speed + 1
+        else if calling input.is_key_pressed with raylib.KeyboardKey.KEY_LEFT:
+            set frames_speed is frames_speed - 1
+
+        if frames_speed > MAX_FRAME_SPEED:
+            set frames_speed is MAX_FRAME_SPEED
+        else if frames_speed < MIN_FRAME_SPEED:
+            set frames_speed is MIN_FRAME_SPEED
+        # ----------------------------------------------------------------------------------
+
+        # Draw
+        # ----------------------------------------------------------------------------------
+        calling drawing.begin_drawing
+
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling scarfy.draw with 15, 40, raylib.WHITE
+        calling shapes.draw_rectangle_lines with 15, 40, scarfy.width, scarfy.height, raylib.LIME
+        calling shapes.draw_rectangle_lines with (15 + (frame_rec.x to int)), (40 + (frame_rec.y to int)), (frame_rec.width to int), (frame_rec.height to int), raylib.RED
+
+        calling txt.draw_text with "FRAME SPEED: ", 165, 210, 10, raylib.DARKGRAY
+
+        var fps_text as string is ""
+        if frames_speed < 10:
+            set fps_text is "0{frames_speed} FPS"
+        else:
+            set fps_text is "{frames_speed} FPS"
+        calling txt.draw_text with fps_text, 575, 210, 10, raylib.DARKGRAY
+        banish fps_text
+
+        calling txt.draw_text with "PRESS RIGHT/LEFT KEYS to CHANGE SPEED!", 290, 240, 10, raylib.DARKGRAY
+
+        for i from 0 to MAX_FRAME_SPEED - 1:
+            if i < frames_speed:
+                calling shapes.draw_rectangle with (250 + (21 * i)), 205, 20, 20, raylib.RED
+            calling shapes.draw_rectangle_lines with (250 + (21 * i)), 205, 20, 20, raylib.MAROON
+
+        calling scarfy.draw_rec with frame_rec, position, raylib.WHITE
+
+        calling txt.draw_text with "(c) Scarfy sprite by Eiden Marsal", screen_width - 200, screen_height - 20, 10, raylib.GRAY
+
+        calling drawing.end_drawing
+        # ----------------------------------------------------------------------------------
+
+    return 0

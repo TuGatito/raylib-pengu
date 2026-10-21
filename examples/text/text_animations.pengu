@@ -1,0 +1,210 @@
+## ## PenguScript Port
+## Port of raylib [text] example - animations
+##
+## Demonstrates procedural text animations: waving, flashing, and shaking glyphs
+## using easing functions.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_animations.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.random as random
+import pengu.raylibx.text as txt
+import pengu.raymathx as raymath
+import pengu.reasings as reasings
+
+# --- Constants ---
+
+const TEXT_SPACING as int is 4
+
+# --- Types ---
+
+## Represents text to animate with positioning and animation parameters
+rune AnimatedText:
+    str as string
+    position as raylib.Vector2
+    delta as f32
+    offset as f32
+    duration as f32
+
+## Available procedural animation types
+omen AnimationKind:
+    WAVING is 0
+    FLASHING
+    SHAKING
+
+# --- Helpers ---
+
+## Returns the display name of an animation kind
+weave animation_name with kind as AnimationKind into string:
+    return judge kind:
+        when WAVING -> "Waving"
+        when FLASHING -> "Flashing"
+        when SHAKING -> "Shaking"
+
+# --- Entry point ---
+
+## Program main entry point
+weave entry into int:
+    # Initialization
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - animations"
+    defer calling raylib.CloseWindow
+
+    var current_anim as AnimationKind is AnimationKind.WAVING
+
+    var text as AnimatedText with:
+        set .str is "This is an animated text!"
+        set .position is with x is 200.0, y is 250.0
+        set .delta is 24.0
+        set .offset is 6.0
+        set .duration is 60.0
+
+    let text_len as int is text.str.length
+    var frame_count as int is 0
+
+    var glyph_positions as list of raylib.Vector2 is []
+    defer banish glyph_positions
+    var glyph_alphas as list of int is []
+    defer banish glyph_alphas
+
+    for _i from 0 to text_len:
+        calling glyph_positions.push with (with x is 0.0, y is 0.0)
+        calling glyph_alphas.push with 255
+
+    let font_def as raylib.Font is calling txt.default_font
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set frame_count is frame_count + 1
+
+        if calling input.is_key_pressed with raylib.KEY_S:
+            set text.delta is calling raymath.clamp with text.delta - 2.0, 10.0, 60.0
+        else:
+            if calling input.is_key_pressed with raylib.KEY_W:
+                set text.delta is calling raymath.clamp with text.delta + 2.0, 10.0, 60.0
+
+        if calling input.is_key_pressed with raylib.KEY_A:
+            let clamped_dur as f32 is calling raymath.clamp with text.duration - 5.0, 20.0, 120.0
+            set text.duration is (clamped_dur to int) to f32
+        else:
+            if calling input.is_key_pressed with raylib.KEY_D:
+                let clamped_dur as f32 is calling raymath.clamp with text.duration + 5.0, 20.0, 120.0
+                set text.duration is (clamped_dur to int) to f32
+
+        if calling input.is_key_pressed with raylib.KEY_Z:
+            set text.offset is calling raymath.clamp with text.offset - 1.0, 0.0, 15.0
+        else:
+            if calling input.is_key_pressed with raylib.KEY_X:
+                set text.offset is calling raymath.clamp with text.offset + 1.0, 0.0, 15.0
+
+        if calling input.is_key_pressed with raylib.KEY_Q:
+            set current_anim is judge current_anim:
+                when WAVING -> AnimationKind.SHAKING
+                when FLASHING -> AnimationKind.WAVING
+                when SHAKING -> AnimationKind.FLASHING
+        else:
+            if calling input.is_key_pressed with raylib.KEY_E:
+                set current_anim is judge current_anim:
+                    when WAVING -> AnimationKind.FLASHING
+                    when FLASHING -> AnimationKind.SHAKING
+                    when SHAKING -> AnimationKind.WAVING
+
+        var offset_x as int is 0
+        for i from 0 to text_len:
+            set glyph_positions at i is with x is (text.position.x + (offset_x to f32)), y is text.position.y
+            set glyph_alphas at i is 255
+
+            let sub_measure as string is calling txt.text_subtext with text.str, i, 1
+            let char_width as int is calling txt.measure_text with sub_measure, 30
+            banish sub_measure
+            set offset_x is offset_x + char_width + TEXT_SPACING
+
+        judge current_anim:
+            when WAVING ->
+                for i from 0 to text_len:
+                    let i_offset as int is ((i to f32) * text.offset) to int
+                    let dur_int as int is text.duration to int
+                    let time as f32 is ((frame_count + i_offset) % dur_int) to f32
+
+                    if time < (text.duration / 2.0):
+                        let eased_y as f32 is calling reasings.ease_sine_in with time, text.position.y, text.delta, text.duration
+                        let cur_pos as raylib.Vector2 is glyph_positions at i
+                        set glyph_positions at i is with x is cur_pos.x, y is eased_y
+                    else:
+                        let eased_y as f32 is calling reasings.ease_sine_out with time, text.position.y + text.delta, 0.0 - text.delta, text.duration
+                        let cur_pos as raylib.Vector2 is glyph_positions at i
+                        set glyph_positions at i is with x is cur_pos.x, y is eased_y
+            when FLASHING ->
+                for i from 0 to text_len:
+                    let i_offset as int is ((i to f32) * text.offset) to int
+                    let dur_int as int is text.duration to int
+                    let time as f32 is ((frame_count + i_offset) % dur_int) to f32
+                    let eased_alpha as f32 is calling reasings.ease_sine_in_out with time, 255.0, -255.0, text.duration
+                    set glyph_alphas at i is eased_alpha to int
+            when SHAKING ->
+                for i from 0 to text_len:
+                    let i_offset as int is ((i to f32) * text.offset) to int
+                    let dur_int as int is text.duration to int
+                    let time as f32 is ((frame_count + i_offset) % dur_int) to f32
+                    let delta_limit as int is (text.delta / 10.0) to int
+                    let rand_x as int is calling random.between with 0 - delta_limit, delta_limit
+                    let rand_y as int is calling random.between with 0 - delta_limit, delta_limit
+                    let delta_x as f32 is rand_x to f32
+                    let delta_y as f32 is rand_y to f32
+
+                    let cur_pos as raylib.Vector2 is glyph_positions at i
+                    if time < (text.duration / 2.0):
+                        let eased_x as f32 is calling reasings.ease_linear_none with time, cur_pos.x, delta_x, text.duration / 2.0
+                        let eased_y as f32 is calling reasings.ease_linear_none with time, text.position.y, delta_y, text.duration / 2.0
+                        set glyph_positions at i is with x is eased_x, y is eased_y
+                    else:
+                        let eased_x as f32 is calling reasings.ease_linear_none with time - (text.duration / 2.0), cur_pos.x + delta_x, 0.0 - delta_x, text.duration / 2.0
+                        let eased_y as f32 is calling reasings.ease_linear_none with time - (text.duration / 2.0), text.position.y + delta_y, 0.0 - delta_y, text.duration / 2.0
+                        set glyph_positions at i is with x is eased_x, y is eased_y
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let dur_val as int is text.duration to int
+        let dur_text as string is "Duration (A | D): {dur_val}"
+        defer banish dur_text
+        calling txt.draw_text with dur_text, 20, 20, 20, raylib.GRAY
+
+        let delta_val as int is text.delta to int
+        let delta_text as string is "Delta (W | S): {delta_val}"
+        defer banish delta_text
+        calling txt.draw_text with delta_text, 20, 50, 20, raylib.GRAY
+
+        let offset_val as int is text.offset to int
+        let offset_text as string is "Offset (Z | X): {offset_val}"
+        defer banish offset_text
+        calling txt.draw_text with offset_text, 20, 80, 20, raylib.GRAY
+
+        let anim_name_str as string is calling animation_name with current_anim
+        let anim_text as string is "Current Animation (Q | E): {anim_name_str}"
+        defer banish anim_text
+        calling txt.draw_text with anim_text, 20, 110, 20, raylib.GRAY
+
+        for i from 0 to text_len:
+            let sub as string is calling txt.text_subtext with text.str, i, 1
+            let g_pos as raylib.Vector2 is glyph_positions at i
+            let g_alpha as int is glyph_alphas at i
+            let col as raylib.Color is with r is (200 to byte), g is (122 to byte), b is (255 to byte), a is (g_alpha to byte)
+            calling font_def.draw with sub, g_pos, (font_def.baseSize to f32) * 3.0, 0.0, col
+            banish sub
+
+        calling drawing.end_drawing
+
+    return 0

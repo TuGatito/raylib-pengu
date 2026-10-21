@@ -1,0 +1,166 @@
+## ## PenguScript Port
+## Port of raylib [text] example - font sdf
+##
+## Demonstrates generation and rendering of Signed Distance Field (SDF) fonts,
+## comparing default rasterized font rendering with SDF font rendering scaled via shader.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_font_sdf.pengu
+## ```
+
+import std.ffi as ffi
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shaders as shaders
+import pengu.raylibx.text as txt
+
+# --- Helpers ---
+
+## Formats a float to two integer digits and two decimal places (e.g. 16.00)
+##
+## ## Parameters
+## - `val`: float value to format
+##
+## ## Returns
+## Formatted string representation
+weave format_float_2 with val as f32 into string:
+    let total_centis as int is (val * 100.0) to int
+    let whole as int is total_centis / 100
+    let frac as int is total_centis % 100
+    let whole_str as string is if whole < 10 then "0{whole}" else "{whole}"
+    defer banish whole_str
+    let frac_str as string is if frac < 10 then "0{frac}" else "{frac}"
+    defer banish frac_str
+    return "{whole_str}.{frac_str}"
+
+# --- Entry point ---
+
+## Program main entry point
+weave entry into int:
+    # Initialization
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - font sdf"
+    defer calling raylib.CloseWindow
+
+    # NOTE: Textures/Fonts MUST be loaded after Window initialization (OpenGL context is required)
+    let msg as string is "Signed Distance Fields"
+
+    # Loading file to memory
+    var file_size as int is 0
+    let file_data as ref to byte is calling raylib.LoadFileData with "examples/text/resources/anonymous_pro_bold.ttf", sigil of file_size
+
+    # Default font generation from TTF font
+    var font_default as raylib.Font is calling txt.default_font
+    set font_default.baseSize is 16
+    set font_default.glyphCount is 95
+
+    # Loading font data from memory data
+    # Parameters > font size: 16, no glyphs array provided (0), glyphs count: 95 (autogenerate chars array)
+    var glyph_count_default as int is 95
+    let null_ints as ref to frozen int is transmute (calling ffi.null_void) to ref to frozen int
+    set font_default.glyphs is calling raylib.LoadFontData with (transmute file_data to ref to frozen byte), file_size, 16, null_ints, 95, raylib.FONT_DEFAULT, sigil of glyph_count_default
+    set font_default.glyphCount is glyph_count_default
+
+    # Parameters > glyphs count: 95, font size: 16, glyphs padding in image: 4 px, pack method: 0 (default)
+    var atlas_default as raylib.Image is calling raylib.GenImageFontAtlas with (transmute font_default.glyphs to ref to frozen raylib.GlyphInfo), (sigil of font_default.recs), 95, 16, 4, 0
+    set font_default.texture is calling raylib.LoadTextureFromImage with atlas_default
+    calling raylib.UnloadImage with atlas_default
+
+    # SDF font generation from TTF font
+    var font_sdf as raylib.Font is calling txt.default_font
+    set font_sdf.baseSize is 16
+    set font_sdf.glyphCount is 95
+
+    var glyph_count_sdf as int is 95
+    # Parameters > font size: 16, no glyphs array provided (0), glyphs count: 0 (defaults to 95)
+    set font_sdf.glyphs is calling raylib.LoadFontData with (transmute file_data to ref to frozen byte), file_size, 16, null_ints, 0, raylib.FONT_SDF, sigil of glyph_count_sdf
+    set font_sdf.glyphCount is glyph_count_sdf
+
+    # Parameters > glyphs count: 95, font size: 16, glyphs padding in image: 0 px, pack method: 1 (Skyline algorythm)
+    var atlas_sdf as raylib.Image is calling raylib.GenImageFontAtlas with (transmute font_sdf.glyphs to ref to frozen raylib.GlyphInfo), (sigil of font_sdf.recs), 95, 16, 0, 1
+    set font_sdf.texture is calling raylib.LoadTextureFromImage with atlas_sdf
+    calling raylib.UnloadImage with atlas_sdf
+
+    calling raylib.UnloadFileData with file_data      # Free memory from loaded file
+
+    defer calling raylib.UnloadFont with font_default
+    defer calling raylib.UnloadFont with font_sdf
+
+    # Load SDF required shader (we use default vertex shader)
+    var sdf_shader as raylib.Shader is with id is 0, locs is transmute (calling ffi.null_void) to ref to int
+    if loaded_shader as raylib.Shader is calling shaders.load_shader with "", "examples/text/resources/shaders/glsl330/sdf.fs":
+        set sdf_shader is loaded_shader
+    defer calling shaders.unload_shader with sdf_shader
+
+    calling raylib.SetTextureFilter with font_sdf.texture, raylib.TEXTURE_FILTER_BILINEAR    # Required for SDF font
+
+    var font_pos as raylib.Vector2 is with x is 40.0, y is (((screen_height to f32) / 2.0) - 50.0)
+
+    var text_size as raylib.Vector2 is with x is 0.0, y is 0.0
+
+    var font_size as f32 is 16.0
+    var current_font as int is 0            # 0 - font_default, 1 - font_sdf
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        set font_size is font_size + ((calling raylib.GetMouseWheelMove) * 8.0)
+        if font_size < 6.0:
+            set font_size is 6.0
+
+        if calling input.is_key_down with raylib.KEY_SPACE:
+            set current_font is 1
+        else:
+            set current_font is 0
+
+        if current_font == 0:
+            set text_size is calling font_default.measure with msg, font_size, 0.0
+        else:
+            set text_size is calling font_sdf.measure with msg, font_size, 0.0
+
+        set font_pos.x is (((calling raylib.GetScreenWidth) to f32) / 2.0) - (text_size.x / 2.0)
+        set font_pos.y is (((calling raylib.GetScreenHeight) to f32) / 2.0) - (text_size.y / 2.0) + 80.0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        if current_font == 1:
+            # NOTE: SDF fonts require a custom SDF shader to compute fragment color
+            calling drawing.begin_shader_mode with sdf_shader
+            calling font_sdf.draw with msg, font_pos, font_size, 0.0, raylib.BLACK
+            calling drawing.end_shader_mode
+
+            calling raylib.DrawTexture with font_sdf.texture, 10, 10, raylib.BLACK
+        else:
+            calling font_default.draw with msg, font_pos, font_size, 0.0, raylib.BLACK
+            calling raylib.DrawTexture with font_default.texture, 10, 10, raylib.BLACK
+
+        if current_font == 1:
+            calling txt.draw_text with "SDF!", 320, 20, 80, raylib.RED
+        else:
+            calling txt.draw_text with "default font", 315, 40, 30, raylib.GRAY
+
+        let sw as int is calling raylib.GetScreenWidth
+        let sh as int is calling raylib.GetScreenHeight
+
+        calling txt.draw_text with "FONT SIZE: 16.0", sw - 240, 20, 20, raylib.DARKGRAY
+        let fsize_str as string is calling format_float_2 with font_size
+        defer banish fsize_str
+        let render_size_text as string is "RENDER SIZE: {fsize_str}"
+        defer banish render_size_text
+        calling txt.draw_text with render_size_text, sw - 240, 50, 20, raylib.DARKGRAY
+
+        calling txt.draw_text with "Use MOUSE WHEEL to SCALE TEXT!", sw - 240, 90, 10, raylib.DARKGRAY
+        calling txt.draw_text with "HOLD SPACE to USE SDF FONT VERSION!", 340, sh - 30, 20, raylib.MAROON
+
+        calling drawing.end_drawing
+
+    return 0

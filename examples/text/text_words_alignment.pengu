@@ -1,0 +1,152 @@
+## raylib [text] example - words alignment
+##
+## Example complexity rating: [★☆☆☆] 1/4
+##
+## Example originally created with raylib 6.0, last time updated with raylib 6.0
+## Example contributed by JP Mortiboys (@themushroompirates) and reviewed by Ramon Santamaria (@raysan5)
+##
+## Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
+## BSD-like license that allows static linking with closed source software
+##
+## Copyright (c) 2025 JP Mortiboys (@themushroompirates)
+##
+## ## PenguScript Port
+## Ported to idiomatic PenguScript using raylibx wrappers.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_words_alignment.pengu
+## ```
+
+import pengu.raylib as raylib
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raylibx.colors as colors
+
+# --- Types ---
+
+## Alignment options for text positioning
+omen TextAlignment:
+    ## Align to start edge (left / top)
+    Start is 0
+    ## Align to center
+    Centre is 1
+    ## Align to end edge (right / bottom)
+    End is 2
+
+# --- Helpers ---
+
+## Linear interpolation helper
+##
+## ## Parameters
+## - `start`: start value
+## - `end`: end value
+## - `amount`: interpolation factor (0.0 to 1.0)
+##
+## ## Returns
+## Interpolated value
+weave lerp with start as f32, end as f32, amount as f32 into f32:
+    return start + ((end - start) * amount)
+
+# --- Main entry point ---
+
+weave main into int:
+    # Initialization
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - words alignment"
+    defer calling raylib.CloseWindow
+
+    let sw as f32 is screen_width to f32
+    let sh as f32 is screen_height to f32
+
+    # Define the rectangle we will draw the text in
+    let text_container_rect as raylib.Rectangle is with:
+        set .x is (sw / 2.0) - (sw / 4.0)
+        set .y is (sh / 2.0) - (sh / 3.0)
+        set .width is sw / 2.0
+        set .height is (sh * 2.0) / 3.0
+
+    # Alignment labels
+    let align_names_h as list of string is list of string
+    defer banish align_names_h
+    calling align_names_h.push with "Left"
+    calling align_names_h.push with "Centre"
+    calling align_names_h.push with "Right"
+
+    let align_names_v as list of string is list of string
+    defer banish align_names_v
+    calling align_names_v.push with "Top"
+    calling align_names_v.push with "Middle"
+    calling align_names_v.push with "Bottom"
+
+    # Define the text we're going to draw in the rectangle
+    let sentence as string is "raylib is a simple and easy-to-use library to enjoy videogames programming"
+    var words as list of string is calling txt.split_text with sentence, ' '
+    defer banish words
+    let word_count as int is words.length
+
+    let font_size as f32 is 40.0
+    let font as raylib.Font is calling txt.default_font
+
+    var h_align as int is 1 # 0: Left, 1: Centre, 2: Right
+    var v_align as int is 1 # 0: Top, 1: Middle, 2: Bottom
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling input.is_key_pressed with raylib.KEY_LEFT:
+            if h_align > 0:
+                set h_align is h_align - 1
+
+        if calling input.is_key_pressed with raylib.KEY_RIGHT:
+            if h_align < 2:
+                set h_align is h_align + 1
+
+        if calling input.is_key_pressed with raylib.KEY_UP:
+            if v_align > 0:
+                set v_align is v_align - 1
+
+        if calling input.is_key_pressed with raylib.KEY_DOWN:
+            if v_align < 2:
+                set v_align is v_align + 1
+
+        # One word per second
+        let time_sec as int is (calling raylib.GetTime) to int
+        let word_index as int is if word_count > 0 then (time_sec % word_count) else 0
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.DARKBLUE
+
+        calling txt.draw_text with "Use Arrow Keys to change the text alignment", 20, 20, 20, raylib.LIGHTGRAY
+
+        let name_h as string is align_names_h at h_align
+        let name_v as string is align_names_v at v_align
+        var info_str as string is "Alignment: Horizontal = {name_h}, Vertical = {name_v}"
+        defer banish info_str
+        calling txt.draw_text with info_str, 20, 40, 20, raylib.LIGHTGRAY
+
+        calling text_container_rect.draw with raylib.BLUE
+
+        let cur_word as string is words at word_index
+        let spacing as f32 is font_size * 0.1
+        let text_size as raylib.Vector2 is calling font.measure with cur_word, font_size, spacing
+
+        let offset_x as f32 is calling lerp with 0.0, (text_container_rect.width - text_size.x), ((h_align to f32) * 0.5)
+        let offset_y as f32 is calling lerp with 0.0, (text_container_rect.height - text_size.y), ((v_align to f32) * 0.5)
+
+        let text_pos as raylib.Vector2 is with:
+            set .x is text_container_rect.x + offset_x
+            set .y is text_container_rect.y + offset_y
+
+        calling font.draw with cur_word, text_pos, font_size, spacing, raylib.RAYWHITE
+
+        calling drawing.end_drawing
+
+    return 0

@@ -1,0 +1,124 @@
+## ## PenguScript Port
+## Translated from raylib [textures] example - image generation
+##
+## Original example complexity rating: [★★☆☆] 2/4
+## Contributed by Wilhem Barbier (@nounoursheureux) and Ramon Santamaria (@raysan5)
+##
+## This example demonstrates how to generate various procedural images on CPU
+## (linear, radial, and square gradients, checked patterns, white noise,
+## Perlin noise, and cellular noise) and upload them as GPU textures.
+##
+## ## Example
+## ```bash
+## pengu run examples/textures/textures_image_generation.pengu
+## ```
+
+# --- Imports ------------------------------------------------------------
+import raylib
+import raylibx.colors as colors
+import raylibx.drawing as drawing
+import raylibx.images as images
+import raylibx.input as input
+import raylibx.shapes as shapes
+import raylibx.text as txt
+import raylibx.textures as textures
+
+# --- Constants ----------------------------------------------------------
+## Total number of procedural texture generation algorithms demonstrated.
+const NUM_TEXTURES as int is 9
+
+# --- Helpers ------------------------------------------------------------
+## Converts an image to a GPU texture and unloads the image RAM buffer.
+##
+## ## Parameters
+## - `img`: source CPU image to convert.
+##
+## ## Returns
+## Texture handle uploaded to GPU memory.
+##
+## ## Memory
+## Unloads `img` from RAM; caller owns the returned texture.
+weave to_texture_and_unload with img as raylib.Image into raylib.Texture:
+    var tex as raylib.Texture is with id is 0, width is 0, height is 0, mipmaps is 0, format is 0
+    if loaded as raylib.Texture is calling textures.load_texture_from_image with img:
+        set tex is loaded
+    calling images.unload_image with img
+    return tex
+
+# --- Entry point --------------------------------------------------------
+## Main program function.
+##
+## ## Returns
+## Exit code (0 for success).
+weave main into int:
+    const screen_width as int is 800
+    const screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - image generation"
+    defer calling raylib.CloseWindow
+
+    var textures_list as list of raylib.Texture is []
+
+    let vertical_gradient as raylib.Image is calling images.gen_image_gradient_linear with screen_width, screen_height, 0, raylib.RED, raylib.BLUE
+    let horizontal_gradient as raylib.Image is calling images.gen_image_gradient_linear with screen_width, screen_height, 90, raylib.RED, raylib.BLUE
+    let diagonal_gradient as raylib.Image is calling images.gen_image_gradient_linear with screen_width, screen_height, 45, raylib.RED, raylib.BLUE
+    let radial_gradient as raylib.Image is calling images.gen_image_gradient_radial with screen_width, screen_height, 0.0, raylib.WHITE, raylib.BLACK
+    let square_gradient as raylib.Image is calling images.gen_image_gradient_square with screen_width, screen_height, 0.0, raylib.WHITE, raylib.BLACK
+    let checked as raylib.Image is calling images.gen_image_checked with screen_width, screen_height, 32, 32, raylib.RED, raylib.BLUE
+    let white_noise as raylib.Image is calling images.gen_image_white_noise with screen_width, screen_height, 0.5
+    let perlin_noise as raylib.Image is calling images.gen_image_perlin_noise with screen_width, screen_height, 50, 50, 4.0
+    let cellular as raylib.Image is calling images.gen_image_cellular with screen_width, screen_height, 32
+
+    calling textures_list.append with (calling to_texture_and_unload with vertical_gradient)
+    calling textures_list.append with (calling to_texture_and_unload with horizontal_gradient)
+    calling textures_list.append with (calling to_texture_and_unload with diagonal_gradient)
+    calling textures_list.append with (calling to_texture_and_unload with radial_gradient)
+    calling textures_list.append with (calling to_texture_and_unload with square_gradient)
+    calling textures_list.append with (calling to_texture_and_unload with checked)
+    calling textures_list.append with (calling to_texture_and_unload with white_noise)
+    calling textures_list.append with (calling to_texture_and_unload with perlin_noise)
+    calling textures_list.append with (calling to_texture_and_unload with cellular)
+
+    var current_texture as int is 0
+
+    calling raylib.SetTargetFPS with 60
+
+    while not calling raylib.WindowShouldClose:
+        if (calling input.is_mouse_button_pressed with raylib.MOUSE_BUTTON_LEFT) or (calling input.is_key_pressed with raylib.KEY_RIGHT):
+            set current_texture is (current_texture + 1) % NUM_TEXTURES
+
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        let cur_tex as raylib.Texture is textures_list at current_texture
+        calling cur_tex.draw with 0, 0, raylib.WHITE
+
+        calling shapes.draw_rectangle with 30, 400, 325, 30, (calling colors.fade with raylib.SKYBLUE, 0.5)
+        calling shapes.draw_rectangle_lines with 30, 400, 325, 30, (calling colors.fade with raylib.WHITE, 0.5)
+        calling txt.draw_text with "MOUSE LEFT BUTTON to CYCLE PROCEDURAL TEXTURES", 40, 410, 10, raylib.WHITE
+
+        if current_texture == 0:
+            calling txt.draw_text with "VERTICAL GRADIENT", 560, 10, 20, raylib.RAYWHITE
+        else if current_texture == 1:
+            calling txt.draw_text with "HORIZONTAL GRADIENT", 540, 10, 20, raylib.RAYWHITE
+        else if current_texture == 2:
+            calling txt.draw_text with "DIAGONAL GRADIENT", 540, 10, 20, raylib.RAYWHITE
+        else if current_texture == 3:
+            calling txt.draw_text with "RADIAL GRADIENT", 580, 10, 20, raylib.LIGHTGRAY
+        else if current_texture == 4:
+            calling txt.draw_text with "SQUARE GRADIENT", 580, 10, 20, raylib.LIGHTGRAY
+        else if current_texture == 5:
+            calling txt.draw_text with "CHECKED", 680, 10, 20, raylib.RAYWHITE
+        else if current_texture == 6:
+            calling txt.draw_text with "WHITE NOISE", 640, 10, 20, raylib.RED
+        else if current_texture == 7:
+            calling txt.draw_text with "PERLIN NOISE", 640, 10, 20, raylib.RED
+        else if current_texture == 8:
+            calling txt.draw_text with "CELLULAR", 670, 10, 20, raylib.RAYWHITE
+
+        calling drawing.end_drawing
+
+    for tex in textures_list:
+        calling textures.unload_texture with tex
+
+    return 0

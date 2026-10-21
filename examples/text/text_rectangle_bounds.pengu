@@ -1,0 +1,238 @@
+## ## PenguScript Port
+## Port of raylib [text] example - rectangle bounds
+##
+## Demonstrates rendering multi-line text bound inside a container rectangle
+## with interactive dragging/resizing and word-wrap toggle.
+##
+## ## Example
+## ```shell
+## pengu run examples/text/text_rectangle_bounds.pengu
+## ```
+
+import std.ffi as ffi
+import pengu.raylib as raylib
+import pengu.raylibx.colors as colors
+import pengu.raylibx.drawing as drawing
+import pengu.raylibx.input as input
+import pengu.raylibx.shapes as shapes
+import pengu.raylibx.text as txt
+import pengu.raymathx as raymath
+
+# --- Helpers ---
+
+## Draws text using font inside rectangle limits with optional selection highlight
+weave draw_text_boxed_selectable with font as raylib.Font, text as string, rec as raylib.Rectangle, font_size as f32, spacing as f32, word_wrap as bool, tint as raylib.Color, select_start as int, select_length as int, select_tint as raylib.Color, select_back_tint as raylib.Color into void:
+    let length as int is text.length
+    if length == 0:
+        return
+
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+
+    var text_offset_y as f32 is 0.0
+    var text_offset_x as f32 is 0.0
+
+    let scale_factor as f32 is font_size / (font.baseSize to f32)
+
+    var state as int is if word_wrap then 0 else 1   # 0 = MEASURE_STATE, 1 = DRAW_STATE
+    var start_line as int is -1
+    var end_line as int is -1
+    var last_k as int is -1
+    var cur_select_start as int is select_start
+
+    var i as int is 0
+    var k as int is 0
+
+    while i < length:
+        var codepoint_byte_count as int is 0
+        let ptr as ref to frozen char is sigil of (c_text at i)
+        var codepoint as int is calling raylib.GetCodepoint with ptr, sigil of codepoint_byte_count
+        let index as int is calling raylib.GetGlyphIndex with font, codepoint
+
+        if codepoint == 63:    # 0x3f ('?')
+            set codepoint_byte_count is 1
+        set i is i + (codepoint_byte_count - 1)
+
+        let glyph as raylib.GlyphInfo is font.glyphs at index
+        let glyph_rec as raylib.Rectangle is font.recs at index
+
+        var glyph_width as f32 is 0.0
+        if codepoint != 10:    # '\n'
+            if glyph.advanceX == 0:
+                set glyph_width is glyph_rec.width * scale_factor
+            else:
+                set glyph_width is (glyph.advanceX to f32) * scale_factor
+
+            if (i + 1) < length:
+                set glyph_width is glyph_width + spacing
+
+        if state == 0:    # MEASURE_STATE
+            if (codepoint == 32) or (codepoint == 9) or (codepoint == 10):
+                set end_line is i
+
+            if (text_offset_x + glyph_width) > rec.width:
+                set end_line is if end_line < 1 then i else end_line
+                if i == end_line:
+                    set end_line is end_line - codepoint_byte_count
+                if (start_line + codepoint_byte_count) == end_line:
+                    set end_line is i - codepoint_byte_count
+
+                set state is 1
+            else:
+                if (i + 1) == length:
+                    set end_line is i
+                    set state is 1
+                else:
+                    if codepoint == 10:
+                        set state is 1
+
+            if state == 1:
+                set text_offset_x is 0.0
+                set i is start_line
+                set glyph_width is 0.0
+
+                let tmp as int is last_k
+                set last_k is k - 1
+                set k is tmp
+        else:    # DRAW_STATE
+            let line_height as f32 is ((font.baseSize to f32) + ((font.baseSize to f32) / 2.0)) * scale_factor
+            if codepoint == 10:
+                if not word_wrap:
+                    set text_offset_y is text_offset_y + line_height
+                    set text_offset_x is 0.0
+            else:
+                if (not word_wrap) and ((text_offset_x + glyph_width) > rec.width):
+                    set text_offset_y is text_offset_y + line_height
+                    set text_offset_x is 0.0
+
+                if (text_offset_y + ((font.baseSize to f32) * scale_factor)) > rec.height:
+                    return
+
+                var is_glyph_selected as bool is false
+                if (cur_select_start >= 0) and (k >= cur_select_start) and (k < (cur_select_start + select_length)):
+                    let sel_rec as raylib.Rectangle is with x is (rec.x + text_offset_x - 1.0), y is (rec.y + text_offset_y), width is glyph_width, height is ((font.baseSize to f32) * scale_factor)
+                    calling sel_rec.draw with select_back_tint
+                    set is_glyph_selected is true
+
+                if (codepoint != 32) and (codepoint != 9):
+                    let draw_tint as raylib.Color is if is_glyph_selected then select_tint else tint
+                    calling font.draw_codepoint with codepoint, (with x is (rec.x + text_offset_x), y is (rec.y + text_offset_y)), font_size, draw_tint
+
+            if word_wrap and (i == end_line):
+                set text_offset_y is text_offset_y + line_height
+                set text_offset_x is 0.0
+                set start_line is end_line
+                set end_line is -1
+                set glyph_width is 0.0
+                set cur_select_start is cur_select_start + (last_k - k)
+                set k is last_k
+
+                set state is 0
+
+        if (text_offset_x != 0.0) or (codepoint != 32):
+            set text_offset_x is text_offset_x + glyph_width
+
+        set i is i + 1
+        set k is k + 1
+
+## Draws text using font inside rectangle limits with word wrapping support
+weave draw_text_boxed with font as raylib.Font, text as string, rec as raylib.Rectangle, font_size as f32, spacing as f32, word_wrap as bool, tint as raylib.Color into void:
+    calling draw_text_boxed_selectable with font, text, rec, font_size, spacing, word_wrap, tint, 0, 0, raylib.WHITE, raylib.WHITE
+
+# --- Entry point ---
+
+## Program main entry point
+weave entry into int:
+    # Initialization
+    let screen_width as int is 800
+    let screen_height as int is 450
+
+    calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - rectangle bounds"
+    defer calling raylib.CloseWindow
+
+    let text as string is "Text cannot escape\tthis container\t...word wrap also works when active so here's a long text for testing.\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Nec ullamcorper sit amet risus nullam eget felis eget."
+
+    var resizing as bool is false
+    var word_wrap as bool is true
+
+    var container as raylib.Rectangle is with x is 25.0, y is 25.0, width is ((screen_width to f32) - 50.0), height is ((screen_height to f32) - 250.0)
+    var resizer as raylib.Rectangle is with x is (container.x + container.width - 17.0), y is (container.y + container.height - 17.0), width is 14.0, height is 14.0
+
+    # Minimum and maximum boundaries for the container rectangle
+    let min_width as f32 is 60.0
+    let min_height as f32 is 60.0
+    let max_width as f32 is (screen_width to f32) - 50.0
+    let max_height as f32 is (screen_height to f32) - 160.0
+
+    var last_mouse as raylib.Vector2 is with x is 0.0, y is 0.0
+    var border_color as raylib.Color is raylib.MAROON
+    let font as raylib.Font is calling txt.default_font
+
+    calling raylib.SetTargetFPS with 60
+
+    # Main game loop
+    while not calling raylib.WindowShouldClose:
+        # Update
+        if calling input.is_key_pressed with raylib.KEY_SPACE:
+            set word_wrap is not word_wrap
+
+        let mouse as raylib.Vector2 is calling raylib.GetMousePosition
+
+        # Check if mouse is inside container and toggle border color
+        if calling raylib.CheckCollisionPointRec with mouse, container:
+            set border_color is calling colors.fade with raylib.MAROON, 0.4
+        else:
+            if not resizing:
+                set border_color is raylib.MAROON
+
+        # Container resizing logic
+        if resizing:
+            if calling input.is_mouse_button_released with raylib.MOUSE_BUTTON_LEFT:
+                set resizing is false
+
+            let width as f32 is container.width + (mouse.x - last_mouse.x)
+            set container.width is calling raymath.clamp with width, min_width, max_width
+
+            let height as f32 is container.height + (mouse.y - last_mouse.y)
+            set container.height is calling raymath.clamp with height, min_height, max_height
+        else:
+            if (calling input.is_mouse_button_down with raylib.MOUSE_BUTTON_LEFT) and (calling raylib.CheckCollisionPointRec with mouse, resizer):
+                set resizing is true
+
+        # Move resizer rectangle properly
+        set resizer.x is container.x + container.width - 17.0
+        set resizer.y is container.y + container.height - 17.0
+
+        set last_mouse is mouse
+
+        # Draw
+        calling drawing.begin_drawing
+        calling drawing.clear_background with raylib.RAYWHITE
+
+        calling container.draw_outline with 3.0, border_color
+
+        # Draw text in container (with padding)
+        let inner_rec as raylib.Rectangle is with x is (container.x + 4.0), y is (container.y + 4.0), width is (container.width - 4.0), height is (container.height - 4.0)
+        calling draw_text_boxed with font, text, inner_rec, 20.0, 2.0, word_wrap, raylib.GRAY
+
+        calling resizer.draw with border_color
+
+        # Draw bottom info
+        let sh as int is screen_height
+        let sw as int is screen_width
+        calling shapes.draw_rectangle with 0, sh - 54, sw, 54, raylib.GRAY
+        let dot_rec as raylib.Rectangle is with x is 382.0, y is ((sh to f32) - 34.0), width is 12.0, height is 12.0
+        calling dot_rec.draw with raylib.MAROON
+
+        calling txt.draw_text with "Word Wrap: ", 313, sh - 115, 20, raylib.BLACK
+        if word_wrap:
+            calling txt.draw_text with "ON", 447, sh - 115, 20, raylib.RED
+        else:
+            calling txt.draw_text with "OFF", 447, sh - 115, 20, raylib.BLACK
+
+        calling txt.draw_text with "Press [SPACE] to toggle word wrap", 218, sh - 86, 20, raylib.GRAY
+        calling txt.draw_text with "Click hold & drag the    to resize the container", 155, sh - 38, 20, raylib.RAYWHITE
+
+        calling drawing.end_drawing
+
+    return 0
