@@ -5,7 +5,13 @@ include "raylib.h"
 # Native libraries this binding needs: `link` statements propagate to the
 # consumer's link line (see docs/BINDINGS.md), so they belong here and not in
 # pengu.toml. raylib pulls in the platform windowing/OpenGL stack.
-when os == "windows":
+when wasm:
+    # Emscripten provides GLFW as a port, not as a library archive; the port
+    # selector must reach the final `emcc` link line. `link "raylib"` resolves
+    # to lib/wasm/libraylib.a on this target.
+    link "raylib"
+    ldflag "-sUSE_GLFW=3"
+else when os == "windows":
     link "raylib"
     link "opengl32"
     link "gdi32"

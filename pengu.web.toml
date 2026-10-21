@@ -1,0 +1,48 @@
+## pengu.web.toml -- build the WebAssembly demo page for `core_window_web`.
+##
+## The repository's main `pengu.toml` produces the C bundle of the binding
+## (`output = "c"`). This companion project changes only the artifact kind and
+## the build directory, so the same example can be emitted as an Emscripten
+## page without touching the native binding configuration.
+##
+## Usage:
+##     pengu build --config pengu.web.toml --target wasm
+##
+## It expects `lib/wasm/libraylib.a`, produced by `pengu run build.pengu`
+## when `emcc` is available. Open `build/web/core_window_web.html` in a
+## browser, or serve the directory with any static HTTP server.
+
+[project]
+name = "raylib-pengu-web"
+version = "0.1.0"
+entry = "examples/core/core_window_web.pengu"
+output = "exe"
+output_name = "core_window_web"
+
+[build]
+src_dir = "pengu"
+lib_dir = "lib"
+include_dir = "include"
+c_dir = "c"
+build_dir = "build/web"
+target = "wasm32-unknown-emscripten"
+links = []
+lib_dirs = []
+include_dirs = []
+cflags = ["-Wall", "-std=c11"]
+ldflags = []
+defines = []
+cc = "gcc"
+
+[assets]
+dir = "assets"
+module = "arca"
+embed = true
+
+[profiles.debug]
+cflags = ["-g", "-O0", "-Wall"]
+defines = ["DEBUG"]
+
+[profiles.release]
+cflags = ["-O2", "-DNDEBUG"]
+defines = ["NDEBUG"]

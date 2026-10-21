@@ -4,15 +4,16 @@
 
 ### Raylib 6.x bindings and idiomatic wrappers for PenguScript
 
-[![PenguScript](https://img.shields.io/badge/PenguScript-2.14%2B-blueviolet)](https://github.com/pengus-lang/penguscript)
+[![PenguScript](https://img.shields.io/badge/PenguScript-2.16.2%2B-blueviolet)](https://github.com/pengus-lang/penguscript)
 [![raylib](https://img.shields.io/badge/raylib-6.x-black)](https://www.raylib.com/)
 [![Examples](https://img.shields.io/badge/examples-226-brightgreen)](examples/)
+[![WebAssembly](https://img.shields.io/badge/target-WebAssembly%20%28Emscripten%29-purple)](#webassembly)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](#platform-notes)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20Web-lightgrey)](#platform-notes)
 
-**Write raylib games in PenguScript — from 1:1 C calls to a Pengunic wrapper layer.**
+**Write raylib games in PenguScript — native or in the browser, from 1:1 C calls to a Pengunic wrapper layer.**
 
-[Quick start](#quick-start) · [Add to your project](#add-the-binding-to-your-project) · [Examples](#examples) · [Assets](#assets-and-paths) · [One executable](#one-executable-with-arca)
+[Quick start](#quick-start) · [Add to your project](#add-the-binding-to-your-project) · [Examples](#examples) · [Assets](#assets-and-paths) · [One executable](#one-executable-with-arca) · [WebAssembly](#webassembly)
 
 </div>
 
@@ -29,8 +30,9 @@ code: raw and exact where you need it, short and Pengunic everywhere else.
 **Jump to:** [Why](#why) · [How it works](#how-it-works) · [Quick start](#quick-start) ·
 [Add to your project](#add-the-binding-to-your-project) · [Two styles](#two-styles) ·
 [Module map](#module-map) · [Examples](#examples) · [Assets](#assets-and-paths) ·
-[One executable](#one-executable-with-arca) · [Platform notes](#platform-notes) ·
-[Troubleshooting](#troubleshooting) · [Development](#development) · [Documentation](#documentation)
+[One executable](#one-executable-with-arca) · [WebAssembly](#webassembly) ·
+[Platform notes](#platform-notes) · [Troubleshooting](#troubleshooting) ·
+[Development](#development) · [Documentation](#documentation)
 
 ---
 
@@ -43,6 +45,7 @@ code: raw and exact where you need it, short and Pengunic everywhere else.
 | 🧩 **raygui + reasings** | Immediate-mode GUI and easing functions are included: `import raygui`, `import rayguix`, `import reasings`. |
 | 📦 **226 examples** | A complete translated corpus in [`examples/`](examples/), from a basic window to PBR, skinning, shaders, audio and `raygui` tools. |
 | 🔗 **Static raylib** | [`build.pengu`](build.pengu) builds `lib/libraylib.a` from source (or uses your system raylib), so your game links one archive. |
+| 🌐 **WebAssembly** | The same program builds to `app.html` + `app.js` + `app.wasm` with `pengu build --target wasm`. The binding supplies the wasm raylib archive and the `-sUSE_GLFW=3` port selector. |
 | 🛠️ **Zero glue for you** | `pengu run` compiles the generated bundle **and** the C files in [`c/`](c/) automatically — including `raygui` and `msf_gif` implementations. |
 | 📚 **Documented API** | Generated binding pages in [`docs/bindings/`](docs/bindings/) and wrapper pages in [`docs/wrappers/`](docs/wrappers/). |
 
@@ -75,7 +78,8 @@ things:
 │  layer 1 — raylib.d.pengu, raymath.d.pengu, raygui.d.pengu, …    │
 │    generated 1:1 declarations from the C headers                 │
 ├──────────────────────────────────────────────────────────────────┤
-│  bundle.c  +  c/*.c  +  lib/libraylib.a  +  OpenGL / X11 / …     │
+│  bundle.c + c/*.c + lib/libraylib.a + OpenGL/X11/…              │
+│  or app.js + app.wasm + lib/wasm/libraylib.a + WebGL             │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -91,10 +95,11 @@ embedded directly in the bundle. There is no marshalling layer and no reflection
 
 | Tool | Version | Notes |
 |---|---|---|
-| **PenguScript** | 2.14+ | `pengu` must be on `PATH`; newer releases auto-discover `build.pengu`. |
+| **PenguScript** | 2.16.2+ | Needs `ldflag` and wasm-aware library directories (`lib/wasm/`). |
 | **C compiler** | GCC, Clang or MSVC | C99; GCC/Clang are the tested paths. |
 | **raylib** | 6.x | `build.pengu` builds a static `libraylib.a`, or links a system raylib. |
 | **Native tools** | `git`, `make`, a C compiler | Needed only when `build.pengu` builds raylib from source. |
+| **Emscripten** | emsdk latest (`emcc`, `emar`) | Optional — only for the [WebAssembly](#webassembly) target. |
 | **Graphics** | OpenGL 3.3+ | raylib's default desktop backend. |
 | **Linux** | X11 + OpenGL development packages | `libGL`, `libX11`, headers. |
 | **macOS** | Xcode Command Line Tools | Add the raylib frameworks to `ldflags` (see [platform notes](#platform-notes)). |
@@ -104,13 +109,18 @@ embedded directly in the bundle. There is no marshalling layer and no reflection
 > The committed headers are raylib **6.1-dev**. Link against a compatible raylib 6.x build. If you
 > need an older raylib major version, regenerate the raw bindings from that version's headers.
 
+> [!IMPORTANT]
+> The binding uses the `ldflag` module directive (`-sUSE_GLFW=3` on wasm) and the
+> `lib/wasm/` archive layout, both introduced in the 2.16.2 toolchain line. Older `pengu`
+> releases cannot parse the binding; update the CLI before building.
+
 ### Run an example from this repository
 
 ```bash
 git clone https://github.com/TuGatito/raylib-pengu.git
 cd raylib-pengu
 
-# 1) Build raylib into lib/libraylib.a if it is not there yet.
+# 1) Build lib/libraylib.a, and lib/wasm/libraylib.a when emcc is available.
 #    The script reuses $RAYLIB_SRC, vendor/raylib or a system raylib when it can.
 pengu run build.pengu
 
@@ -345,6 +355,9 @@ pengu run examples/shaders/shaders_deferred_rendering.pengu
 Every example is a normal PenguScript script with `weave main into int`, so you can copy it into
 your own project, adapt the resources and keep going.
 
+`examples/core/core_window_web.pengu` is the cross-target demo: run it natively with `pengu run`,
+or compile it for the browser with the [WebAssembly recipe](#webassembly).
+
 ---
 
 ## <a id="assets-and-paths"></a>📁 Assets and paths
@@ -501,6 +514,118 @@ needed at runtime.
 
 ---
 
+## <a id="webassembly"></a>🌐 WebAssembly
+
+The same `.pengu` program can be compiled through **Emscripten** into a browser page:
+
+```text
+build/<output_name>.html   ← open this in a browser
+build/<output_name>.js     ← Emscripten loader
+build/<output_name>.wasm   ← your program + raylib
+```
+
+raylib uses its `PLATFORM_WEB` build: WebGL for rendering and Emscripten's GLFW **port** for
+input/windowing. The binding supplies both pieces, so a normal raylib-pengu program needs no
+`when wasm:` branch of its own.
+
+![core_window_web running in a browser after an Emscripten build](docs/assets/webassembly-core-window-web.png)
+
+### What the binding handles for you
+
+- **`lib/wasm/libraylib.a`** — a raylib archive built with `make PLATFORM=PLATFORM_WEB`.
+- **`ldflag "-sUSE_GLFW=3"`** — declared under `when wasm:` in
+  [`pengu/raylib.d.pengu`](pengu/raylib.d.pengu). It reaches the final `emcc` link line
+  automatically; it is not a library and cannot be expressed with `link`.
+- **Target-specific library search** — an `emscripten` build searches `lib/wasm/` (project) and
+  `lib/<binding>/lib/wasm/` (dependency); it never picks the host `libraylib.a`.
+- **Both archives from one build script** — [`build.pengu`](build.pengu) builds the desktop archive
+  and, when `emcc` is on `PATH`, the wasm archive.
+
+### Prerequisites
+
+```bash
+# 1) Emscripten SDK (emcc + emar)
+source /path/to/emsdk/emsdk_env.sh
+emcc --version
+emar --version
+
+# 2) PenguScript's wasm runtime, once per toolchain checkout
+cd /path/to/PenguScript
+python3 build_runtime.py --target emscripten
+# writes build/wasm/lib/libpengu_runtime.a
+```
+
+A packaged PenguScript install keeps that archive under `<pengu>/build/wasm/lib/`. If it is
+elsewhere, point `PENGU_LIB_DIR` or `PENGU_RUNTIME_CROSS` at its directory.
+
+### Build this repository's example
+
+```bash
+# From the raylib-pengu root: build both native and wasm raylib archives.
+pengu run build.pengu
+
+# The main pengu.toml emits a C bundle ("output = c"), so the browser demo
+# uses the companion pengu.web.toml, which emits an Emscripten page.
+pengu build --config pengu.web.toml --target wasm
+
+# Result:
+# build/web/core_window_web.html
+# build/web/core_window_web.js
+# build/web/core_window_web.wasm
+```
+
+`--target wasm` is the short alias of `--target wasm32-unknown-emscripten`.
+
+### Build your game
+
+A normal game project already uses `output = "exe"`, so no companion config is needed:
+
+```bash
+pengu build --target wasm32-unknown-emscripten
+# or
+pengu build --target wasm
+# -> build/<output_name>.html + .js + .wasm
+```
+
+Add `--profile release` for a smaller, optimized `.wasm` (the debug profile is the default).
+
+If the installed binding does not have `lib/wasm/libraylib.a` yet, build it once from the
+dependency directory:
+
+```bash
+cd lib/raylib-pengu
+pengu run build.pengu
+```
+
+### Run the page
+
+The `.wasm` and `.js` files are fetched by the browser, so serve the directory over HTTP — opening
+`file://…/app.html` usually fails on the fetch:
+
+```bash
+python3 -m http.server 8000 --directory build/web
+# then open http://localhost:8000/core_window_web.html
+```
+
+Use a browser with WebGL enabled. `pengu run --target wasm` executes the page under Node; raylib
+expects a real canvas, so **Node is not the way to view a raylib game**. Node remains useful for
+non-graphics wasm programs and exit-code checks.
+
+### Assets in a web build
+
+`arca` is the clean path: embedded bytes live inside the `.wasm`, so there is no filesystem to
+preload and no path to resolve. Host files under `assets/` are **not** visible inside the wasm
+sandbox unless you deliberately preload them with Emscripten's file-system options. Keep using
+`arca.bytes`/`arca.ptr`/`arca.string` for textures, shaders, fonts and audio.
+
+> [!TIP]
+> The default PenguScript shell reveals the canvas the first time the program requests a WebGL
+> context and hides the terminal log from that point on. Set `PENGU_WASM_SHELL=default` to use
+> Emscripten's stock page instead. The example above was verified in headless Chromium with
+> SwiftShader: the page renders the raylib window and its text.
+
+---
+
 ## <a id="platform-notes"></a>🖥️ Platform notes
 
 ### Linux
@@ -545,6 +670,11 @@ ship it next to the `.exe`.
 | `error: expected expression before ';'` with an empty list | On PenguScript 2.14, `is []` can generate invalid C for an empty list | Write the element type: `var xs as list of T is list of T`. |
 | `weave main` not found by `pengu run` | The example uses an `entry` weave | Use `weave main into int:` for a standalone script. |
 | Linker cannot find `raylib` | `lib/libraylib.a` missing and no system raylib | `pengu run build.pengu` inside the binding, or set `RAYLIB_SRC`. |
+| `The WebAssembly runtime archive libpengu_runtime.a was not found` | The toolchain has no wasm runtime | `python3 build_runtime.py --target emscripten` in PenguScript, or point `PENGU_LIB_DIR`/`PENGU_RUNTIME_CROSS` at it. |
+| `archive member 'rcore.o' is neither Wasm object file nor LLVM bitcode` | The linker found the host `libraylib.a` | Build `lib/wasm/libraylib.a` (`pengu run build.pengu`) and use a PenguScript with wasm library-directory support. |
+| `undefined symbol: glfwGetTime` / `glfwInit` | The Emscripten GLFW port was not selected | The binding adds `-sUSE_GLFW=3`; make sure `import raylib` is present and the binding is current. |
+| `TypeError: Cannot read properties of undefined (reading 'id')` under Node | raylib needs a browser canvas; Node has none | Serve the page and open it in a browser (`pengu run --target wasm` cannot render raylib). |
+| `failed to fetch … .wasm` / page stays blank | The page was opened with `file://` | Serve the output directory over HTTP (`python3 -m http.server`). |
 
 > [!TIP]
 > The fastest way to diagnose a bad asset path is to run the program from the project root and
@@ -598,11 +728,14 @@ raylib-pengu/
 │   └── raymathx.pengu, rcamerax.pengu, rayguix.pengu, rlglx.pengu
 ├── include/                    # C headers used by the bindings
 ├── c/                          # glue C compiled into the consumer bundle
-├── lib/                        # libraylib.a (built by build.pengu)
+├── lib/
+│   ├── libraylib.a             # native raylib archive
+│   └── wasm/libraylib.a        # WebAssembly (PLATFORM_WEB) archive
 ├── examples/                   # 226 standalone example programs
 ├── docs/                       # generated bindings + wrapper reference
-├── build.pengu                 # native raylib build script
-└── pengu.toml                  # project configuration
+├── build.pengu                 # native + wasm raylib build script
+├── pengu.toml                  # native binding configuration
+└── pengu.web.toml              # companion config for the wasm demo page
 ```
 
 ---
@@ -618,6 +751,7 @@ raylib-pengu/
 | [`docs/WRAPPER_CONVENTIONS.md`](docs/WRAPPER_CONVENTIONS.md) | The design contract for new wrappers |
 | [raylib cheatsheet](https://www.raylib.com/cheatsheet/cheatsheet.html) | The C API this binding mirrors |
 | [PenguScript](https://github.com/pengus-lang/penguscript) | The language, toolchain and standard library |
+| [PenguScript WebAssembly guide](https://github.com/pengus-lang/penguscript/blob/main/docs/WASM.md) | The target, runtime layout and Emscripten settings |
 
 ---
 
