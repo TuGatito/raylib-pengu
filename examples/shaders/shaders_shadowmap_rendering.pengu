@@ -107,8 +107,8 @@ weave draw_scene with cube as raylib.Model, robot as raylib.Model into void:
 ## Main program function.
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32)
     calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - shadowmap rendering"
@@ -233,12 +233,13 @@ weave main into int:
 
         calling shadow_shader.set_vec3 with view_pos_loc, camera.position
 
-        if anims_count > 0 and anim_first.keyframeCount > 0:
-            set frame_counter is (frame_counter + 1) % anim_first.keyframeCount
-            calling robot.update_animation with anim_first, (frame_counter to f32)
+        # NOTE: ModelAnimation.name is a fixed `char[32]` in the C header; the
+        # generated binding models it as one char, so the copied struct layout
+        # is not ABI-safe. Keep the model static here until the binding is fixed.
+        set frame_counter is (frame_counter + 1) % 60
 
         # Move light with arrow keys
-        const camera_speed as f32 is 0.05
+        let camera_speed as f32 is 0.05
         if calling input.is_key_down with raylib.KEY_LEFT:
             if light_dir.x < 0.6:
                 set light_dir.x is light_dir.x + (camera_speed * 60.0 * delta_time)

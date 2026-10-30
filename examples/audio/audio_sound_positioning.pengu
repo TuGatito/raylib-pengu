@@ -28,6 +28,7 @@ import raylibx.drawing as drawing
 import raylibx.shapes3d as shapes3d
 import raymath
 import raymathx
+import std.arithmancy as arithmancy
 import std.fractio
 
 # --- Constants ---
@@ -121,9 +122,9 @@ weave main into int:
 
             let th as f32 is (calling raylib.GetTime to f32)
             let sphere_pos as raylib.Vector3 is with:
-                set .x is 5.0 * (calling th.get_cos)
+                set .x is 5.0 * (calling arithmancy.cos with th)
                 set .y is 0.0
-                set .z is 5.0 * (calling th.get_sin)
+                set .z is 5.0 * (calling arithmancy.sin with th)
 
             calling set_sound_position with camera, sound, sphere_pos, 1.0
 

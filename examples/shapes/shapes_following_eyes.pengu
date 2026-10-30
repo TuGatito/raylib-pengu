@@ -22,6 +22,7 @@ import pengu.raylibx.drawing as drawing
 import pengu.raylibx.shapes as shapes
 import pengu.raylibx.text as txt
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -29,6 +30,14 @@ const SCREEN_WIDTH as int is 800
 const SCREEN_HEIGHT as int is 450
 
 # --- Entry point ---
+
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
 
 weave main into int:
     # Initialization
@@ -76,8 +85,8 @@ weave main into int:
 
             var angle as f32 is calling dy.get_atan2 with dx
 
-            let dxx as f32 is eye_limit * (calling angle.get_cos)
-            let dyy as f32 is eye_limit * (calling angle.get_sin)
+            let dxx as f32 is eye_limit * (calling cos_of with angle)
+            let dyy as f32 is eye_limit * (calling sin_of with angle)
 
             set iris_left_pos.x is sclera_left_pos.x + dxx
             set iris_left_pos.y is sclera_left_pos.y + dyy
@@ -89,8 +98,8 @@ weave main into int:
 
             var angle as f32 is calling dy.get_atan2 with dx
 
-            let dxx as f32 is eye_limit * (calling angle.get_cos)
-            let dyy as f32 is eye_limit * (calling angle.get_sin)
+            let dxx as f32 is eye_limit * (calling cos_of with angle)
+            let dyy as f32 is eye_limit * (calling sin_of with angle)
 
             set iris_right_pos.x is sclera_right_pos.x + dxx
             set iris_right_pos.y is sclera_right_pos.y + dyy

@@ -25,6 +25,7 @@
 
 # --- Imports ------------------------------------------------------------
 import raylib
+import std.arithmancy as arithmancy
 import raylibx.colors as colors
 import raylibx.drawing as drawing
 import raylibx.input as input
@@ -120,6 +121,14 @@ weave should_fill_log with log_mode as int, current_gesture as int, previous_ges
 ##
 ## ## Returns
 ## Process exit code: `0` when the window closes normally.
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     # ---------------------------------------------------------------------
@@ -224,8 +233,8 @@ weave main into int:
 
         let current_angle_radians as f32 is ((current_angle_degrees + 90.0) * raylib.PI) / 180.0
         set final_vector is with:
-            set .x is (ANGLE_LENGTH * (calling current_angle_radians.get_sin)) + protractor_position.x
-            set .y is (ANGLE_LENGTH * (calling current_angle_radians.get_cos)) + protractor_position.y
+            set .x is (ANGLE_LENGTH * (calling arithmancy.sin with current_angle_radians)) + protractor_position.x
+            set .y is (ANGLE_LENGTH * (calling arithmancy.cos with current_angle_radians)) + protractor_position.y
 
         # Handle touch and mouse pointer points
         var mouse_position as raylib.Vector2 is with x is 0.0, y is 0.0
@@ -308,14 +317,8 @@ weave main into int:
             calling txt.draw_text with (gesture_log at ii), log_x, (log_y + 410 - (i * 20)), 20, entry_color
             set ii is (ii + 1) % GESTURE_LOG_SIZE
 
-        let log_button_1_color as raylib.Color is judge log_mode:
-            when 3 -> raylib.MAROON
-            when 1 -> raylib.MAROON
-            else -> raylib.GRAY
-        let log_button_2_color as raylib.Color is judge log_mode:
-            when 3 -> raylib.MAROON
-            when 2 -> raylib.MAROON
-            else -> raylib.GRAY
+        let log_button_1_color as raylib.Color is if log_mode == 3 then raylib.MAROON else if log_mode == 1 then raylib.MAROON else raylib.GRAY
+        let log_button_2_color as raylib.Color is if log_mode == 3 then raylib.MAROON else if log_mode == 2 then raylib.MAROON else raylib.GRAY
 
         calling log_button_1.draw with log_button_1_color
         let btn1_x as int is log_button_1.x to int

@@ -35,6 +35,7 @@ import raylibx.text as txt
 import raymath
 import rlgl
 import std.fractio as fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ----------------------------------------------------------
 ## Screen width in pixels.
@@ -145,6 +146,14 @@ weave create_light with light_index as int, light_type as int, position as rayli
 ##
 ## ## Returns
 ## Exit status code (`0` for success, `1` if asset loading fails).
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
@@ -242,8 +251,8 @@ weave main into int:
 
                     # Spin light opposite to CAMERA_ORBITAL
                     let t as f32 is (calling raylib.GetTime to f32) * -0.3
-                    let sin_t as f32 is calling t.get_sin
-                    let cos_t as f32 is calling t.get_cos
+                    let sin_t as f32 is calling sin_of with t
+                    let cos_t as f32 is calling cos_of with t
 
                     var l0 as Light is lights at 0
                     set l0.position.x is sin_t * 5.0

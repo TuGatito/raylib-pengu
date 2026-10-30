@@ -99,7 +99,7 @@ antiquus set_vr_device_arrays with device as ref to raylib.VrDeviceInfo, lens as
 ## The corresponding 2D vector.
 antiquus vr_config_vec2 with config as ref to raylib.VrStereoConfig, which as int into raylib.Vector2:
     r"""
-    const float *pair = config->leftLensCenter;
+    float *pair = config->leftLensCenter;
     switch (which) {
         case 0: pair = config->leftLensCenter; break;
         case 1: pair = config->rightLensCenter; break;

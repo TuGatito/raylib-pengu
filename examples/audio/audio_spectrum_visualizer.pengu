@@ -36,6 +36,7 @@ import raymath
 import raymathx
 import std.ffi
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- External Math Functions ---
 declare sqrtf with x as f32 into f32
@@ -160,8 +161,8 @@ weave cooley_tukey_fft_slow with spectrum as ref to FFTComplex, n as int into vo
     var len as int is 2
     while len <= n:
         let angle as f32 is (-2.0 * raylib.PI) / (len to f32)
-        let cos_a as f32 is calling angle.get_cos
-        let sin_a as f32 is calling angle.get_sin
+        let cos_a as f32 is calling cos_of with angle
+        let sin_a as f32 is calling sin_of with angle
         var twiddle_unit as FFTComplex is with real is cos_a, imaginary is sin_a
 
         var k as int is 0
@@ -193,9 +194,9 @@ weave capture_frame with fft_data as ref to FFTData, audio_samples as ref to f32
     var work_buf as ref to FFTComplex is fft_data->workBuffer
     for i from 0 to FFT_WINDOW_SIZE:
         let x as f32 is (2.0 * raylib.PI * (i to f32)) / ((FFT_WINDOW_SIZE - 1) to f32)
-        let cos_x as f32 is calling x.get_cos
+        let cos_x as f32 is calling cos_of with x
         let two_x as f32 is 2.0 * x
-        let cos_2x as f32 is calling two_x.get_cos
+        let cos_2x as f32 is calling cos_of with two_x
         let blackman_weight as f32 is 0.42 - (0.5 * cos_x) + (0.08 * cos_2x)
         set work_buf at i is (with real is ((audio_samples at i) * blackman_weight), imaginary is 0.0)
 
@@ -258,6 +259,14 @@ weave render_frame with fft_data as ref to FFTData, fft_image as ref to raylib.I
 ##
 ## ## Returns
 ## Exit code `0` on clean shutdown, or `1` if asset loading fails.
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [audio] example - spectrum visualizer"
@@ -344,15 +353,17 @@ weave main into int:
                 # Update
                 while calling audio_stream.is_processed:
                     for i from 0 to AUDIO_STREAM_RING_BUFFER_SIZE:
-                        let left as int is if wav.channels == 2:
-                            (wav_pcm16 at ((wav_cursor * 2) + 0)) to int
+                        var left as int is 0
+                        if wav.channels == 2:
+                            set left is (wav_pcm16 at ((wav_cursor * 2) + 0)) to int
                         else:
-                            (wav_pcm16 at wav_cursor) to int
+                            set left is (wav_pcm16 at wav_cursor) to int
 
-                        let right as int is if wav.channels == 2:
-                            (wav_pcm16 at ((wav_cursor * 2) + 1)) to int
+                        var right as int is 0
+                        if wav.channels == 2:
+                            set right is (wav_pcm16 at ((wav_cursor * 2) + 1)) to int
                         else:
-                            left
+                            set right is left
 
                         set chunk_samples at i is (((left + right) / 2) to i16)
 
@@ -360,8 +371,8 @@ weave main into int:
                         if wav_cursor >= (wav.frameCount to int):
                             set wav_cursor is 0
 
-                    let chunk_ptr as ref to frozen void is transmute chunk_samples to ref to frozen void
-                    calling raylib.UpdateAudioStream with audio_stream, chunk_ptr, AUDIO_STREAM_RING_BUFFER_SIZE
+                    let chunk_bytes as slice of byte is calling ffi.slice_of_bytes_from_ptr with (transmute (sigil of (chunk_samples at 0)) to ref to void), (AUDIO_STREAM_RING_BUFFER_SIZE * 2)
+                    calling audio_stream.update with chunk_bytes, AUDIO_STREAM_RING_BUFFER_SIZE
 
                     for i from 0 to FFT_WINDOW_SIZE:
                         let s0 as f32 is (chunk_samples at (i * 2)) to f32

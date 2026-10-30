@@ -75,7 +75,7 @@ weave main into int:
     # Assign shader and texture to model material
     var mat as ref to raylib.Material is sigil of (model.materials at 0)
     set mat->shader is shader
-    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+    calling mat.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, texture
 
     let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
 

@@ -188,10 +188,10 @@ weave update_camera_center_inside_map with camera as ref to raylib.Camera2D, pla
     var max_y as f32 is -1000.0
 
     for item in env_items:
-        set min_x is (calling min_x.get_min_with with item.rect.x)
-        set max_x is (calling max_x.get_max_with with (item.rect.x + item.rect.width))
-        set min_y is (calling min_y.get_min_with with item.rect.y)
-        set max_y is (calling max_y.get_max_with with (item.rect.y + item.rect.height))
+        set min_x is (if min_x < item.rect.x then min_x else item.rect.x)
+        set max_x is (if max_x > (item.rect.x + item.rect.width) then max_x else (item.rect.x + item.rect.width))
+        set min_y is (if min_y < item.rect.y then min_y else item.rect.y)
+        set max_y is (if max_y > (item.rect.y + item.rect.height) then max_y else (item.rect.y + item.rect.height))
 
     let cam as raylib.Camera2D is essence of camera
     let max_world as raylib.Vector2 is with x is max_x, y is max_y
@@ -232,7 +232,7 @@ weave update_camera_center_smooth_follow with camera as ref to raylib.Camera2D, 
 
     if distance > MIN_EFFECT_LENGTH:
         let raw_speed as f32 is FRACTION_SPEED * distance
-        let speed as f32 is calling raw_speed.get_max_with with MIN_SPEED
+        let speed as f32 is if raw_speed > MIN_SPEED then raw_speed else MIN_SPEED
         let step as raylib.Vector2 is calling diff.get_scale with ((speed * delta) / distance)
         set camera->target is (calling target.get_add with step)
 

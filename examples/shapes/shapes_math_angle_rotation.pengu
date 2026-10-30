@@ -24,6 +24,7 @@ import pengu.raylibx.drawing as drawing
 import pengu.raylibx.shapes as shapes
 import pengu.raylibx.text as txt
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -32,6 +33,14 @@ const SCREEN_HEIGHT as int is 400
 const DEG2RAD as f32 is 0.017453292519943295
 
 # --- Entry point ---
+
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
 
 weave main into int:
     # Initialization
@@ -68,8 +77,8 @@ weave main into int:
             var rad as f32 is (ang to f32) * DEG2RAD
 
             var end_pos as raylib.Vector2 is with:
-                set .x is center.x + ((calling rad.get_cos) * line_length)
-                set .y is center.y + ((calling rad.get_sin) * line_length)
+                set .x is center.x + ((calling cos_of with rad) * line_length)
+                set .y is center.y + ((calling sin_of with rad) * line_length)
 
             let col as raylib.Color is if i == 0 then colors.GREEN else if i == 1 then colors.ORANGE else if i == 2 then colors.BLUE else colors.MAGENTA
 
@@ -77,8 +86,8 @@ weave main into int:
 
             # Draw angle label slightly offset along the line
             var text_pos as raylib.Vector2 is with:
-                set .x is center.x + ((calling rad.get_cos) * (line_length + 20.0))
-                set .y is center.y + ((calling rad.get_sin) * (line_length + 20.0))
+                set .x is center.x + ((calling cos_of with rad) * (line_length + 20.0))
+                set .y is center.y + ((calling sin_of with rad) * (line_length + 20.0))
 
             var label as string is "{ang} deg"
             calling txt.draw_text with label, text_pos.x to int, text_pos.y to int, 20, col
@@ -87,8 +96,8 @@ weave main into int:
         # Draw animated rotating line with changing color
         var anim_rad as f32 is total_angle * DEG2RAD
         var anim_end as raylib.Vector2 is with:
-            set .x is center.x + ((calling anim_rad.get_cos) * line_length)
-            set .y is center.y + ((calling anim_rad.get_sin) * line_length)
+            set .x is center.x + ((calling cos_of with anim_rad) * line_length)
+            set .y is center.y + ((calling sin_of with anim_rad) * line_length)
 
         let anim_col as raylib.Color is calling raylib.ColorFromHSV with total_angle, 0.8, 0.9
         calling center.draw_line_ex with anim_end, 5.0, anim_col

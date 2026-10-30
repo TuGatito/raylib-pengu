@@ -32,6 +32,8 @@ import raylibx.input as input
 import raylibx.shapes as shapes
 import raylibx.text as txt
 import std.fractio
+import std.ffi
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 ## Initial window width in pixels.
@@ -148,6 +150,14 @@ weave draw_adsr_graph with env as ref to Envelope, bounds as raylib.Rectangle in
 ##
 ## ## Returns
 ## Exit code `0` on clean shutdown, or `1` if stream initialization fails.
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [audio] example - amp envelope"
@@ -198,15 +208,15 @@ weave main into int:
                         calling update_envelope with (sigil of env)
                         let frequency as f32 is 440.0
                         let angle as f32 is 2.0 * raylib.PI * frequency * audio_time
-                        set buffer at i is env.currentValue * (calling angle.get_sin)
+                        set buffer at i is env.currentValue * (calling sin_of with angle)
                         set audio_time is audio_time + (1.0 / (SAMPLE_RATE to f32))
                 else:
                     for i from 0 to BUFFER_SIZE:
                         set buffer at i is 0.0
                     set audio_time is 0.0
 
-                let buf_ptr as ref to frozen void is transmute (sigil of (buffer at 0)) to ref to frozen void
-                calling raylib.UpdateAudioStream with stream, buf_ptr, BUFFER_SIZE
+                let buf_bytes as slice of byte is calling ffi.slice_of_bytes_from_ptr with (transmute (sigil of (buffer at 0)) to ref to void), (BUFFER_SIZE * 4)
+                calling stream.update with buf_bytes, BUFFER_SIZE
 
             if not (calling stream.is_playing):
                 calling stream.play

@@ -118,7 +118,7 @@ weave main into int:
             # Compute required framebuffer scaling
             let scale_x as f32 is screen_w / game_w
             let scale_y as f32 is screen_h / game_h
-            let scale as f32 is calling scale_x.get_min_with with scale_y
+            let scale as f32 is if scale_x < scale_y then scale_x else scale_y
 
             if calling input.is_key_pressed with raylib.KEY_SPACE:
                 # Recalculate random colors for the bars

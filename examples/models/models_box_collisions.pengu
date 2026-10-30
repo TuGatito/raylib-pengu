@@ -62,7 +62,7 @@ weave main into int:
     let enemy_box_size as raylib.Vector3 is with x is 2.0, y is 2.0, z is 2.0
 
     let enemy_sphere_pos as raylib.Vector3 is with x is 4.0, y is 0.0, z is 0.0
-    const ENEMY_SPHERE_SIZE as f32 is 1.5
+    let ENEMY_SPHERE_SIZE as f32 is 1.5
 
     calling raylib.SetTargetFPS with TARGET_FPS
     # ---------------------------------------------------------------------

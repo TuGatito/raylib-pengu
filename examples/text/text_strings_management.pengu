@@ -72,7 +72,7 @@ weave prepare_first_particle with text as string, screen_w as int, screen_h as i
 ## Slices a particle into smaller text particle chunks
 weave slice_particle with tps as list of TextParticle, idx as int, slice_len as int into list of TextParticle:
     let tp as TextParticle is tps at idx
-    let length as int is tp.text.length
+    let length as int is tp.text.len
     if (length <= 1) or (((tps.length) + length) >= MAX_TEXT_PARTICLES):
         return tps
 
@@ -114,7 +114,7 @@ weave slice_particle_by_char with tps as list of TextParticle, char_pressed as i
         return tps
 
     var result as list of TextParticle is []
-    let text_len as int is tp.text.length
+    let text_len as int is tp.text.len
 
     for i from 0 to text_len:
         if (tp.text at i) == ch_str:
@@ -143,7 +143,7 @@ weave slice_particle_by_char with tps as list of TextParticle, char_pressed as i
 # --- Entry point ---
 
 ## Program main entry point
-weave entry into int:
+weave main into int:
     # Initialization
     let screen_width as int is 800
     let screen_height as int is 450
@@ -196,7 +196,7 @@ weave entry into int:
                     if calling input.is_key_down with raylib.KEY_LEFT_SHIFT:
                         set text_particles is calling slice_particle with text_particles, i, 1
                     else:
-                        let half_len as int is (tp.text.length) / 2
+                        let half_len as int is (tp.text.len) / 2
                         let slice_w as int is if half_len < 1 then 1 else half_len
                         set text_particles is calling slice_particle with text_particles, i, slice_w
                     set grabbed_idx is -1

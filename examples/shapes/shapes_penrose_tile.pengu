@@ -28,6 +28,7 @@ import pengu.raylibx.text as txt
 import pengu.raylibx.colors as colors
 import pengu.raymathx as raymathx
 import std.fractio as fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -156,8 +157,8 @@ weave draw_penrose_l_system with ls as ref to PenroseLSystem into void:
             for j from 0 to repeats - 1:
                 let start_pos_world as raylib.Vector2 is turtle.origin
                 let rad_angle as f32 is raymathx.DEG2RAD * turtle.angle
-                set turtle.origin.x is turtle.origin.x + (ls->draw_length * (calling rad_angle.get_cos))
-                set turtle.origin.y is turtle.origin.y + (ls->draw_length * (calling rad_angle.get_sin))
+                set turtle.origin.x is turtle.origin.x + (ls->draw_length * (calling cos_of with rad_angle))
+                set turtle.origin.y is turtle.origin.y + (ls->draw_length * (calling sin_of with rad_angle))
 
                 let start_pos_screen as raylib.Vector2 is with:
                     set .x is start_pos_world.x + screen_center.x
@@ -191,6 +192,14 @@ weave draw_penrose_l_system with ls as ref to PenroseLSystem into void:
 # --- Entry point ---
 
 ## Application main entry point
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     # --------------------------------------------------------------------------------------

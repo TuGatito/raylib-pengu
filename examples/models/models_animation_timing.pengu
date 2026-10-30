@@ -29,6 +29,7 @@ import raylibx.models as models
 import raylibx.shapes as shapes
 import raylibx.shapes3d as shapes3d
 import raylibx.text as txt
+import std.ffi
 
 # --- Constants ---
 ## Initial window width in pixels.
@@ -50,6 +51,12 @@ const MODEL_PATH as string is "examples/models/resources/models/gltf/robot.glb"
 ##
 ## ## Returns
 ## Exit code `0` on clean shutdown, or `1` if asset loading fails.
+## Draws a raygui label from a PenguScript string.
+weave ui_label with bounds as raylib.Rectangle, text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiLabel with bounds, c_text
+
 weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [models] example - animation timing"
@@ -148,7 +155,7 @@ weave main into int:
                 # Draw playing timeline with keyframes
                 var cur_anim as raylib.ModelAnimation is anims at anim_index
                 let label_text as string is "CURRENT FRAME: {anim_frame_progress} / {cur_anim.keyframeCount}"
-                let _l as int is calling rayguix.label with (with x is 10.0, y is (screen_h - 64.0), width is (screen_w - 20.0), height is 24.0), label_text
+                let _l as int is calling ui_label with (with x is 10.0, y is (screen_h - 64.0), width is (screen_w - 20.0), height is 24.0), label_text
                 banish label_text
 
                 let _p as int is calling rayguix.progress_bar with (with x is 10.0, y is (screen_h - 40.0), width is (screen_w - 20.0), height is 24.0), "", "", (sigil of anim_frame_progress), 0.0, (cur_anim.keyframeCount to f32)

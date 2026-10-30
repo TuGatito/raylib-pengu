@@ -42,6 +42,7 @@ import raymathx
 import rcamerax
 import std.fractio
 import std.numerus
+import std.arithmancy as arithmancy
 
 # --- Constants ----------------------------------------------------------
 ## Window width, in pixels.
@@ -167,11 +168,11 @@ weave update_body with state as ref to FpsState, rot as f32, side as f32, forwar
         set state->player.velocity.y is JUMP_FORCE
         set state->player.is_grounded is false
 
-    let sin_rot as f32 is calling rot.get_sin
-    let cos_rot as f32 is calling rot.get_cos
+    let sin_rot as f32 is calling sin_of with rot
+    let cos_rot as f32 is calling cos_of with rot
     let neg_rot as f32 is -rot
-    let cos_neg_rot as f32 is calling neg_rot.get_cos
-    let sin_neg_rot as f32 is calling neg_rot.get_sin
+    let cos_neg_rot as f32 is calling cos_of with neg_rot
+    let sin_neg_rot as f32 is calling sin_of with neg_rot
 
     let front as raylib.Vector3 is with x is sin_rot, y is 0.0, z is cos_rot
     let right as raylib.Vector3 is with x is cos_neg_rot, y is 0.0, z is sin_neg_rot
@@ -253,8 +254,8 @@ weave update_camera_fps with state as ref to FpsState, camera as ref to raylib.C
 
     # Head animation: rotate up direction around forward axis
     let head_angle as f32 is state->head_timer * (raylib.PI to f32)
-    let head_sin as f32 is calling head_angle.get_sin
-    let head_cos as f32 is calling head_angle.get_cos
+    let head_sin as f32 is calling sin_of with head_angle
+    let head_cos as f32 is calling cos_of with head_angle
     let step_rotation as f32 is 0.01
     let up_rotation as f32 is (head_sin * step_rotation) + state->lean.x
     let rotated_up as raylib.Vector3 is calling up.rotate_by_axis with pitch, up_rotation
@@ -263,9 +264,9 @@ weave update_camera_fps with state as ref to FpsState, camera as ref to raylib.C
     # Camera bobbing
     let bob_side as f32 is 0.1
     let bob_up as f32 is 0.15
-    let side_bob as raylib.Vector3 is calling right.get_scale with (head_sin * bob_side)
+    let side_bob as raylib.Vector3 is with x is right.x * (head_sin * bob_side), y is right.y * (head_sin * bob_side), z is right.z * (head_sin * bob_side)
     let up_bob as f32 is head_cos * bob_up
-    let abs_up_bob as f32 is calling up_bob.get_abs
+    let abs_up_bob as f32 is if up_bob < 0.0 then -up_bob else up_bob
     let bobbing as raylib.Vector3 is with x is side_bob.x, y is abs_up_bob, z is side_bob.z
 
     let walked as raylib.Vector3 is calling bobbing.get_scale with state->walk_lerp
@@ -328,6 +329,14 @@ weave draw_level into void:
 ##
 ## ## Returns
 ## Process exit code: `0` when the window closes normally.
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     # ---------------------------------------------------------------------

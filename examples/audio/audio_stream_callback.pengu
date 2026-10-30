@@ -31,6 +31,7 @@ import raylibx.shapes as shapes
 import raylibx.text as txt
 import std.ffi
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 ## Initial window width in pixels.
@@ -123,7 +124,7 @@ weave sine_callback with buffer_data as ref to void, frames as u32 into void:
 
     for i from 0 to count:
         let angle as f32 is (2.0 * raylib.PI * (wave_index to f32)) / (wavelength to f32)
-        set frames_out at i is calling angle.get_sin
+        set frames_out at i is calling sin_of with angle
         set wave_index is wave_index + 1
         if wave_index >= wavelength:
             set wave_freq is target_freq
@@ -183,10 +184,11 @@ weave triangle_callback with buffer_data as ref to void, frames as u32 into void
     let half_wl as int is if (wavelength / 2) < 1 then 1 else (wavelength / 2)
 
     for i from 0 to count:
-        let sample as f32 is if wave_index < half_wl:
-            -1.0 + ((2.0 * (wave_index to f32)) / (half_wl to f32))
+        var sample as f32 is 0.0
+        if wave_index < half_wl:
+            set sample is -1.0 + ((2.0 * (wave_index to f32)) / (half_wl to f32))
         else:
-            1.0 - ((2.0 * ((wave_index - half_wl) to f32)) / (half_wl to f32))
+            set sample is 1.0 - ((2.0 * ((wave_index - half_wl) to f32)) / (half_wl to f32))
         set frames_out at i is sample
         set wave_index is wave_index + 1
         if wave_index >= wavelength:
@@ -266,6 +268,14 @@ weave wave_type_name with wave_type as WaveType into string:
 ##
 ## ## Returns
 ## Exit code `0` on clean shutdown, or `1` if stream creation fails.
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [audio] example - stream callback"

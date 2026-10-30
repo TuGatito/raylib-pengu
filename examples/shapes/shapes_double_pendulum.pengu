@@ -24,6 +24,7 @@ import pengu.raylibx.drawing as drawing
 import pengu.raylibx.shapes as shapes
 import pengu.raylibx.textures as textures
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -40,8 +41,8 @@ const RAD2DEG as f32 is 57.29577951308232
 weave calculate_pendulum_end_point with l as f32, theta as f32 into raylib.Vector2:
     var angle as f32 is theta
     return with:
-        set .x is 10.0 * l * (calling angle.get_sin)
-        set .y is 10.0 * l * (calling angle.get_cos)
+        set .x is 10.0 * l * (calling sin_of with angle)
+        set .y is 10.0 * l * (calling cos_of with angle)
 
 ## ## Calculates double pendulum end point relative to pivot
 weave calculate_double_pendulum_end_point with l1 as f32, theta1 as f32, l2 as f32, theta2 as f32 into raylib.Vector2:
@@ -52,6 +53,14 @@ weave calculate_double_pendulum_end_point with l1 as f32, theta1 as f32, l2 as f
         set .y is ep1.y + ep2.y
 
 # --- Entry point ---
+
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
 
 weave main into int:
     # Initialization
@@ -104,10 +113,10 @@ weave main into int:
         # Update Physics - larger steps = better approximation
         for _s from 0 to SIMULATION_STEPS - 1:
             var delta as f32 is theta1 - theta2
-            let sin_d as f32 is calling delta.get_sin
-            let cos_d as f32 is calling delta.get_cos
+            let sin_d as f32 is calling sin_of with delta
+            let cos_d as f32 is calling cos_of with delta
             var two_delta as f32 is 2.0 * delta
-            let cos_2d as f32 is calling two_delta.get_cos
+            let cos_2d as f32 is calling cos_of with two_delta
 
             let ww1 as f32 is w1 * w1
             let ww2 as f32 is w2 * w2
@@ -116,8 +125,8 @@ weave main into int:
             var t1_angle as f32 is theta1
             var t1_diff as f32 is theta1 - (2.0 * theta2)
 
-            let term1 as f32 is -G * ((2.0 * m1) + m2) * (calling t1_angle.get_sin)
-            let term2 as f32 is m2 * G * (calling t1_diff.get_sin)
+            let term1 as f32 is -G * ((2.0 * m1) + m2) * (calling sin_of with t1_angle)
+            let term2 as f32 is m2 * G * (calling sin_of with t1_diff)
             let term3 as f32 is 2.0 * sin_d * m2 * ((ww2 * big_l2) + (ww1 * big_l1 * cos_d))
             let a1_num as f32 is term1 - term2 - term3
             let a1_denom as f32 is big_l1 * (((2.0 * m1) + m2) - (m2 * cos_2d))
@@ -125,7 +134,7 @@ weave main into int:
 
             # Calculate a2
             let term2_1 as f32 is ww1 * big_l1 * total_m
-            let term2_2 as f32 is G * total_m * (calling t1_angle.get_cos)
+            let term2_2 as f32 is G * total_m * (calling cos_of with t1_angle)
             let term2_3 as f32 is ww2 * big_l2 * m2 * cos_d
             let a2_num as f32 is 2.0 * sin_d * (term2_1 + term2_2 + term2_3)
             let a2_denom as f32 is big_l2 * (((2.0 * m1) + m2) - (m2 * cos_2d))

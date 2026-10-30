@@ -362,8 +362,8 @@ weave setup_boxes with screen_w as int, screen_h as int into list of raylib.Rect
 
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - top down lights"
     defer calling raylib.CloseWindow

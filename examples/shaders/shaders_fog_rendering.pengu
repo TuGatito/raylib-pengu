@@ -167,9 +167,9 @@ weave main into int:
     var mat_a as ref to raylib.Material is sigil of (model_a.materials at 0)
     var mat_b as ref to raylib.Material is sigil of (model_b.materials at 0)
     var mat_c as ref to raylib.Material is sigil of (model_c.materials at 0)
-    calling mat_a.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
-    calling mat_b.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
-    calling mat_c.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+    calling mat_a.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, texture
+    calling mat_b.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, texture
+    calling mat_c.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, texture
 
     # Load shader
     var shader as raylib.Shader is with id is 0

@@ -22,6 +22,7 @@ import raylibx.shapes as shapes
 import raylibx.text as txt
 import raylibx.textures as textures
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ----------------------------------------------------------
 const MAX_SPOTS as int is 3
@@ -84,10 +85,18 @@ weave update_star with star as ref to Star, screen_w as f32, screen_h as f32 int
 # --- Entry Point --------------------------------------------------------
 
 ## Main program function.
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - spotlight rendering"
     defer calling raylib.CloseWindow
@@ -224,9 +233,9 @@ weave main into int:
         for i from 0 to 16:
             let fi as f32 is (frame_counter + (i * 8)) to f32
             let angle_cos as f32 is fi / 51.45
-            let cos_val as f32 is calling angle_cos.get_cos
+            let cos_val as f32 is calling cos_of with angle_cos
             let angle_sin as f32 is fi / 17.87
-            let sin_val as f32 is calling angle_sin.get_sin
+            let sin_val as f32 is calling sin_of with angle_sin
             let tx as f32 is ((screen_width to f32) / 2.0) + (cos_val * ((screen_width to f32) / 2.2)) - 32.0
             let ty as f32 is ((screen_height to f32) / 2.0) + (sin_val * ((screen_height to f32) / 4.2))
             calling tex_ray.draw with (tx to int), (ty to int), raylib.WHITE

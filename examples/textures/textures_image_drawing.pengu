@@ -27,8 +27,8 @@ import raylibx.textures as textures
 ## ## Returns
 ## Exit code (0 for success).
 weave main into int:
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [textures] example - image drawing"
     defer calling raylib.CloseWindow

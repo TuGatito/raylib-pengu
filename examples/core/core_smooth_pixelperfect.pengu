@@ -34,6 +34,7 @@ import raylibx.shapes as shapes
 import raylibx.text as txt
 import raylibx.textures as textures
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ----------------------------------------------------------
 ## Window width in pixels.
@@ -103,6 +104,14 @@ weave make_dest_rect with is_overscan as bool into raylib.Rectangle:
 ## ## Returns
 ## Process exit code: `0` when the window closes normally, or `1` if the GPU
 ## cannot create the render texture.
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     # ---------------------------------------------------------------------
@@ -162,8 +171,8 @@ weave main into int:
 
             # Make the camera move to demonstrate the effect
             let elapsed as f32 is (calling raylib.GetTime) to f32
-            let camera_x as f32 is ((calling elapsed.get_sin) * 50.0) - 10.0
-            let camera_y as f32 is (calling elapsed.get_cos) * 30.0
+            let camera_x as f32 is ((calling sin_of with elapsed) * 50.0) - 10.0
+            let camera_y as f32 is (calling cos_of with elapsed) * 30.0
 
             # Set the camera's target to the values computed above
             set screen_space_camera.target is with x is camera_x, y is camera_y

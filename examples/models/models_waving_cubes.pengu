@@ -27,6 +27,7 @@ import raylibx.shapes3d as shapes3d
 import raylibx.text as txt
 import rcamerax
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -36,10 +37,18 @@ const NUM_BLOCKS as int is 15
 # --- Entry point ---
 
 ## Application entry point.
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - waving cubes"
     defer calling raylib.CloseWindow
@@ -60,12 +69,12 @@ weave main into int:
     while not calling raylib.WindowShouldClose:
         # Update
         var time as f32 is (calling raylib.GetTime) to f32
-        var sin_time as f32 is calling time.get_sin
+        var sin_time as f32 is calling sin_of with time
         var scale as f32 is (2.0 + sin_time) * 0.7
 
         var camera_time as f32 is time * 0.3
-        set camera.position.x is (calling camera_time.get_cos) * 40.0
-        set camera.position.z is (calling camera_time.get_sin) * 40.0
+        set camera.position.x is (calling cos_of with camera_time) * 40.0
+        set camera.position.z is (calling sin_of with camera_time) * 40.0
 
         var time4 as f32 is time * 4.0
 
@@ -81,7 +90,7 @@ weave main into int:
                 for z from 0 to NUM_BLOCKS:
                     var block_scale as f32 is ((x + y + z) to f32) / 30.0
                     var scatter_arg as f32 is (block_scale * 20.0) + time4
-                    var scatter as f32 is calling scatter_arg.get_sin
+                    var scatter as f32 is calling sin_of with scatter_arg
 
                     var cube_pos as raylib.Vector3 is with:
                         set .x is (((x to f32) - half_blocks) * (scale * 3.0)) + scatter

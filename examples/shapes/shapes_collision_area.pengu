@@ -24,8 +24,8 @@ import raylibx.text as txt
 ## Main program function.
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - collision area"
     defer calling raylib.CloseWindow
@@ -52,7 +52,7 @@ weave main into int:
         set .width is 0.0
         set .height is 0.0
 
-    const screen_upper_limit as int is 40
+    let screen_upper_limit as int is 40
     var pause as bool is false
     var collision as bool is false
 

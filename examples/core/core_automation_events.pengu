@@ -258,10 +258,10 @@ weave main into int:
             set camera.zoom is MIN_ZOOM
 
         for ei in env_elements:
-            set min_x is (calling min_x.get_min_with with ei.rect.x)
-            set max_x is (calling max_x.get_max_with with (ei.rect.x + ei.rect.width))
-            set min_y is (calling min_y.get_min_with with ei.rect.y)
-            set max_y is (calling max_y.get_max_with with (ei.rect.y + ei.rect.height))
+            set min_x is (if min_x < ei.rect.x then min_x else ei.rect.x)
+            set max_x is (if max_x > (ei.rect.x + ei.rect.width) then max_x else (ei.rect.x + ei.rect.width))
+            set min_y is (if min_y < ei.rect.y then min_y else ei.rect.y)
+            set max_y is (if max_y > (ei.rect.y + ei.rect.height) then max_y else (ei.rect.y + ei.rect.height))
 
         let max_world as raylib.Vector2 is with x is max_x, y is max_y
         let min_world as raylib.Vector2 is with x is min_x, y is min_y

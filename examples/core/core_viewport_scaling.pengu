@@ -128,7 +128,7 @@ weave keep_aspect_centered_integer with screen_width as int, screen_height as in
 
     let ratio_x as int is screen_width / game_width
     let ratio_y as int is screen_height / game_height
-    let min_ratio as int is calling ratio_x.get_min_with with ratio_y
+    let min_ratio as int is if ratio_x < ratio_y then ratio_x else ratio_y
     let resize_ratio as f32 is (min_ratio to f32)
 
     set dest_rect->x is ((((sw - (gw * resize_ratio)) * 0.5) to int) to f32)
@@ -188,7 +188,7 @@ weave keep_aspect_centered with screen_width as int, screen_height as int, game_
 
     let ratio_x as f32 is sw / gw
     let ratio_y as f32 is sh / gh
-    let resize_ratio as f32 is calling ratio_x.get_min_with with ratio_y
+    let resize_ratio as f32 is if ratio_x < ratio_y then ratio_x else ratio_y
 
     set dest_rect->x is ((((sw - (gw * resize_ratio)) * 0.5) to int) to f32)
     set dest_rect->y is ((((sh - (gh * resize_ratio)) * 0.5) to int) to f32)

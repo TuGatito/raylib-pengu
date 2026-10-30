@@ -183,10 +183,11 @@ weave main into int:
         # Update
         # -----------------------------------------------------------------
         let touch_count as int is calling raylib.GetTouchPointCount
-        let input_position as raylib.Vector2 is if touch_count > 0:
-            calling raylib.GetTouchPosition with 0
+        var input_position as raylib.Vector2 is with x is 0.0, y is 0.0
+        if touch_count > 0:
+            set input_position is calling raylib.GetTouchPosition with 0
         else:
-            calling raylib.GetMousePosition
+            set input_position is calling raylib.GetMousePosition
 
         # Reset pressed button to none
         set pressed_button is PadButton.ButtonNone

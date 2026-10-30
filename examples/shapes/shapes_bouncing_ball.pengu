@@ -24,8 +24,8 @@ import raylibx.text as txt
 ## Main program function.
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.SetConfigFlags with (raylib.FLAG_MSAA_4X_HINT to u32)
     calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - bouncing ball"
@@ -39,8 +39,8 @@ weave main into int:
         set .x is 5.0
         set .y is 4.0
 
-    const ball_radius as int is 20
-    const gravity as f32 is 0.2
+    let ball_radius as int is 20
+    let gravity as f32 is 0.2
 
     var use_gravity as bool is true
     var pause as bool is false

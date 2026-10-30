@@ -87,7 +87,7 @@ weave change_shape with model as ref to raylib.Model, bbox as ref to raylib.Boun
         set model->transform is (calling raymath.MatrixTranslate with 0.0, -1.25, 0.0)
 
     var mat as ref to raylib.Material is sigil of (model->materials at 0)
-    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, canvas_texture
+    calling mat.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, canvas_texture
 
     var first_mesh as raylib.Mesh is model->meshes at 0
     var box as raylib.BoundingBox is calling first_mesh.bounding_box
@@ -195,8 +195,8 @@ weave get_mesh_hit_uv with ray as raylib.Ray, model as raylib.Model, bbox as ray
 ## Application entry point.
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - mesh uv painting"
     defer calling raylib.CloseWindow

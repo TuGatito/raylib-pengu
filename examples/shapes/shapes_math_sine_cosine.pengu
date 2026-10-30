@@ -27,6 +27,7 @@ import pengu.raylibx.shapes as shapes
 import pengu.raylibx.text as txt
 import pengu.raymathx as raymathx
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -44,6 +45,14 @@ weave abs_f32 with v as f32 into f32:
     return v
 
 # --- Entry point ---
+
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
 
 weave main into int:
     # Initialization
@@ -76,12 +85,12 @@ weave main into int:
 
         var sp as raylib.Vector2 is with:
             set .x is start.x + (t * start.width)
-            set .y is start.y + (start.height / 2.0) - ((calling cur_ang.get_sin) * (start.height / 2.0))
+            set .y is start.y + (start.height / 2.0) - ((calling sin_of with cur_ang) * (start.height / 2.0))
         calling sine_points.append with sp
 
         var cp as raylib.Vector2 is with:
             set .x is start.x + (t * start.width)
-            set .y is start.y + (start.height / 2.0) - ((calling cur_ang.get_cos) * (start.height / 2.0))
+            set .y is start.y + (start.height / 2.0) - ((calling cos_of with cur_ang) * (start.height / 2.0))
         calling cos_points.append with cp
 
     calling raylib.SetTargetFPS with 60
@@ -90,8 +99,8 @@ weave main into int:
     while not calling raylib.WindowShouldClose:
         # Update
         var angle_rad as f32 is angle * DEG2RAD
-        let cos_rad as f32 is calling angle_rad.get_cos
-        let sin_rad as f32 is calling angle_rad.get_sin
+        let cos_rad as f32 is calling cos_of with angle_rad
+        let sin_rad as f32 is calling sin_of with angle_rad
 
         var point as raylib.Vector2 is with:
             set .x is center.x + (cos_rad * radius)

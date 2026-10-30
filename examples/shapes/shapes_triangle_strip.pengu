@@ -26,6 +26,7 @@ import pengu.raylibx.text as txt
 import pengu.raymathx as raymathx
 import pengu.rayguix as rayguix
 import std.fractio as fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -35,6 +36,14 @@ const MAX_STRIP_POINTS as int is 130
 # --- Entry point ---
 
 ## Application main entry point
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     # --------------------------------------------------------------------------------------
@@ -97,14 +106,14 @@ weave main into int:
             let i2 as int is i * 2
             let angle1 as f32 is (i to f32) * angle_step
             let p1 as raylib.Vector2 is with:
-                set .x is center.x + ((calling angle1.get_cos) * inside_radius)
-                set .y is center.y + ((calling angle1.get_sin) * inside_radius)
+                set .x is center.x + ((calling cos_of with angle1) * inside_radius)
+                set .y is center.y + ((calling sin_of with angle1) * inside_radius)
             set points at i2 is p1
 
             let angle2 as f32 is angle1 + (angle_step / 2.0)
             let p2 as raylib.Vector2 is with:
-                set .x is center.x + ((calling angle2.get_cos) * outside_radius)
-                set .y is center.y + ((calling angle2.get_sin) * outside_radius)
+                set .x is center.x + ((calling cos_of with angle2) * outside_radius)
+                set .y is center.y + ((calling sin_of with angle2) * outside_radius)
             set points at (i2 + 1) is p2
 
         set points at (point_count * 2) is points at 0

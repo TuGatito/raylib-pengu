@@ -79,8 +79,8 @@ weave create_rounded_rectangle with corner_radius as raylib.Vector4, shadow_radi
 ## Main program function.
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - rounded rectangle"
     defer calling raylib.CloseWindow

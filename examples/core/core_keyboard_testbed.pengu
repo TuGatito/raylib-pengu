@@ -210,10 +210,11 @@ weave gui_keyboard_key with bounds as raylib.Rectangle, cell as KeyCell into voi
     if cell.raw_code == (raylib.KEY_NULL to int):
         calling bounds.draw_outline with 2.0, raylib.LIGHTGRAY
     else:
-        let is_down as bool is if cell.key != raylib.KEY_NULL:
-            calling input.is_key_down with cell.key
+        var is_down as bool is false
+        if cell.key != raylib.KEY_NULL:
+            set is_down is calling input.is_key_down with cell.key
         else:
-            calling raylib.IsKeyDown with cell.raw_code
+            set is_down is calling raylib.IsKeyDown with cell.raw_code
 
         let key_color as raylib.Color is if is_down then raylib.MAROON else raylib.DARKGRAY
         let label as string is calling get_key_text with cell.key

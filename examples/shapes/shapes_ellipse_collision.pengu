@@ -25,6 +25,7 @@ import pengu.raylibx.input as input
 import pengu.raylibx.shapes as shapes
 import pengu.raylibx.text as txt
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -52,8 +53,8 @@ weave check_collision_ellipses with c1 as raylib.Vector2, rx1 as f32, ry1 as f32
         return true
 
     var theta as f32 is calling dy.get_atan2 with dx
-    let cos_t as f32 is calling theta.get_cos
-    let sin_t as f32 is calling theta.get_sin
+    let cos_t as f32 is calling cos_of with theta
+    let sin_t as f32 is calling sin_of with theta
 
     # Radial distance from center to ellipse boundary in direction theta
     # r(theta) = (rx * ry) / sqrt((ry*cos)^2 + (rx*sin)^2)
@@ -70,6 +71,14 @@ weave check_collision_ellipses with c1 as raylib.Vector2, rx1 as f32, ry1 as f32
     return dist <= (r1 + r2)
 
 # --- Entry point ---
+
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
 
 weave main into int:
     # Initialization

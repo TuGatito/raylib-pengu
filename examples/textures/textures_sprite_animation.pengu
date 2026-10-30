@@ -82,9 +82,9 @@ weave main into int:
             set frame_rec.x is (current_frame to f32) * ((scarfy.width to f32) / 6.0)
 
         # Control frames speed
-        if calling input.is_key_pressed with raylib.KeyboardKey.KEY_RIGHT:
+        if calling input.is_key_pressed with (raylib.KEY_RIGHT to raylib.KeyboardKey):
             set frames_speed is frames_speed + 1
-        else if calling input.is_key_pressed with raylib.KeyboardKey.KEY_LEFT:
+        else if calling input.is_key_pressed with (raylib.KEY_LEFT to raylib.KeyboardKey):
             set frames_speed is frames_speed - 1
 
         if frames_speed > MAX_FRAME_SPEED:

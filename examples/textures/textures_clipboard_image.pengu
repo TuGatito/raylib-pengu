@@ -31,6 +31,7 @@ import raylibx.shapes as shapes
 import raylibx.text as txt
 import raylibx.textures as textures
 import raylibx.window as window
+import std.ffi
 
 # --- Constants ----------------------------------------------------------
 ## Window width in pixels.
@@ -91,7 +92,7 @@ weave main into int:
                         set .position is (calling raylib.GetMousePosition)
                     calling collection.append with item
             else:
-                calling raylib.TraceLog with (raylib.LOG_INFO to int), "IMAGE: Could not retrieve image from clipboard"
+                calling raylib.TraceLog with (raylib.LOG_INFO to int), (calling ffi.cstr_from_string with "IMAGE: Could not retrieve image from clipboard")
         # -----------------------------------------------------------------
 
         # Draw

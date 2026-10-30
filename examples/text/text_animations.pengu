@@ -50,7 +50,7 @@ weave animation_name with kind as AnimationKind into string:
 # --- Entry point ---
 
 ## Program main entry point
-weave entry into int:
+weave main into int:
     # Initialization
     let screen_width as int is 800
     let screen_height as int is 450
@@ -109,16 +109,10 @@ weave entry into int:
                 set text.offset is calling raymath.clamp with text.offset + 1.0, 0.0, 15.0
 
         if calling input.is_key_pressed with raylib.KEY_Q:
-            set current_anim is judge current_anim:
-                when WAVING -> AnimationKind.SHAKING
-                when FLASHING -> AnimationKind.WAVING
-                when SHAKING -> AnimationKind.FLASHING
+            set current_anim is if current_anim == AnimationKind.WAVING then AnimationKind.SHAKING else if current_anim == AnimationKind.FLASHING then AnimationKind.WAVING else AnimationKind.FLASHING
         else:
             if calling input.is_key_pressed with raylib.KEY_E:
-                set current_anim is judge current_anim:
-                    when WAVING -> AnimationKind.FLASHING
-                    when FLASHING -> AnimationKind.SHAKING
-                    when SHAKING -> AnimationKind.WAVING
+                set current_anim is if current_anim == AnimationKind.WAVING then AnimationKind.FLASHING else if current_anim == AnimationKind.FLASHING then AnimationKind.SHAKING else AnimationKind.WAVING
 
         var offset_x as int is 0
         for i from 0 to text_len:

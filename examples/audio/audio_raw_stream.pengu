@@ -29,6 +29,8 @@ import raylibx.input as input
 import raylibx.shapes as shapes
 import raylibx.text as txt
 import std.fractio
+import std.ffi
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 ## Initial window width in pixels.
@@ -55,6 +57,14 @@ const TARGET_FPS as int is 30
 ##
 ## ## Returns
 ## Exit code `0` on clean shutdown, or `1` if stream creation fails.
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "raylib [audio] example - raw stream"
@@ -116,7 +126,7 @@ weave main into int:
                 for i from 0 to BUFFER_SIZE:
                     let wavelength as int is SAMPLE_RATE / sine_frequency
                     let angle as f32 is (2.0 * raylib.PI * (sine_index to f32)) / (wavelength to f32)
-                    let sample as f32 is calling angle.get_sin
+                    let sample as f32 is calling sin_of with angle
                     set buffer at i is sample
                     set sine_index is sine_index + 1
 
@@ -125,8 +135,8 @@ weave main into int:
                         set sine_index is 0
                         set sine_start_time is calling raylib.GetTime
 
-                let buf_ptr as ref to frozen void is transmute (sigil of (buffer at 0)) to ref to frozen void
-                calling raylib.UpdateAudioStream with stream, buf_ptr, BUFFER_SIZE
+                let buf_bytes as slice of byte is calling ffi.slice_of_bytes_from_ptr with (transmute (sigil of (buffer at 0)) to ref to void), (BUFFER_SIZE * 4)
+                calling stream.update with buf_bytes, BUFFER_SIZE
 
             # Draw
             calling drawing.begin_drawing
@@ -154,10 +164,10 @@ weave main into int:
                 let t1 as int is window_start + (((i + 1) * window_size) / SCREEN_WIDTH)
 
                 let angle0 as f32 is (2.0 * raylib.PI * (t0 to f32)) / (wavelength to f32)
-                let s0 as f32 is calling angle0.get_sin
+                let s0 as f32 is calling sin_of with angle0
 
                 let angle1 as f32 is (2.0 * raylib.PI * (t1 to f32)) / (wavelength to f32)
-                let s1 as f32 is calling angle1.get_sin
+                let s1 as f32 is calling sin_of with angle1
 
                 var start_pos as raylib.Vector2 is with x is (i to f32), y is 250.0 + (50.0 * s0)
                 let end_pos as raylib.Vector2 is with x is ((i + 1) to f32), y is 250.0 + (50.0 * s1)

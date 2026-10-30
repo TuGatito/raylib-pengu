@@ -76,7 +76,7 @@ weave main into int:
     defer calling textures.unload_texture with texture
 
     var mat0 as ref to raylib.Material is sigil of (model.materials at 0)
-    calling mat0.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+    calling mat0.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, texture
 
     # Extract pixel colors for collision checking
     var map_pixels as list of raylib.Color is list of raylib.Color
@@ -102,7 +102,7 @@ weave main into int:
 
         # 2D circle collision detection against cubicmap walls
         let player_pos as raylib.Vector2 is with x is camera.position.x, y is camera.position.z
-        const PLAYER_RADIUS as f32 is 0.1
+        let PLAYER_RADIUS as f32 is 0.1
 
         var player_cell_x as int is (player_pos.x - map_pos.x + 0.5) to int
         var player_cell_y as int is (player_pos.y - map_pos.z + 0.5) to int

@@ -42,8 +42,8 @@ const DEG2RAD as f32 is 0.017453292519943295
 ## Application entry point.
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - yaw pitch roll"
     defer calling raylib.CloseWindow
@@ -72,7 +72,7 @@ weave main into int:
     calling texture.set_wrap with raylib.TEXTURE_WRAP_REPEAT
 
     var mat as ref to raylib.Material is sigil of (model.materials at 0)
-    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+    calling mat.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, texture
 
     var pitch as f32 is 0.0
     var roll as f32 is 0.0

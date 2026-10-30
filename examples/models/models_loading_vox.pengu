@@ -149,8 +149,8 @@ weave create_light with light_index as int, light_type as int, position as rayli
 ## Application entry point.
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     var vox_file_names as list of string is [
         "examples/models/resources/models/vox/chr_knight.vox",

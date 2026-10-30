@@ -54,7 +54,7 @@ const BLEND_COUNT_MAX as int is 4
 ## ## Returns
 ## The `raylib.BlendMode` value.
 weave get_blend_mode with index as int into raylib.BlendMode:
-    judge index:
+    return judge index:
         when 0 -> raylib.BLEND_ALPHA
         when 1 -> raylib.BLEND_ADDITIVE
         when 2 -> raylib.BLEND_MULTIPLIED
@@ -121,12 +121,7 @@ weave main into int:
         calling txt.draw_text with "Press SPACE to change blend modes.", 310, 350, 10, raylib.GRAY
 
         # Draw current blend mode text
-        let blend_text as string is judge blend_mode:
-            when 0 -> "Current: BLEND_ALPHA"
-            when 1 -> "Current: BLEND_ADDITIVE"
-            when 2 -> "Current: BLEND_MULTIPLIED"
-            when 3 -> "Current: BLEND_ADD_COLORS"
-            else -> "Current: BLEND_ALPHA"
+        let blend_text as string is if blend_mode == 0 then "Current: BLEND_ALPHA" else if blend_mode == 1 then "Current: BLEND_ADDITIVE" else if blend_mode == 2 then "Current: BLEND_MULTIPLIED" else if blend_mode == 3 then "Current: BLEND_ADD_COLORS" else "Current: BLEND_ALPHA"
         calling txt.draw_text with blend_text, (SCREEN_WIDTH / 2) - 60, 370, 10, raylib.GRAY
 
         calling txt.draw_text with "(c) Cyberpunk Street Environment by Luis Zuno (@ansimuz)", SCREEN_WIDTH - 330, SCREEN_HEIGHT - 20, 10, raylib.GRAY

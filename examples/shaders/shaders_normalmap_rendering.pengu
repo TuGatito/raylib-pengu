@@ -98,8 +98,8 @@ weave main into int:
     # Set shader and textures on plane material
     var mat as ref to raylib.Material is sigil of (plane.materials at 0)
     set mat->shader is shader
-    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, tex_diff
-    calling mat.set_texture with raylib.MATERIAL_MAP_NORMAL, tex_norm
+    calling mat.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, tex_diff
+    calling mat.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_NORMAL, tex_norm
 
     calling raylib.GenTextureMipmaps with (sigil of tex_diff)
     calling raylib.GenTextureMipmaps with (sigil of tex_norm)

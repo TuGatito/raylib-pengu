@@ -24,6 +24,7 @@ import pengu.raylibx.drawing as drawing
 import pengu.raylibx.shapes as shapes
 import pengu.raylibx.colors as colors
 import std.fractio as fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -167,10 +168,10 @@ weave draw_rectangle_rounded_gradient_h with rec as raylib.Rectangle, roundness_
             let rad1 as f32 is DEG2RAD * (corner_angle + step_length)
             let rad0 as f32 is DEG2RAD * corner_angle
 
-            let cos1 as f32 is calling rad1.get_cos
-            let sin1 as f32 is calling rad1.get_sin
-            let cos0 as f32 is calling rad0.get_cos
-            let sin0 as f32 is calling rad0.get_sin
+            let cos1 as f32 is calling cos_of with rad1
+            let sin1 as f32 is calling sin_of with rad1
+            let cos0 as f32 is calling cos_of with rad0
+            let sin0 as f32 is calling sin_of with rad0
 
             calling rlgl.rlColor4ub with corner_color.r, corner_color.g, corner_color.b, corner_color.a
             calling rlgl.rlVertex2f with center.x, center.y
@@ -237,10 +238,18 @@ weave draw_rectangle_rounded_gradient_h with rec as raylib.Rectangle, roundness_
 
 # --- Main entry point ---
 
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - rectangle advanced"
     defer calling raylib.CloseWindow

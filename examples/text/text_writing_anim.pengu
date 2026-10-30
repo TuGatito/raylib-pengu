@@ -26,8 +26,8 @@ import pengu.raylibx.colors as colors
 
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [text] example - writing anim"
     defer calling raylib.CloseWindow

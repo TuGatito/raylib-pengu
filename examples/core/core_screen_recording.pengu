@@ -38,6 +38,7 @@ import raylibx.shapes as shapes
 import raylibx.text as txt
 import std.ffi
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ----------------------------------------------------------
 ## Window width in pixels.
@@ -213,7 +214,7 @@ weave main into int:
         let angle as f32 is angular_freq * (1.0 / 60.0) * (i to f32)
         let pt as raylib.Vector2 is with:
             set .x is (i to f32) * screen_step
-            set .y is half_height + (150.0 * (calling angle.get_sin))
+            set .y is half_height + (150.0 * (calling arithmancy.sin with angle))
         calling sine_points.push with pt
 
     calling raylib.SetTargetFPS with TARGET_FPS
@@ -227,7 +228,7 @@ weave main into int:
         set time_counter += (calling raylib.GetFrameTime)
         set circle_position.x += ((calling raylib.GetScreenWidth) to f32) / 180.0
         let current_angle as f32 is angular_freq * time_counter
-        set circle_position.y is half_height + (150.0 * (calling current_angle.get_sin))
+        set circle_position.y is half_height + (150.0 * (calling arithmancy.sin with current_angle))
 
         if circle_position.x > (SCREEN_WIDTH to f32):
             set circle_position.x is 0.0

@@ -44,6 +44,7 @@
 
 
 import raylib
+import std.builder
 import std.ffi
 import std.ward
 
@@ -996,17 +997,15 @@ weave text_insert_alloc with text as string, insert as string, position as int i
 ## ```
 
 weave text_join with parts as slice of string, delimiter as string into string:
-    if (parts.length) == 0:
-        return ""
-    let c_delim as ref to frozen char is calling ffi.cstr_from_string with delimiter
-    var ptrs as list of (ref to char) is list of (ref to char)
-    defer banish ptrs
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
     var i as int is 0
     while i < (parts.length):
-        calling ptrs.push with (calling ffi.cstr_from_string with (parts at i))
+        if i > 0:
+            calling sb.append with delimiter
+        calling sb.append with (parts at i)
         set i is i + 1
-    let raw as ref to void is transmute (sigil of (ptrs at 0)) to (ref to void)
-    return calling ffi.string_from_cstr with (calling raylib.TextJoin with (transmute raw to ref to ref to char), (parts.length), c_delim)
+    return calling sb.finish
 
 ## Splits text into parts around a delimiter.
 ##

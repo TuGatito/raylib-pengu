@@ -68,7 +68,7 @@ weave main into int:
 
     if model.materialCount > 0:
         var mat0 as ref to raylib.Material is sigil of (model.materials at 0)
-        calling mat0.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+        calling mat0.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, texture
 
     let position as raylib.Vector3 is with x is 0.0, y is 0.0, z is 0.0
 

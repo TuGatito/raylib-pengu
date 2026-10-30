@@ -26,6 +26,7 @@ import pengu.raylibx.shapes as shapes
 import pengu.raylibx.text as txt
 import pengu.raylibx.textures as textures
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -44,6 +45,14 @@ rune Bullet:
     color as raylib.Color
 
 # --- Entry point ---
+
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
 
 weave main into int:
     # Initialization
@@ -106,8 +115,8 @@ weave main into int:
                     var rad_angle as f32 is bullet_direction * DEG2RAD
 
                     var accel as raylib.Vector2 is with:
-                        set .x is bullet_speed * (calling rad_angle.get_cos)
-                        set .y is bullet_speed * (calling rad_angle.get_sin)
+                        set .x is bullet_speed * (calling cos_of with rad_angle)
+                        set .y is bullet_speed * (calling sin_of with rad_angle)
 
                     var new_bullet as Bullet is with:
                         set .position is spawn_pos

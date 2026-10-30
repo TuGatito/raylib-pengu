@@ -36,8 +36,8 @@ weave loc_of with shader as raylib.Shader, name as string into int:
 ## Main program function.
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [shaders] example - simple mask"
     defer calling raylib.CloseWindow
@@ -93,13 +93,13 @@ weave main into int:
     defer calling textures.unload_texture with tex_mask
 
     var mat1 as ref to raylib.Material is sigil of (model1.materials at 0)
-    calling mat1.set_texture with raylib.MATERIAL_MAP_DIFFUSE, tex_diffuse
-    calling mat1.set_texture with raylib.MATERIAL_MAP_EMISSION, tex_mask
+    calling mat1.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, tex_diffuse
+    calling mat1.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_EMISSION, tex_mask
     set mat1->shader is shader
 
     var mat2 as ref to raylib.Material is sigil of (model2.materials at 0)
-    calling mat2.set_texture with raylib.MATERIAL_MAP_DIFFUSE, tex_diffuse
-    calling mat2.set_texture with raylib.MATERIAL_MAP_EMISSION, tex_mask
+    calling mat2.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, tex_diffuse
+    calling mat2.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_EMISSION, tex_mask
     set mat2->shader is shader
 
     set shader.locs at (raylib.SHADER_LOC_MAP_EMISSION to int) is calling loc_of with shader, "mask"

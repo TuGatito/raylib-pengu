@@ -26,6 +26,7 @@ import pengu.raylibx.text as txt
 import pengu.raymathx as raymathx
 import pengu.rayguix as rayguix
 import std.fractio as fractio
+import std.arithmancy as arithmancy
 
 # --- Types ---
 
@@ -57,6 +58,14 @@ weave format_float_2 with val as f32 into string:
 # --- Entry point ---
 
 ## Application main entry point
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     # --------------------------------------------------------------------------------------
@@ -117,8 +126,8 @@ weave main into int:
 
         let zero_f as f32 is 0.0
         let initial_end as raylib.Vector2 is with:
-            set .x is start_pos.x + (branch_len * (calling zero_f.get_sin))
-            set .y is start_pos.y - (branch_len * (calling zero_f.get_cos))
+            set .x is start_pos.x + (branch_len * (calling sin_of with zero_f))
+            set .y is start_pos.y - (branch_len * (calling cos_of with zero_f))
 
         var root_branch as Branch is with:
             set .start is start_pos
@@ -137,8 +146,8 @@ weave main into int:
 
                     let angle1 as f32 is branch.angle + theta
                     let branch_end1 as raylib.Vector2 is with:
-                        set .x is branch_start.x + (next_length * (calling angle1.get_sin))
-                        set .y is branch_start.y - (next_length * (calling angle1.get_cos))
+                        set .x is branch_start.x + (next_length * (calling sin_of with angle1))
+                        set .y is branch_start.y - (next_length * (calling cos_of with angle1))
                     var branch_left as Branch is with:
                         set .start is branch_start
                         set .end is branch_end1
@@ -148,8 +157,8 @@ weave main into int:
 
                     let angle2 as f32 is branch.angle - theta
                     let branch_end2 as raylib.Vector2 is with:
-                        set .x is branch_start.x + (next_length * (calling angle2.get_sin))
-                        set .y is branch_start.y - (next_length * (calling angle2.get_cos))
+                        set .x is branch_start.x + (next_length * (calling sin_of with angle2))
+                        set .y is branch_start.y - (next_length * (calling cos_of with angle2))
                     var branch_right as Branch is with:
                         set .start is branch_start
                         set .end is branch_end2

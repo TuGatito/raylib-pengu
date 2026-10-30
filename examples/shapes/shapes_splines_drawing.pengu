@@ -24,6 +24,7 @@ import pengu.raylibx.input as input
 import pengu.raylibx.shapes as shapes
 import pengu.raylibx.text as txt
 import pengu.raylibx.colors as colors
+import std.ffi
 
 # --- Constants ---
 
@@ -86,10 +87,16 @@ weave make_rec with x as f32, y as f32, w as f32, h as f32 into raylib.Rectangle
 
 # --- Main entry point ---
 
+## Draws a raygui label from a PenguScript string.
+weave ui_label with bounds as raylib.Rectangle, text as string into int:
+    let c_text as ref to frozen char is calling ffi.cstr_from_string with text
+    defer calling ffi.cstr_free with (transmute c_text to ref to char)
+    return calling raygui.GuiLabel with bounds, c_text
+
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
     calling raylib.InitWindow with screen_width, screen_height, "raylib [shapes] example - splines drawing"
@@ -239,15 +246,16 @@ weave main into int:
         calling drawing.begin_drawing
         calling drawing.clear_background with raylib.RAYWHITE
 
+        let spline_pts as slice of raylib.Vector2 is calling ffi.slice_from_ptr of raylib.Vector2 with (sigil of (points at 0)), point_count
         if spline_type_active == 0:
             # Draw spline: linear
-            calling shapes.draw_spline_linear with (points at 0 to point_count), spline_thickness, col_red
+            calling shapes.draw_spline_linear with spline_pts, spline_thickness, col_red
         else if spline_type_active == 1:
             # Draw spline: basis
-            calling shapes.draw_spline_basis with (points at 0 to point_count), spline_thickness, col_red
+            calling shapes.draw_spline_basis with spline_pts, spline_thickness, col_red
         else if spline_type_active == 2:
             # Draw spline: catmull-rom
-            calling shapes.draw_spline_catmull_rom with (points at 0 to point_count), spline_thickness, col_red
+            calling shapes.draw_spline_catmull_rom with spline_pts, spline_thickness, col_red
         else if spline_type_active == 3:
             # Cubic-bezier spline interleaves start/end points with two control points per segment
             for i from 0 to (point_count - 1):
@@ -260,7 +268,8 @@ weave main into int:
             set points_interleaved at (3 * last_idx) is (points at last_idx)
 
             let interleaved_count as int is 3 * (point_count - 1) + 1
-            calling shapes.draw_spline_bezier_cubic with (points_interleaved at 0 to interleaved_count), spline_thickness, col_red
+            let interleaved_pts as slice of raylib.Vector2 is calling ffi.slice_from_ptr of raylib.Vector2 with (sigil of (points_interleaved at 0)), interleaved_count
+            calling shapes.draw_spline_bezier_cubic with interleaved_pts, spline_thickness, col_red
 
             # Draw spline control points and handles
             for i from 0 to (point_count - 1):
@@ -314,7 +323,7 @@ weave main into int:
         var thickness_str as string is "Spline thickness: {spline_thickness to int}"
         defer banish thickness_str
         let label_bounds as raylib.Rectangle is calling make_rec with 12.0, 62.0, 140.0, 24.0
-        let _l1 as int is calling rayguix.label with label_bounds, thickness_str
+        let _l1 as int is calling ui_label with label_bounds, thickness_str
 
         let slider_bounds as raylib.Rectangle is calling make_rec with 12.0, 84.0, 140.0, 16.0
         let _s1 as int is calling rayguix.slider_bar with slider_bounds, "", "", (sigil of spline_thickness), 1.0, 40.0
@@ -326,7 +335,7 @@ weave main into int:
             calling raygui.GuiUnlock
 
         let type_label_bounds as raylib.Rectangle is calling make_rec with 12.0, 10.0, 140.0, 24.0
-        let _l2 as int is calling rayguix.label with type_label_bounds, "Spline type:"
+        let _l2 as int is calling ui_label with type_label_bounds, "Spline type:"
 
         let dropdown_bounds as raylib.Rectangle is calling make_rec with 12.0, 32.0, 140.0, 28.0
         if (calling rayguix.dropdown_box with dropdown_bounds, "LINEAR;BSPLINE;CATMULLROM;BEZIER", (sigil of spline_type_active), spline_type_edit_mode) > 0:

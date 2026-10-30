@@ -316,8 +316,8 @@ weave gen_mesh_decal with target as raylib.Model, projection as raylib.Matrix, d
 ## Application entry point.
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT
     calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - decals"
@@ -346,7 +346,7 @@ weave main into int:
     calling model_texture.set_filter with raylib.TEXTURE_FILTER_BILINEAR
 
     var mat as ref to raylib.Material is sigil of (model.materials at 0)
-    calling mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, model_texture
+    calling mat.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, model_texture
 
     var first_mesh as raylib.Mesh is model.meshes at 0
     var model_bbox as raylib.BoundingBox is calling first_mesh.bounding_box
@@ -433,7 +433,7 @@ weave main into int:
             if decal_mesh.vertexCount > 0:
                 var new_model as raylib.Model is calling models.load_model_from_mesh with decal_mesh
                 var dm_mat as ref to raylib.Material is sigil of (new_model.materials at 0)
-                calling dm_mat.set_texture with raylib.MATERIAL_MAP_DIFFUSE, decal_texture
+                calling dm_mat.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, decal_texture
                 var dm_map as ref to raylib.MaterialMap is sigil of (dm_mat->maps at (raylib.MATERIAL_MAP_DIFFUSE to int))
                 set dm_map->color is raylib.RAYWHITE
                 calling decal_models.push with new_model

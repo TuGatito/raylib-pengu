@@ -41,7 +41,7 @@ weave main into int:
     var trail_positions as list of raylib.Vector2 is list of raylib.Vector2
     defer banish trail_positions
 
-    for _i from 0 to MAX_TRAIL_LENGTH - 1:
+    for _i from 0 to MAX_TRAIL_LENGTH:
         var zv as raylib.Vector2 is with:
             set .x is 0.0
             set .y is 0.0

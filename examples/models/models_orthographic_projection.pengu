@@ -40,8 +40,8 @@ const WIDTH_ORTHOGRAPHIC as f32 is 10.0
 ## Application entry point.
 weave main into int:
     # Initialization
-    const screen_width as int is 800
-    const screen_height as int is 450
+    let screen_width as int is 800
+    let screen_height as int is 450
 
     calling raylib.InitWindow with screen_width, screen_height, "raylib [models] example - orthographic projection"
     defer calling raylib.CloseWindow

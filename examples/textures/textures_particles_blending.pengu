@@ -89,7 +89,7 @@ weave main into int:
         return 1
     defer calling textures.unload_texture with smoke
 
-    var blending as raylib.BlendMode is raylib.BlendMode.BLEND_ALPHA
+    var blending as raylib.BlendMode is (raylib.BLEND_ALPHA to raylib.BlendMode)
 
     calling raylib.SetTargetFPS with 60
     # --------------------------------------------------------------------------------------
@@ -120,11 +120,11 @@ weave main into int:
                 set p.rotation is p.rotation + 2.0
                 set mouse_tail at i is p
 
-        if calling input.is_key_pressed with raylib.KeyboardKey.KEY_SPACE:
-            if blending == raylib.BlendMode.BLEND_ALPHA:
-                set blending is raylib.BlendMode.BLEND_ADDITIVE
+        if calling input.is_key_pressed with (raylib.KEY_SPACE to raylib.KeyboardKey):
+            if blending == (raylib.BLEND_ALPHA to raylib.BlendMode):
+                set blending is (raylib.BLEND_ADDITIVE to raylib.BlendMode)
             else:
-                set blending is raylib.BlendMode.BLEND_ALPHA
+                set blending is (raylib.BLEND_ALPHA to raylib.BlendMode)
         # ----------------------------------------------------------------------------------
 
         # Draw
@@ -163,7 +163,7 @@ weave main into int:
 
         calling txt.draw_text with "PRESS SPACE to CHANGE BLENDING MODE", 180, 20, 20, raylib.BLACK
 
-        if blending == raylib.BlendMode.BLEND_ALPHA:
+        if blending == (raylib.BLEND_ALPHA to raylib.BlendMode):
             calling txt.draw_text with "ALPHA BLENDING", 290, screen_height - 40, 20, raylib.BLACK
         else:
             calling txt.draw_text with "ADDITIVE BLENDING", 280, screen_height - 40, 20, raylib.RAYWHITE

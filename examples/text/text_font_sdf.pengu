@@ -39,7 +39,7 @@ weave format_float_2 with val as f32 into string:
 # --- Entry point ---
 
 ## Program main entry point
-weave entry into int:
+weave main into int:
     # Initialization
     let screen_width as int is 800
     let screen_height as int is 450

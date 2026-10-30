@@ -24,7 +24,7 @@ const MAX_INPUT_CHARS as int is 9
 # --- Entry point ---
 
 ## Program main entry point
-weave entry into int:
+weave main into int:
     # Initialization
     let screen_width as int is 800
     let screen_height as int is 450

@@ -35,6 +35,7 @@ import pengu.raylibx.shapes3d as shapes3d
 import pengu.raylibx.text as txt
 import pengu.raylibx.colors as colors
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Helpers ---
 
@@ -103,6 +104,14 @@ weave end_portal_mode_3d into void:
 # --- Entry point ---
 
 ## Application main entry point.
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     # --------------------------------------------------------------------------------------
@@ -176,7 +185,7 @@ weave main into int:
 
         # Floating pulsing core sphere
         let core_t as f32 is time * 2.5
-        let core_y as f32 is 2.0 + ((calling core_t.get_sin) * 0.4)
+        let core_y as f32 is 2.0 + ((calling sin_of with core_t) * 0.4)
         let core_offset as raylib.Vector3 is with x is 0.0, y is core_y, z is -4.0
         let core_pos as raylib.Vector3 is calling raymath.Vector3Add with portal_b, core_offset
 
@@ -189,11 +198,11 @@ weave main into int:
             let i_f as f32 is i to f32
             let angle as f32 is (time * 1.5) + (i_f * (pi_val / 2.0))
             let cos_t as f32 is (time * 3.0) + i_f
-            let cube_y as f32 is 2.0 + ((calling cos_t.get_cos) * 0.5)
+            let cube_y as f32 is 2.0 + ((calling cos_of with cos_t) * 0.5)
             let cube_offset as raylib.Vector3 is with:
-                set .x is (calling angle.get_sin) * 2.5
+                set .x is (calling sin_of with angle) * 2.5
                 set .y is cube_y
-                set .z is -4.0 + ((calling angle.get_cos) * 2.5)
+                set .z is -4.0 + ((calling cos_of with angle) * 2.5)
             let pos as raylib.Vector3 is calling raymath.Vector3Add with portal_b, cube_offset
 
             calling shapes3d.draw_cube with pos, 0.5, 0.5, 0.5, raylib.LIME

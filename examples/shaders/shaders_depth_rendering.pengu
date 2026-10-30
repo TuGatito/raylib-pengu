@@ -123,7 +123,10 @@ weave main into int:
     var flip_loc as int is 0
     if l as int is calling depth_shader.location with "flipY":
         set flip_loc is l
-    calling depth_shader.set_ints with flip_loc, [1]
+    var flip_values as list of int is list of int
+    calling flip_values.push with 1
+    calling depth_shader.set_ints with flip_loc, (flip_values at 0 to flip_values.length)
+    banish flip_values
 
     # Load scene models
     var cube_mesh as raylib.Mesh is calling raylib.GenMeshCube with 1.0, 1.0, 1.0

@@ -69,8 +69,8 @@ weave audio_delay_buffer into ref to f32:
 weave audio_process_effect_lpf with buffer_data as ref to void, frames as u32 into void:
     static var low0 as f32 is 0.0
     static var low1 as f32 is 0.0
-    const cutoff as f32 is 70.0 / 44100.0 # 70 Hz lowpass filter
-    const k as f32 is cutoff / (cutoff + 0.1591549431) # RC filter formula
+    let cutoff as f32 is 70.0 / 44100.0 # 70 Hz lowpass filter
+    let k as f32 is cutoff / (cutoff + 0.1591549431) # RC filter formula
 
     var buf as ref to f32 is transmute buffer_data to ref to f32
     var i as int is 0

@@ -45,8 +45,8 @@ weave main into int:
     var recs as list of raylib.Rectangle is list of raylib.Rectangle
     defer banish recs
 
-    for y from 0 to MAX_RECS_Y - 1:
-        for x from 0 to MAX_RECS_X - 1:
+    for y from 0 to MAX_RECS_Y:
+        for x from 0 to MAX_RECS_X:
             var r as raylib.Rectangle is with:
                 set .x is (RECS_WIDTH / 2.0) + (RECS_WIDTH * (x to f32))
                 set .y is (RECS_HEIGHT / 2.0) + (RECS_HEIGHT * (y to f32))

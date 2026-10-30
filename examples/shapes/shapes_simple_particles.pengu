@@ -27,6 +27,7 @@ import pengu.raylibx.colors as colors
 import pengu.raylibx.random as random
 import pengu.raymathx as raymathx
 import std.fractio as fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -54,6 +55,14 @@ rune Particle:
 # --- Entry point ---
 
 ## Application main entry point
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     # --------------------------------------------------------------------------------------
@@ -127,8 +136,8 @@ weave main into int:
                 let dir_deg as f32 is (calling random.between with 0, 359) to f32
                 let dir_rad as f32 is dir_deg * raymathx.DEG2RAD
                 let p_vel as raylib.Vector2 is with:
-                    set .x is base_speed * (calling dir_rad.get_cos)
-                    set .y is base_speed * (calling dir_rad.get_sin)
+                    set .x is base_speed * (calling cos_of with dir_rad)
+                    set .y is base_speed * (calling sin_of with dir_rad)
 
                 let new_particle as Particle is with:
                     set .ptype is current_type
@@ -166,7 +175,7 @@ weave main into int:
                         set p.color.a is new_a to byte
                 when ParticleType.Fire ->
                     let wave as f32 is p.life_time * 215.0
-                    set p.position.x is p.position.x + p.velocity.x + (calling wave.get_cos)
+                    set p.position.x is p.position.x + p.velocity.x + (calling cos_of with wave)
                     set p.velocity.y is p.velocity.y - 0.05
                     set p.position.y is p.position.y + p.velocity.y
                     set p.radius is p.radius - 0.15

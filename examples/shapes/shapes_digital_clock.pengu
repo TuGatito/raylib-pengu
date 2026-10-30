@@ -26,6 +26,7 @@ import pengu.raylibx.shapes as shapes
 import pengu.raylibx.text as txt
 import std.chronicle as chronicle
 import std.fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -291,12 +292,12 @@ weave draw_clock_analog with clk as Clock, position as raylib.Vector2 into void:
         let tick_thick as f32 is if (i % 5) != 0 then 1.0 else 3.0
 
         var p1 as raylib.Vector2 is with:
-            set .x is position.x + (((clk.second.length to f32) + tick_len) * (calling angle_deg.get_cos))
-            set .y is position.y + (((clk.second.length to f32) + tick_len) * (calling angle_deg.get_sin))
+            set .x is position.x + (((clk.second.length to f32) + tick_len) * (calling cos_of with angle_deg))
+            set .y is position.y + (((clk.second.length to f32) + tick_len) * (calling sin_of with angle_deg))
 
         var p2 as raylib.Vector2 is with:
-            set .x is position.x + (((clk.second.length to f32) + 20.0) * (calling angle_deg.get_cos))
-            set .y is position.y + (((clk.second.length to f32) + 20.0) * (calling angle_deg.get_sin))
+            set .x is position.x + (((clk.second.length to f32) + 20.0) * (calling cos_of with angle_deg))
+            set .y is position.y + (((clk.second.length to f32) + 20.0) * (calling sin_of with angle_deg))
 
         calling p1.draw_line_ex with p2, tick_thick, colors.DARKGRAY
 
@@ -334,6 +335,14 @@ weave draw_clock_analog with clk as Clock, position as raylib.Vector2 into void:
     calling rec_hour.draw_pro with origin_hour, clk.hour.angle, clk.hour.color
 
 # --- Entry point ---
+
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
 
 weave main into int:
     # Initialization

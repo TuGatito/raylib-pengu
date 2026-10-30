@@ -27,6 +27,7 @@ import pengu.raylibx.colors as colors
 import pengu.raymathx as raymathx
 import pengu.rayguix as rayguix
 import std.fractio as fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -62,6 +63,14 @@ weave pad2 with n as int into string:
 # --- Entry point ---
 
 ## Application main entry point
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     # --------------------------------------------------------------------------------------
@@ -219,8 +228,8 @@ weave main into int:
                     let text_height as f32 is 20.0
                     let label_radius as f32 is if show_donut then (donut_inner_radius + radius) / 2.0 else radius * 0.7
                     let rad_mid as f32 is mid_angle * raymathx.DEG2RAD
-                    let label_x as f32 is center.x + ((calling rad_mid.get_cos) * label_radius) - (text_width / 2.0)
-                    let label_y as f32 is center.y + ((calling rad_mid.get_sin) * label_radius) - (text_height / 2.0)
+                    let label_x as f32 is center.x + ((calling cos_of with rad_mid) * label_radius) - (text_width / 2.0)
+                    let label_y as f32 is center.y + ((calling sin_of with rad_mid) * label_radius) - (text_height / 2.0)
                     calling txt.draw_text with label_text, (label_x to int), (label_y to int), 20, raylib.WHITE
 
                 banish label_text

@@ -20,7 +20,7 @@
 
 # --- Imports ---
 import raylib
-import pengu.rlgl as rlgl
+import rlgl as rlgl
 import pengu.raymathx as raymathx
 import raylibx.colors as colors
 import raylibx.drawing as drawing
@@ -120,23 +120,23 @@ weave draw_textured_curve with tex_road as raylib.Texture2D, start_pos as raylib
         let current_neg_normal as raylib.Vector2 is calling current.get_add with (calling normal.get_scale with -curve_width)
 
         # Draw segment as a triangle strip quad
-        calling rlgl.rlSetTexture with tex_road.id
-        calling rlgl.rlBegin with (rlgl.RL_TRIANGLE_STRIP to int)
-        calling rlgl.rlColor4ub with (255 to byte), (255 to byte), (255 to byte), (255 to byte)
-        calling rlgl.rlNormal3f with 0.0, 0.0, 1.0
+        calling rlSetTexture with tex_road.id
+        calling rlBegin with 4
+        calling rlColor4ub with (255 to byte), (255 to byte), (255 to byte), (255 to byte)
+        calling rlNormal3f with 0.0, 0.0, 1.0
 
-        calling rlgl.rlTexCoord2f with 0.0, previous_v
-        calling rlgl.rlVertex2f with prev_neg_normal.x, prev_neg_normal.y
+        calling rlTexCoord2f with 0.0, previous_v
+        calling rlVertex2f with prev_neg_normal.x, prev_neg_normal.y
 
-        calling rlgl.rlTexCoord2f with 1.0, previous_v
-        calling rlgl.rlVertex2f with prev_pos_normal.x, prev_pos_normal.y
+        calling rlTexCoord2f with 1.0, previous_v
+        calling rlVertex2f with prev_pos_normal.x, prev_pos_normal.y
 
-        calling rlgl.rlTexCoord2f with 0.0, v
-        calling rlgl.rlVertex2f with current_neg_normal.x, current_neg_normal.y
+        calling rlTexCoord2f with 0.0, v
+        calling rlVertex2f with current_neg_normal.x, current_neg_normal.y
 
-        calling rlgl.rlTexCoord2f with 1.0, v
-        calling rlgl.rlVertex2f with current_pos_normal.x, current_pos_normal.y
-        calling rlgl.rlEnd
+        calling rlTexCoord2f with 1.0, v
+        calling rlVertex2f with current_pos_normal.x, current_pos_normal.y
+        calling rlEnd
 
         set previous is current
         set previous_tangent is normal

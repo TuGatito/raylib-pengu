@@ -29,6 +29,7 @@ import pengu.raylibx.window as window
 import pengu.raymathx as raymathx
 import pengu.rayguix as rayguix
 import std.fractio as fractio
+import std.arithmancy as arithmancy
 
 # --- Constants ---
 
@@ -64,6 +65,14 @@ weave byte_to_hex2 with b as byte into string:
 # --- Entry point ---
 
 ## Application main entry point
+## Sine of a float (avoids generic get_* alias).
+weave sin_of with x as f32 into f32:
+    return calling arithmancy.sin with x
+
+## Cosine of a float (avoids generic get_* alias).
+weave cos_of with x as f32 into f32:
+    return calling arithmancy.cos with x
+
 weave main into int:
     # Initialization
     # --------------------------------------------------------------------------------------
@@ -164,8 +173,8 @@ weave main into int:
             if distance > 1.0:
                 let a_tau as f32 is angle * (raymathx.PI * 2.0)
                 let c_offset as raylib.Vector2 is with:
-                    set .x is (calling a_tau.get_sin) * point_scale
-                    set .y is -(calling a_tau.get_cos) * point_scale
+                    set .x is (calling sin_of with a_tau) * point_scale
+                    set .y is -(calling cos_of with a_tau) * point_scale
                 set circle_position is calling c_offset.get_add with center
 
         # Checks if the user clicked on the color wheel
@@ -204,8 +213,8 @@ weave main into int:
             if setting_color and (distance > 1.0):
                 let a_tau as f32 is angle * (raymathx.PI * 2.0)
                 let c_offset as raylib.Vector2 is with:
-                    set .x is (calling a_tau.get_sin) * point_scale
-                    set .y is -(calling a_tau.get_cos) * point_scale
+                    set .x is (calling sin_of with a_tau) * point_scale
+                    set .y is -(calling cos_of with a_tau) * point_scale
                 set circle_position is calling c_offset.get_add with center
 
             let angle_360 as f32 is angle * 360.0
@@ -234,12 +243,12 @@ weave main into int:
             let a2 as f32 is ((i to f32) + 1.0) * angle_offset
 
             let pos1 as raylib.Vector2 is with:
-                set .x is center.x + ((calling a1.get_sin) * point_scale)
-                set .y is center.y + (-(calling a1.get_cos) * point_scale)
+                set .x is center.x + ((calling sin_of with a1) * point_scale)
+                set .y is center.y + (-(calling cos_of with a1) * point_scale)
 
             let pos2 as raylib.Vector2 is with:
-                set .x is center.x + ((calling a2.get_sin) * point_scale)
-                set .y is center.y + (-(calling a2.get_cos) * point_scale)
+                set .x is center.x + ((calling sin_of with a2) * point_scale)
+                set .y is center.y + (-(calling cos_of with a2) * point_scale)
 
             let angle_non_rad as f32 is (a1 / (2.0 * raymathx.PI)) * 360.0
             let angle_non_rad_offset as f32 is (angle_offset / (2.0 * raymathx.PI)) * 360.0

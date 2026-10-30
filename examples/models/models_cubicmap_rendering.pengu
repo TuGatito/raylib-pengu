@@ -80,7 +80,7 @@ weave main into int:
     defer calling textures.unload_texture with texture
 
     var mat0 as ref to raylib.Material is sigil of (model.materials at 0)
-    calling mat0.set_texture with raylib.MATERIAL_MAP_DIFFUSE, texture
+    calling mat0.set_texture with raylib.MaterialMapIndex.MATERIAL_MAP_ALBEDO, texture
 
     let map_pos as raylib.Vector3 is with x is -16.0, y is 0.0, z is -8.0
     var pause as bool is false
