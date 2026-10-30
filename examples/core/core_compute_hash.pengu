@@ -156,7 +156,7 @@ weave main into int:
         # Update
         #----------------------------------------------------------------------------------
         if btn_compute_hashes:
-            let raw_cstr as ref to char is calling ffi.cstr_from_string with text_input
+            let raw_cstr as ref to frozen char is calling ffi.cstr_from_string with text_input
             let data_bytes as slice of byte is calling ffi.slice_of_bytes_from_ptr with (transmute raw_cstr to ref to void), (text_input length)
 
             let crc32_val as u32 is calling files.crc32 with data_bytes
