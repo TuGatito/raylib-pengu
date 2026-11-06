@@ -4,7 +4,7 @@
 
 ### Raylib 6.x bindings and idiomatic wrappers for PenguScript
 
-[![PenguScript](https://img.shields.io/badge/PenguScript-2.16.2%2B-blueviolet)](https://github.com/pengus-lang/penguscript)
+[![PenguScript](https://img.shields.io/badge/PenguScript-0.34.0%2B-blueviolet)](https://github.com/pengus-lang/penguscript)
 [![raylib](https://img.shields.io/badge/raylib-6.x-black)](https://www.raylib.com/)
 [![Examples](https://img.shields.io/badge/examples-226-brightgreen)](examples/)
 [![WebAssembly](https://img.shields.io/badge/target-WebAssembly%20%28Emscripten%29-purple)](#webassembly)
@@ -44,9 +44,9 @@ code: raw and exact where you need it, short and Pengunic everywhere else.
 | 🪄 **Idiomatic wrappers** | `raylibx.*` turns raw calls into `snake_case` functions, methods on `Vector2`/`Rectangle`/`Texture`/`Image`, `maybe` return values, slices and safe cleanup patterns. |
 | 🧩 **raygui + reasings** | Immediate-mode GUI and easing functions are included: `import raygui`, `import rayguix`, `import reasings`. |
 | 📦 **226 examples** | A complete translated corpus in [`examples/`](examples/), from a basic window to PBR, skinning, shaders, audio and `raygui` tools. |
-| 🔗 **Static raylib** | [`build.pengu`](build.pengu) builds `lib/libraylib.a` from source (or uses your system raylib), so your game links one archive. |
-| 🌐 **WebAssembly** | The same program builds to `app.html` + `app.js` + `app.wasm` with `pengu build --target wasm`. The binding supplies the wasm raylib archive and the `-sUSE_GLFW=3` port selector. |
-| 🛠️ **Zero glue for you** | `pengu run` compiles the generated bundle **and** the C files in [`c/`](c/) automatically — including `raygui` and `msf_gif` implementations. |
+| 🔗 **Static raylib** | [`build.pengu`](build.pengu) builds `lib/libraylib.a` from source, so your game links one archive. |
+| 🌐 **WebAssembly** | The same program builds to `app.html` + `app.js` + `app.wasm` with `psc build --target wasm`. The binding supplies the wasm raylib archive and the `-sUSE_GLFW=3` port selector. |
+| 🛠️ **Zero glue for you** | `psc run` compiles the generated bundle **and** the C files in [`c/`](c/) automatically — including `raygui` and `msf_gif` implementations. |
 | 📚 **Documented API** | Generated binding pages in [`docs/bindings/`](docs/bindings/) and wrapper pages in [`docs/wrappers/`](docs/wrappers/). |
 
 ---
@@ -95,10 +95,10 @@ embedded directly in the bundle. There is no marshalling layer and no reflection
 
 | Tool | Version | Notes |
 |---|---|---|
-| **PenguScript** | 2.16.2+ | Needs `ldflag` and wasm-aware library directories (`lib/wasm/`). |
+| **PenguScript** | 0.34.0+ | `psc add` reads the package layout and adds its `lib/` to `-L`. |
 | **C compiler** | GCC, Clang or MSVC | C99; GCC/Clang are the tested paths. |
-| **raylib** | 6.x | `build.pengu` builds a static `libraylib.a`, or links a system raylib. |
-| **Native tools** | `git`, `make`, a C compiler | Needed only when `build.pengu` builds raylib from source. |
+| **raylib** | 6.x | `build.pengu` builds a static `libraylib.a` from source. |
+| **Native tools** | `git`, `make`, a C compiler | Needed by `build.pengu` to clone and compile raylib. |
 | **Emscripten** | emsdk latest (`emcc`, `emar`) | Optional — only for the [WebAssembly](#webassembly) target. |
 | **Graphics** | OpenGL 3.3+ | raylib's default desktop backend. |
 | **Linux** | X11 + OpenGL development packages | `libGL`, `libX11`, headers. |
@@ -111,8 +111,7 @@ embedded directly in the bundle. There is no marshalling layer and no reflection
 
 > [!IMPORTANT]
 > The binding uses the `ldflag` module directive (`-sUSE_GLFW=3` on wasm) and the
-> `lib/wasm/` archive layout, both introduced in the 2.16.2 toolchain line. Older `pengu`
-> releases cannot parse the binding; update the CLI before building.
+> `lib/wasm/` archive layout. Use `psc` 0.34.0 or newer.
 
 ### Run an example from this repository
 
@@ -120,31 +119,31 @@ embedded directly in the bundle. There is no marshalling layer and no reflection
 git clone https://github.com/TuGatito/raylib-pengu.git
 cd raylib-pengu
 
-# 1) Build lib/libraylib.a, and lib/wasm/libraylib.a when emcc is available.
-#    The script reuses $RAYLIB_SRC, vendor/raylib or a system raylib when it can.
-pengu run build.pengu
+# 1) Build lib/libraylib.a from source. Reuses $RAYLIB_SRC or build/raylib-src;
+#    otherwise clones raylib into build/raylib-src.
+psc run build.pengu
 
 # 2) Run any example from the repository root.
-pengu run examples/core/core_basic_window.pengu
-pengu run examples/textures/textures_bunnymark.pengu
-pengu run examples/shaders/shaders_basic_pbr.pengu
+psc run examples/core/core_basic_window.pengu
+psc run examples/textures/textures_bunnymark.pengu
+psc run examples/shaders/shaders_basic_pbr.pengu
 ```
 
 To rebuild raylib from scratch:
 
 ```bash
-pengu run build.pengu -- --force
+psc run build.pengu -- --force
 ```
 
 To build from a specific raylib checkout:
 
 ```bash
-RAYLIB_SRC=/path/to/raylib pengu run build.pengu -- --force
+RAYLIB_SRC=/path/to/raylib psc run build.pengu -- --force
 ```
 
 > [!TIP]
-> If your `pengu` release does not discover `build.pengu` automatically, run it explicitly with
-> the command above.
+> `psc add --trust` runs `build.pengu` automatically. Run it manually when iterating on the
+> binding itself.
 
 ---
 
@@ -155,16 +154,16 @@ From the root of an existing PenguScript project:
 ```bash
 cd my-game
 
-pengu add https://github.com/TuGatito/raylib-pengu.git --trust
+psc add https://github.com/TuGatito/raylib-pengu.git --trust
 ```
 
 During development, a local checkout works the same way:
 
 ```bash
-pengu add ../raylib-pengu --trust
+psc add ../raylib-pengu --trust
 ```
 
-`pengu add` installs the binding under `lib/raylib-pengu/`, registers it as a dependency in
+`psc add` installs the binding under `lib/raylib/` (the manifest declares `import = "raylib"`), registers it as a dependency in
 `pengu.toml`, and makes its modules importable:
 
 ```pengu
@@ -175,11 +174,12 @@ import raylibx.text as txt
 
 > [!NOTE]
 > `--trust` runs the binding's native build script, which may clone and compile raylib. Review the
-> script first if the source is not yours. Update later with `pengu update`.
+> script first if the source is not yours. Update later with `psc update`.
 
 > [!IMPORTANT]
-> The import path is **`raylib`**, not `raylib-pengu`. PenguScript modules live in
-> `pengu/`, so the package name and the module name are intentionally different.
+> The import path is **`raylib`**, not `raylib-pengu`. The manifest declares
+> `import = "raylib"`; without it, `psc add` would install `lib/raylib-pengu` and the import
+> would not resolve.
 
 ### Your first window
 
@@ -203,21 +203,22 @@ weave main into int:
 ```
 
 ```bash
-pengu run
+psc run
 ```
 
-### If `pengu add` did not build the native library
+### If `psc add` did not build the native library
 
-Some PenguScript releases do not run a dependency's build script automatically. If
-`lib/libraylib.a` is missing, build it inside the installed binding:
+`build.pengu` only runs with `--trust`. Rebuild the dependency in place:
 
 ```bash
-cd lib/raylib-pengu
-pengu run build.pengu
+psc update --trust
+# o, dentro del paquete instalado:
+cd lib/raylib
+psc run build.pengu -- --force
 ```
 
-Or simply use a system raylib: the binding declares `link "raylib"`, so the linker will find
-`-lraylib` if it is installed in a standard location.
+The binding declares `link "raylib"`; the driver adds `<paquete>/lib` to `-L`, so the local
+`libraylib.a` is used without a manual flag.
 
 ---
 
@@ -347,15 +348,15 @@ extended with PenguScript-specific demos.
 Run any example **from the repository root**:
 
 ```bash
-pengu run examples/core/core_basic_window.pengu
-pengu run examples/textures/textures_bunnymark.pengu
-pengu run examples/shaders/shaders_deferred_rendering.pengu
+psc run examples/core/core_basic_window.pengu
+psc run examples/textures/textures_bunnymark.pengu
+psc run examples/shaders/shaders_deferred_rendering.pengu
 ```
 
 Every example is a normal PenguScript script with `weave main into int`, so you can copy it into
 your own project, adapt the resources and keep going.
 
-`examples/core/core_window_web.pengu` is the cross-target demo: run it natively with `pengu run`,
+`examples/core/core_window_web.pengu` is the cross-target demo: run it natively with `psc run`,
 or compile it for the browser with the [WebAssembly recipe](#webassembly).
 
 ---
@@ -364,7 +365,7 @@ or compile it for the browser with the [WebAssembly recipe](#webassembly).
 
 ### The rule: paths are relative to the project root
 
-`pengu run` executes your program with the **project root as its working directory** — the
+`psc run` executes your program with the **project root as its working directory** — the
 directory that contains `pengu.toml`, not necessarily the directory that contains the `.pengu`
 file. raylib resolves paths at runtime with the OS, so any file path you pass is relative to that
 root.
@@ -500,7 +501,7 @@ The same pattern works for other asset kinds:
 ### 4. Build the single executable
 
 ```bash
-pengu build --profile release
+psc build --profile release
 ```
 
 In a game project this produces `build/<output_name>` with the assets embedded. No asset folder is
@@ -562,11 +563,11 @@ elsewhere, point `PENGU_LIB_DIR` or `PENGU_RUNTIME_CROSS` at its directory.
 
 ```bash
 # From the raylib-pengu root: build both native and wasm raylib archives.
-pengu run build.pengu
+psc run build.pengu
 
 # The main pengu.toml emits a C bundle ("output = c"), so the browser demo
 # uses the companion pengu.web.toml, which emits an Emscripten page.
-pengu build --config pengu.web.toml --target wasm
+psc build --config pengu.web.toml --target wasm
 
 # Result:
 # build/web/core_window_web.html
@@ -581,9 +582,9 @@ pengu build --config pengu.web.toml --target wasm
 A normal game project already uses `output = "exe"`, so no companion config is needed:
 
 ```bash
-pengu build --target wasm32-unknown-emscripten
+psc build --target wasm32-unknown-emscripten
 # or
-pengu build --target wasm
+psc build --target wasm
 # -> build/<output_name>.html + .js + .wasm
 ```
 
@@ -593,8 +594,8 @@ If the installed binding does not have `lib/wasm/libraylib.a` yet, build it once
 dependency directory:
 
 ```bash
-cd lib/raylib-pengu
-pengu run build.pengu
+cd lib/raylib
+psc run build.pengu
 ```
 
 ### Run the page
@@ -607,7 +608,7 @@ python3 -m http.server 8000 --directory build/web
 # then open http://localhost:8000/core_window_web.html
 ```
 
-Use a browser with WebGL enabled. `pengu run --target wasm` executes the page under Node; raylib
+Use a browser with WebGL enabled. `psc run --target wasm` executes the page under Node; raylib
 expects a real canvas, so **Node is not the way to view a raylib game**. Node remains useful for
 non-graphics wasm programs and exit-code checks.
 
@@ -663,17 +664,17 @@ ship it next to the `.exe`.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `Failed to open file: [resources/...]` | Path is relative to the process cwd, which is the project root | Prefix it with `examples/<category>/` in this repo, or `assets/` in your game; or embed it with `arca`. |
-| `Cannot resolve imported module 'raylib'` | Dependency not installed, or running outside the project root | `pengu add … --trust` and run `pengu` from the directory containing `pengu.toml`. |
+| `Cannot resolve imported module 'raylib'` | Dependency not installed, or running outside the project root | `psc add … --trust` and run `pengu` from the directory containing `pengu.toml`. |
 | `undefined reference to 'GuiLabel'` / `GuiSetStyle` | `c/raygui_impl.c` is missing from the installed binding | Update the binding, or re-add it with `--trust`. |
 | `undefined reference to 'msf_gif_begin'` | `c/msf_gif_impl.c` is missing | Same as above; this glue is required by `core_screen_recording`. |
 | `E0014: 'with:' block construction…` when passing a builder to a call | A multi-line `with:` block is not valid as an argument | Assign it to a typed variable first, or use the one-line form `with x is 1, y is 2`. |
 | `error: expected expression before ';'` with an empty list | On PenguScript 2.14, `is []` can generate invalid C for an empty list | Write the element type: `var xs as list of T is list of T`. |
-| `weave main` not found by `pengu run` | The example uses an `entry` weave | Use `weave main into int:` for a standalone script. |
-| Linker cannot find `raylib` | `lib/libraylib.a` missing and no system raylib | `pengu run build.pengu` inside the binding, or set `RAYLIB_SRC`. |
+| `weave main` not found by `psc run` | The example uses an `entry` weave | Use `weave main into int:` for a standalone script. |
+| Linker cannot find `raylib` | `lib/libraylib.a` missing and no system raylib | `psc run build.pengu` inside the binding, or set `RAYLIB_SRC`. |
 | `The WebAssembly runtime archive libpengu_runtime.a was not found` | The toolchain has no wasm runtime | `python3 build_runtime.py --target emscripten` in PenguScript, or point `PENGU_LIB_DIR`/`PENGU_RUNTIME_CROSS` at it. |
-| `archive member 'rcore.o' is neither Wasm object file nor LLVM bitcode` | The linker found the host `libraylib.a` | Build `lib/wasm/libraylib.a` (`pengu run build.pengu`) and use a PenguScript with wasm library-directory support. |
+| `archive member 'rcore.o' is neither Wasm object file nor LLVM bitcode` | The linker found the host `libraylib.a` | Build `lib/wasm/libraylib.a` (`psc run build.pengu`) and use a PenguScript with wasm library-directory support. |
 | `undefined symbol: glfwGetTime` / `glfwInit` | The Emscripten GLFW port was not selected | The binding adds `-sUSE_GLFW=3`; make sure `import raylib` is present and the binding is current. |
-| `TypeError: Cannot read properties of undefined (reading 'id')` under Node | raylib needs a browser canvas; Node has none | Serve the page and open it in a browser (`pengu run --target wasm` cannot render raylib). |
+| `TypeError: Cannot read properties of undefined (reading 'id')` under Node | raylib needs a browser canvas; Node has none | Serve the page and open it in a browser (`psc run --target wasm` cannot render raylib). |
 | `failed to fetch … .wasm` / page stays blank | The page was opened with `file://` | Serve the output directory over HTTP (`python3 -m http.server`). |
 
 > [!TIP]
@@ -694,7 +695,7 @@ pengu check
 pengu check --entry pengu/raylibx.pengu
 
 # Compile and run a known-good example (smoke check)
-pengu run examples/core/core_basic_window.pengu
+psc run examples/core/core_basic_window.pengu
 
 # Regenerate the API reference pages
 python3 tools/gen_docs.py
@@ -712,7 +713,7 @@ raylib behaviour and the traps the wrappers work around live in
 
 > [!TIP]
 > Found a broken example? Run it from the repository root and include the full command plus the
-> `pengu run` output in the issue — the `FILEIO`/`SHADER` lines usually identify the problem.
+> `psc run` output in the issue — the `FILEIO`/`SHADER` lines usually identify the problem.
 
 ### Project layout
 
